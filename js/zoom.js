@@ -13,16 +13,16 @@ import { songKey } from './render.js';
 import { keyName } from './theory.js';
 
 const RATE = 44100;
-const ascii = (s) => String(s || '').normalize('NFKD').replace(/[̀-ͯ]/g, '').replace(/[^\w .()-]+/g, '').replace(/\s+/g, ' ').trim() || 'piste';
+// noms compatibles R20 : sans accents ni espaces (soulignés à la place)
+const ascii = (s, max = 40) => String(s || '').normalize('NFKD').replace(/[\u0300-\u036f]/g, '').replace(/[^A-Za-z0-9]+/g, '_').replace(/^_+|_+$/g, '').replace(new RegExp(`^(.{1,${max}})(_|$).*`), '$1').slice(0, max) || 'piste';
 
 export async function zoomDialog(app, song) {
   const prefs = await app.prefs();
-  const st = { bits: prefs.zoomBits || 24, stereo: !!prefs.zoomStereo, mix: false };
+  const st = { bits: 24, stereo: !!prefs.zoomStereo, mix: false };
   const nStems = song.stems.length;
   const d = dialog(`<form method="dialog">
     <h2>Exporter pour le Zoom R20</h2>
-    <p>Un fichier WAV par piste (${nStems} piste${nStems > 1 ? 's' : ''}), au format du R20, tous calés au début du morceau, plus les accords en MIDI pour la piste synthé.</p>
-    <div class="opt-row"><span>Résolution<br><small class="note">la même que celle du projet R20</small></span><span class="seg"><button type="button" data-bits="24">24 bits</button><button type="button" data-bits="16">16 bits</button></span></div>
+    <p>Un fichier WAV 44,1 kHz / 24 bits par piste (${nStems} piste${nStems > 1 ? 's' : ''}), au format du R20, tous calés au début du morceau, plus les accords en MIDI pour la piste synthé.</p>
     <div class="opt-row"><span>Pistes<br><small class="note">mono : une piste du R20 par instrument</small></span><span class="seg"><button type="button" data-st="0">Mono</button><button type="button" data-st="1">Stéréo</button></span></div>
     <div class="opt-row"><span>Ajouter le morceau complet (mix)</span><label class="switch"><input type="checkbox" data-mix><i></i></label></div>
     <div class="callout" data-r="size"></div>
@@ -49,7 +49,6 @@ export async function zoomDialog(app, song) {
   el.querySelector('[data-mix]').addEventListener('change', (e) => { st.mix = e.target.checked; refresh(); });
   el.querySelector('[data-go]').addEventListener('click', async (e) => {
     e.preventDefault();
-    app.setPref('zoomBits', st.bits);
     app.setPref('zoomStereo', st.stereo);
     const go = el.querySelector('[data-go]');
     go.disabled = true;
@@ -89,7 +88,7 @@ export async function buildZoomPack(song, { bits = 24, stereo = false, mix = fal
     const chans = fit(buf, N, stereo);
     if (mix) decoded.push({ chans, vol: song.mix?.[s.id], kind: s.kind });
     num++;
-    const fname = `${String(num).padStart(2, '0')} ${ascii(s.label)}.wav`;
+    const fname = `${String(num).padStart(2, '0')}_${ascii(s.label, 16)}_${ascii(song.title, 32)}.wav`;
     names.push([fname, s.label]);
     files.push({ name: `AUDIO/${fname}`, data: encodeWav(chans, RATE, bits) });
     await new Promise((r) => setTimeout(r, 0));
@@ -107,25 +106,25 @@ export async function buildZoomPack(song, { bits = 24, stereo = false, mix = fal
     for (const c of out) for (let i = 0; i < N; i += 3) peak = Math.max(peak, Math.abs(c[i]));
     if (peak > 0.98) for (const c of out) for (let i = 0; i < N; i++) c[i] *= 0.98 / peak;
     num++;
-    const fname = `${String(num).padStart(2, '0')} Mix complet.wav`;
+    const fname = `${String(num).padStart(2, '0')}_Mix_${ascii(song.title, 32)}.wav`;
     names.push([fname, 'Morceau complet']);
     files.push({ name: `AUDIO/${fname}`, data: encodeWav(out, RATE, bits) });
   }
   // accords + basse en MIDI (sonnent en tonalité d'origine)
   const tl = chordTimeline(song.doc, duration, song.detectedChords).filter((c) => c.t != null);
   const bpm = Math.round(song.bpm || 120);
-  const title = ascii(song.title);
+  const title = ascii(song.title, 32);
   if (tl.length) {
     const capo = 0;
     const chords = tl.map((c) => ({ ...c, name: capo ? transposeChord(c.name, capo, null) : c.name }));
-    files.push({ name: `MIDI/${title} - accords.mid`, data: writeChordMidi(chords, { bpm, title: song.title, parseChord }) });
+    files.push({ name: `MIDI/Accords_${title}.mid`, data: writeChordMidi(chords, { bpm, title: song.title, parseChord }) });
   }
   const k = songKey(song);
-  files.push({ name: 'LISEZ-MOI.txt', data: '﻿' + readme(song, { bits, stereo, names, bpm, key: k ? keyName(k) : '', midi: tl.length ? `MIDI/${title} - accords.mid` : null }) });
+  files.push({ name: 'LISEZ-MOI.txt', data: '﻿' + readme(song, { bits, stereo, names, bpm, key: k ? keyName(k) : '', midi: tl.length ? `MIDI/Accords_${title}.mid` : null }) });
   onProgress('Assemblage du fichier…', 0.96);
   const zip = await writeZip(files);
   onProgress('Prêt', 1);
-  return { blob: zip, name: `Zoom R20 - ${title}.zip` };
+  return { blob: zip, name: `ZoomR20_${title}.zip` };
 }
 
 /** Ramène un AudioBuffer à N échantillons, en mono (moyenne) ou stéréo. */
@@ -151,7 +150,7 @@ function readme(song, { bits, stereo, names, bpm, key, midi }) {
   L.push('');
   L.push('1. Copie les dossiers AUDIO et MIDI à la racine de la carte SD du R20');
   L.push('   (s\'ils existent déjà, ajoute simplement ces fichiers dedans).');
-  L.push(`2. Sur le R20, crée un nouveau projet en ${bits} bits (Bit Depth ${bits}-bit).`);
+  L.push('2. Sur le R20, crée un nouveau projet en 24 bits (Bit Depth 24-bit).');
   L.push(`3. Règle le tempo du projet sur ${bpm}.`);
   if (stereo) L.push('4. Couple les pistes par deux en stéréo (1-2, 3-4...) AVANT d\'importer.');
   L.push(`${stereo ? '5' : '4'}. Mets la tête de lecture tout au début du morceau.`);
