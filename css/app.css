@@ -222,6 +222,17 @@ input[type=range]::-moz-range-thumb { width: 14px; height: 14px; border-radius: 
   white-space: nowrap; letter-spacing: .01em; cursor: pointer; padding-right: .45em; align-self: flex-start;
 }
 .w .c.e { cursor: default; }
+.mob-chord .now-chord, .mob-chord .next-chord { cursor: pointer; }
+.chord-sheet .cs-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+.chord-sheet .cs-name { font: 800 44px/1 var(--font-ui); color: var(--chord); word-break: break-all; }
+.chord-sheet .cs-diag { display: flex; justify-content: center; color: var(--ink); cursor: pointer; min-height: 120px; align-items: center; }
+.chord-sheet .cs-diag svg.fretboard { width: 170px; height: auto; }
+.chord-sheet .cs-diag svg.piano { width: 100%; max-width: 360px; height: auto; }
+.chord-sheet .cs-alt, .chord-sheet .cs-notes { font-size: 14px; color: var(--ink-3); text-align: center; min-height: 1em; }
+.chord-sheet .cs-notes { color: var(--ink-2); font-variant-numeric: tabular-nums; }
+.chord-sheet .cs-all { display: flex; flex-wrap: wrap; gap: 6px; justify-content: center; padding-top: 4px; border-top: 1px solid var(--line); }
+.chord-sheet .cs-all button { border: 1px solid var(--line-2); background: transparent; color: var(--chord); font-weight: 800; padding: 5px 11px; border-radius: 999px; font-size: 15px; }
+.chord-sheet .cs-all button.on { background: var(--chord); color: var(--bg); border-color: var(--chord); }
 .w .c.now { background: var(--chord); color: var(--bg); border-radius: 5px; box-shadow: -.25em 0 0 0 var(--chord); }
 .ln.cur .w.sung { color: var(--sung); }
 .ln.cur .w.singing { background: linear-gradient(90deg, var(--sung) var(--p, 0%), var(--ink) var(--p, 0%)); -webkit-background-clip: text; background-clip: text; color: transparent; }

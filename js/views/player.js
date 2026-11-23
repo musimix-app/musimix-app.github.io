@@ -1,7 +1,7 @@
 // MusiMix — le lecteur : paroles synchronisées, accords, mixage, options.
 
 import { db } from '../db.js';
-import { esc, icon, fmtTime, toast, openMenu, drag, debounce } from '../ui.js';
+import { esc, icon, fmtTime, toast, openMenu, drag, debounce, dialog } from '../ui.js';
 import { renderSheet, lyricLine, chordDisplay, songKey, uniqueChords } from '../render.js';
 import { chordTimeline, sectionsOf } from '../sheet.js';
 import { diagramSVG, voicings, chordFormula, loadChordDb } from '../diagrams.js';
@@ -700,6 +700,48 @@ export class PlayerView {
     mini.innerHTML = diagramSVG(shown, this.instrument, { index: idx });
   }
 
+  isNarrow() {
+    return window.matchMedia('(max-width: 860px)').matches;
+  }
+
+  /** Fiche d'un accord : diagramme guitare / ukulélé / piano, positions, notes, tous les accords du morceau. */
+  openChordSheet(name, t = null) {
+    if (!name) return;
+    const all = uniqueChords(this.song.doc, this.display, this.song.detectedChords);
+    let cur = name;
+    const d = dialog(`<div class="dlg chord-sheet">
+      <div class="cs-head"><b class="cs-name"></b>
+        <span class="seg" role="tablist" aria-label="Instrument"><button data-i="guitar">Guitare</button><button data-i="ukulele">Ukulélé</button><button data-i="piano">Piano</button></span></div>
+      <div class="cs-diag" role="button" tabindex="0"></div>
+      <div class="cs-alt"></div>
+      <div class="cs-notes"></div>
+      ${all.length > 1 ? `<div class="cs-all" aria-label="Accords du morceau">${all.map((n) => `<button data-n="${esc(n)}">${esc(n)}</button>`).join('')}</div>` : ''}
+      <div class="actions">${t != null ? `<button class="btn" data-go>${icon('play')} Jouer d’ici</button>` : ''}<button class="btn primary" data-close="">Fermer</button></div></div>`);
+    const el = d.el;
+    const draw = () => {
+      const inst = this.instrument;
+      const nv = inst === 'piano' ? 0 : voicings(cur, inst).length;
+      const idx = this.voicingIdx[cur] || 0;
+      el.querySelector('.cs-name').textContent = cur;
+      el.querySelectorAll('[data-i]').forEach((b) => b.classList.toggle('on', b.dataset.i === inst));
+      el.querySelector('.cs-diag').innerHTML = diagramSVG(cur, inst, { index: idx }) || '<p class="note">Pas de diagramme pour cet accord.</p>';
+      el.querySelector('.cs-alt').textContent = nv > 1 ? `Position ${idx % nv + 1}/${nv} · touche le diagramme pour changer` : '';
+      const f = chordFormula(cur);
+      el.querySelector('.cs-notes').textContent = f ? 'Notes : ' + f.notes.join(' · ') + (f.bass ? ` · basse ${f.bass}` : '') : '';
+      el.querySelectorAll('[data-n]').forEach((b) => b.classList.toggle('on', b.dataset.n === cur));
+    };
+    el.addEventListener('click', (e) => {
+      const ib = e.target.closest('[data-i]');
+      if (ib) { this.setInstrument(ib.dataset.i); draw(); return; }
+      const nb = e.target.closest('[data-n]');
+      if (nb) { cur = nb.dataset.n; draw(); return; }
+      if (e.target.closest('.cs-diag')) { this.voicingIdx[cur] = (this.voicingIdx[cur] || 0) + 1; this._diagKey = null; draw(); return; }
+      if (e.target.closest('[data-go]')) { this.engine.seek(Math.max(0, t - 0.05)); d.close(); }
+    });
+    loadChordDb().then(draw, draw);
+    draw();
+  }
+
   /** Sans accords datés : tous les accords du morceau, en diagrammes. */
   showAllChords() {
     const names = uniqueChords(this.song.doc, this.display, this.song.detectedChords);
@@ -824,11 +866,19 @@ export class PlayerView {
       if (instB) { this.setInstrument(instB.dataset.inst); return; }
       const pre = e.target.closest('[data-preset]');
       if (pre) { this.applyPreset(pre.dataset.preset); return; }
-      const chordEl = e.target.closest('.c, .cbar');
+      const chordEl = e.target.closest('.c:not(.e), .cbar');
       if (chordEl && chordEl.closest('.lyrics')) {
         const li = +chordEl.dataset.li, ci = +chordEl.dataset.ci;
-        const c = this.timeline.find((x) => x.li === li && x.ci === ci) || (chordEl.dataset.t ? { t: +chordEl.dataset.t } : null);
-        if (c?.t != null) { this.engine.seek(Math.max(0, c.t - 0.05)); return; }
+        const lineS = chordEl.closest('.ln')?.dataset.s;
+        const c = this.timeline.find((x) => x.li === li && x.ci === ci && x.t != null) || (chordEl.dataset.t ? { t: +chordEl.dataset.t } : lineS ? { t: +lineS } : null);
+        // petit écran (pas de panneau de droite) ou accord sans temps : on montre le diagramme
+        if (this.isNarrow() || c?.t == null) { this.openChordSheet(chordEl.textContent.trim(), c?.t ?? null); return; }
+        this.engine.seek(Math.max(0, c.t - 0.05)); return;
+      }
+      const mobNow = e.target.closest('.mob-chord .now-chord, .mob-chord .next-chord');
+      if (mobNow && mobNow.textContent.trim()) {
+        const n = mobNow.classList.contains('next-chord') ? this.display(this.timeline[this.lastChordIdx + 1]?.name || '') : mobNow.textContent.trim();
+        if (n) { this.openChordSheet(n, null); return; }
       }
       const line = e.target.closest('.lyrics .ln.lyric');
       if (line && line.dataset.s) { this.engine.seek(Math.max(0, +line.dataset.s - 0.25)); this.userScrollAt = 0; return; }
