@@ -19,7 +19,7 @@
   --ink: #15171c; --ink-2: #454952; --ink-3: #737782; --line: #e3d8cb; --line-2: #d4c6b6;
   --c-voice: #d42a86; --c-voice-2: #e86bb0; --c-harmony: #08757d; --c-harmony-2: #2f6fd1;
   --c-rhythm: #b56f00; --c-rhythm-2: #c8551f; --c-other: #7c7f88;
-  --chord: #08757d; --sung: #d42a86; --playhead: #e09400;
+  --chord: #e09400; --sung: #d42a86; --playhead: #e09400;
   --focus: #2f6fd1;
   --shadow: 0 1px 2px rgba(60, 40, 20, .06), 0 8px 24px rgba(60, 40, 20, .08);
   --shadow-up: 0 -1px 0 var(--line), 0 -10px 30px rgba(60, 40, 20, .06);
@@ -32,7 +32,7 @@
     --ink: #f6f0e8; --ink-2: #c3beb6; --ink-3: #8d8b88; --line: #2c3039; --line-2: #3a3f4a;
     --c-voice: #ff62b6; --c-voice-2: #ff9bcf; --c-harmony: #3fd3dc; --c-harmony-2: #7aa7ff;
     --c-rhythm: #ffb52e; --c-rhythm-2: #ff8a4c; --c-other: #9aa0ab;
-    --chord: #4fdbe3; --sung: #ff62b6; --playhead: #ffb52e; --focus: #7aa7ff;
+    --chord: #ffb52e; --sung: #ff62b6; --playhead: #ffb52e; --focus: #7aa7ff;
     --shadow: 0 1px 2px rgba(0, 0, 0, .3), 0 10px 30px rgba(0, 0, 0, .35);
     --shadow-up: 0 -1px 0 var(--line), 0 -10px 30px rgba(0, 0, 0, .3);
     --overlay: rgba(0, 0, 0, .55);
@@ -43,7 +43,7 @@
   --ink: #f6f0e8; --ink-2: #c3beb6; --ink-3: #8d8b88; --line: #2c3039; --line-2: #3a3f4a;
   --c-voice: #ff62b6; --c-voice-2: #ff9bcf; --c-harmony: #3fd3dc; --c-harmony-2: #7aa7ff;
   --c-rhythm: #ffb52e; --c-rhythm-2: #ff8a4c; --c-other: #9aa0ab;
-  --chord: #4fdbe3; --sung: #ff62b6; --playhead: #ffb52e; --focus: #7aa7ff;
+  --chord: #ffb52e; --sung: #ff62b6; --playhead: #ffb52e; --focus: #7aa7ff;
   --shadow: 0 1px 2px rgba(0, 0, 0, .3), 0 10px 30px rgba(0, 0, 0, .35);
   --shadow-up: 0 -1px 0 var(--line), 0 -10px 30px rgba(0, 0, 0, .3);
   --overlay: rgba(0, 0, 0, .55);
@@ -232,14 +232,14 @@ input[type=range]::-moz-range-thumb { width: 14px; height: 14px; border-radius: 
 .chord-sheet .cs-notes { color: var(--ink-2); font-variant-numeric: tabular-nums; }
 .chord-sheet .cs-all { display: flex; flex-wrap: wrap; gap: 6px; justify-content: center; padding-top: 4px; border-top: 1px solid var(--line); }
 .chord-sheet .cs-all button { border: 1px solid var(--line-2); background: transparent; color: var(--chord); font-weight: 800; padding: 5px 11px; border-radius: 999px; font-size: 15px; }
-.chord-sheet .cs-all button.on { background: var(--chord); color: var(--bg); border-color: var(--chord); }
-.w .c.now { background: var(--chord); color: var(--bg); border-radius: 5px; box-shadow: -.25em 0 0 0 var(--chord); }
+.chord-sheet .cs-all button.on { background: var(--chord); color: #16181d; border-color: var(--chord); }
+.w .c.now { background: var(--chord); color: #16181d; border-radius: 5px; box-shadow: -.25em 0 0 0 var(--chord); }
 .ln.cur .w.sung { color: var(--sung); }
 .ln.cur .w.singing { background: linear-gradient(90deg, var(--sung) var(--p, 0%), var(--ink) var(--p, 0%)); -webkit-background-clip: text; background-clip: text; color: transparent; }
 .ln.cur .w.singing .c { -webkit-text-fill-color: initial; }
 .ln.chords-only { display: flex; flex-wrap: wrap; gap: .25em .9em; padding: .25em 0; }
 .ln.chords-only .cbar { font-weight: 800; font-size: .8em; color: var(--chord); cursor: pointer; border-radius: 6px; padding: 0 .25em; }
-.ln.chords-only .cbar.now { background: var(--chord); color: var(--bg); }
+.ln.chords-only .cbar.now { background: var(--chord); color: #16181d; }
 .no-sync .ln { color: var(--ink); }
 .lyrics.hide-chords .w .c, .lyrics.hide-chords .ln.chords-only { display: none; }
 .lyrics.hide-chords .ln.has-ch .w { display: inline; }
@@ -547,7 +547,7 @@ dialog .two { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
 .piano .k-black { fill: #23262d; }
 .piano .on.tone { fill: var(--chord); }
 .piano .on.root { fill: color-mix(in srgb, var(--chord) 60%, #000); }
-.piano .on.bass { fill: var(--c-rhythm, #b56f00); }
+.piano .on.bass { fill: #08757d; }
 .piano .d-name { font: 800 15px var(--font-ui); fill: currentColor; }
 .piano .k-label { font: 700 9px var(--font-ui); fill: currentColor; }
 .lyrics .btn { font-size: 16px; }
