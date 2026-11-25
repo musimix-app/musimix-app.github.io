@@ -395,7 +395,7 @@ class App extends EventTarget {
         idle: `<b>Activée</b>${sy.email ? ' · ' + esc(sy.email) : ''}${last ? ' · dernière synchro : ' + last : ''}${sy.message ? '<br>' + esc(sy.message) : ''}`,
         syncing: `<b>${esc(sy.message || 'Synchronisation…')}</b>`,
         error: `<b>Problème :</b> ${esc(sy.message)}`,
-        reconnect: `<b>En pause</b>${sy.email ? ' · ' + esc(sy.email) : ''} : la connexion Google a expiré.`,
+        reconnect: sy.conf.noscope ? `<b>Accès au Drive manquant.</b> ${esc(sy.message)}` : `<b>En pause</b>${sy.email ? ' · ' + esc(sy.email) : ''} : la connexion Google a expiré.`,
       }[sy.state] || '';
       box.innerHTML = txt;
       el.querySelector('[data-r="sync-btns"]').innerHTML = !sy.enabled

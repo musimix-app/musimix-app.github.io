@@ -19,6 +19,7 @@ const SCOPE = 'https://www.googleapis.com/auth/drive.file email';
 const API = 'https://www.googleapis.com/drive/v3';
 const UP = 'https://www.googleapis.com/upload/drive/v3';
 const LS = 'musimix-gdrive';
+const NOSCOPE = 'L’accès à Google Drive n’a pas été coché : reconnecte-toi et coche la case « Google Drive » sur l’écran de Google.';
 
 const lsGet = () => { try { return JSON.parse(localStorage.getItem(LS) || '{}'); } catch { return {}; } };
 const lsSet = (o) => { try { localStorage.setItem(LS, JSON.stringify(o)); } catch { /* */ } };
@@ -58,7 +59,12 @@ export class Sync extends EventTarget {
       try { st = JSON.parse(p.get('state') || '{}'); } catch { /* */ }
       const c = this.conf;
       if (st.n && st.n === c.nonce) {
-        if (p.get('access_token')) {
+        if (p.get('access_token') && !/drive\.file/.test(p.get('scope') || '')) {
+          // case « Google Drive » décochée sur l'écran de Google
+          c.token = ''; c.exp = 0; c.enabled = true; c.reconnect = true; c.noscope = true;
+          lsSet(c);
+        } else if (p.get('access_token')) {
+          c.noscope = false;
           c.token = p.get('access_token');
           c.exp = Date.now() + (+p.get('expires_in') || 3600) * 1000;
           c.enabled = true;
@@ -84,7 +90,7 @@ export class Sync extends EventTarget {
       await this.connect({ silent: true });
       return true;
     }
-    this.set('reconnect', 'Touche pour reprendre la synchro');
+    this.set('reconnect', this.conf.noscope ? NOSCOPE : 'Touche pour reprendre la synchro');
     return false;
   }
 
@@ -103,7 +109,7 @@ export class Sync extends EventTarget {
       include_granted_scopes: 'true',
       state: JSON.stringify({ n: c.nonce, r: location.hash && !/access_token|error=/.test(location.hash) ? location.hash : '#/' }),
     });
-    if (silent) q.set('prompt', 'none');
+    if (silent) q.set('prompt', 'none'); else q.set('prompt', 'consent');
     if (c.email) q.set('login_hint', c.email);
     location.assign('https://accounts.google.com/o/oauth2/v2/auth?' + q);
   }
@@ -142,7 +148,10 @@ export class Sync extends EventTarget {
       },
       (e) => {
         console.warn('[sync]', e);
-        if (e.status === 401) { const c = this.conf; c.exp = 0; lsSet(c); this.set('reconnect', 'Touche pour reprendre la synchro'); }
+        if (e.status === 401 || /insufficient/i.test(e.message)) {
+          const c = this.conf; c.exp = 0; c.noscope = e.status !== 401; c.reconnect = c.noscope; lsSet(c);
+          this.set('reconnect', c.noscope ? NOSCOPE : 'Touche pour reprendre la synchro');
+        }
         else this.set('error', e.message || 'Erreur de synchro');
       },
     ).finally(() => {
