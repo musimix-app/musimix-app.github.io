@@ -596,7 +596,7 @@ export function placeChords(lines, chords, beat = 0.5) {
     }
     if (label) out.push({ type: 'section', label, kind: label === 'Intro' ? 'intro' : 'outro', chords: [] });
     for (let k = 0; k < grp.length; k += 4) out.push({ type: 'chords', text: '', chords: grp.slice(k, k + 4).map((c, i) => ({ pos: i, name: c.name, t: c.s })) });
-    lastName = grp[grp.length - 1].name;
+    lastName = null; // après une ligne d'accords seule, la ligne chantée suivante rappelle son accord de départ
   };
   let lastEnd = 0;
   let first = true;

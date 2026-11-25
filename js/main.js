@@ -4,7 +4,8 @@ import { db, persistStorage, storageEstimate } from './db.js';
 import { Engine } from './engine.js';
 import { Studio } from './studio.js';
 import { Sync, DEFAULT_CLIENT_ID } from './sync.js';
-import { QUALITIES, modelInfo, separateSong } from './separate.js';
+import { QUALITIES, modelInfo } from './separate.js';
+import { prepareSong } from './prepare.js';
 import { esc, icon, toast, dialog, pickFiles, confirmBox } from './ui.js';
 import { importFiles, importPack, importSingleAudio, guessTitleArtist, newSong, STEM_KINDS } from './songs.js';
 import { parseSheet, docFromSongJson, fillLineEnds } from './sheet.js';
@@ -176,7 +177,7 @@ class App extends EventTarget {
       </div>
       <div class="actions">
         <button class="btn ghost" value="raw" data-raw>Ajouter sans préparer</button>
-        <button class="btn${online ? '' : ' primary'}" value="browser" data-browser>${icon('mix')} Séparer ici</button>
+        <button class="btn${online ? '' : ' primary'}" value="browser" data-browser>${icon('mix')} Tout préparer ici</button>
         ${online ? '<button class="btn primary" value="studio" data-studio>Préparer avec le Studio</button>' : '<button class="btn" type="button" data-retry>Réessayer</button>'}
       </div></form>`, {
       onOpen: (dlg, close) => {
@@ -244,52 +245,78 @@ class App extends EventTarget {
     }
   }
 
-  /** Séparation des pistes dans le navigateur (sans le Studio). */
+  /** « Tout préparer » dans le navigateur (sans le Studio) : pistes, paroles synchronisées, accords. */
   async separateDialog(song) {
-    if ([...this.jobs.values()].some((j) => j.songId === song.id)) { toast('Séparation déjà en cours pour ce morceau'); return; }
+    if ([...this.jobs.values()].some((j) => j.songId === song.id)) { toast('Préparation déjà en cours pour ce morceau'); return; }
     let quality = 'best';
+    const already = !!song.separation;
+    const hasChords = song.doc?.lines?.some((l) => l.chords?.length);
     const d = dialog(`<form method="dialog">
-      <h2>Séparer les pistes</h2>
-      <p>« ${esc(song.title || 'Morceau')} » est découpé en <b>voix, batterie, basse, guitare, piano et autres</b>, directement dans ce navigateur, sans le Studio. Le morceau d’origine reste disponible dans le mixage.</p>
-      <div class="opt-row"><span>Qualité</span><span class="seg"><button type="button" data-q="best">Max</button><button type="button" data-q="fast">Rapide</button></span></div>
+      <h2>Tout préparer</h2>
+      <p>Directement dans ce navigateur, sans le Studio. Le morceau d’origine reste disponible dans le mixage.</p>
+      <div class="two">
+        <label class="field">Titre<input type="text" name="title" value="${esc(song.title || '')}"></label>
+        <label class="field">Artiste<input type="text" name="artist" value="${esc(song.artist || '')}"></label>
+      </div>
+      <p class="note">Titre et artiste exacts = paroles trouvées plus sûrement.</p>
+      <div class="opt-row"><span>Séparer les pistes<br><small class="note">voix, batterie, basse, guitare, piano, autres${already ? ' · déjà fait : refaire ?' : ''}</small></span><label class="switch"><input type="checkbox" name="separate" ${already ? '' : 'checked'}><i></i></label></div>
+      <div class="opt-row" data-r="qrow"><span>Qualité</span><span class="seg"><button type="button" data-q="best">Max</button><button type="button" data-q="fast">Rapide</button></span></div>
       <div class="callout" data-r="info">Vérification de la carte graphique…</div>
-      <p class="note">C’est long : compte de quelques minutes à une demi-heure selon l’ordinateur. Laisse MusiMix ouvert pendant ce temps (tu peux l’utiliser). Sur téléphone, c’est possible mais beaucoup plus lent : mieux vaut le faire sur le PC, les pistes arrivent ensuite sur le téléphone par la synchro.</p>
-      <div class="actions"><button class="btn ghost" data-close="">Annuler</button><button class="btn primary" data-go>Séparer</button></div></form>`);
+      <div class="opt-row"><span>Paroles synchronisées<br><small class="note">trouvées sur LRCLIB${song.doc?.lines?.some((l) => l.type === 'lyric') ? ' · tes paroles sont gardées, seul le minutage est ajouté' : ''}</small></span><label class="switch"><input type="checkbox" name="lyrics" checked><i></i></label></div>
+      <div class="opt-row"><span>Tempo et accords<br><small class="note">${hasChords ? 'ta grille est gardée ; tempo et mesures ajoutés' : 'détectés à l’écoute : une bonne base, à vérifier'}</small></span><label class="switch"><input type="checkbox" name="chords" checked><i></i></label></div>
+      <p class="note">La séparation est longue : de quelques minutes à une demi-heure selon l’ordinateur. Laisse MusiMix ouvert (tu peux l’utiliser). Fais-le plutôt sur le PC : le résultat arrive ensuite sur le téléphone par la synchro.</p>
+      <div class="actions"><button class="btn ghost" data-close="">Annuler</button><button class="btn primary" data-go>Préparer</button></div></form>`);
     const el = d.el;
+    const f = el.querySelector('form');
     const info = async () => {
       el.querySelectorAll('[data-q]').forEach((b) => b.classList.toggle('on', b.dataset.q === quality));
+      const on = f.separate.checked;
+      el.querySelector('[data-r="qrow"]').hidden = !on;
       const box = el.querySelector('[data-r="info"]');
+      box.hidden = !on;
+      if (!on) return;
       try {
         const m = await modelInfo(quality);
         if (!m.usable) { box.innerHTML = '<b>Qualité max indisponible ici :</b> ce navigateur n’a pas accès à la carte graphique (WebGPU). Utilise Chrome sur le PC, ou le mode Rapide.'; return; }
         box.innerHTML = `${QUALITIES[quality].label}. ${m.webgpu ? 'Carte graphique : <b>oui</b>' : 'Carte graphique : <b>non</b> (calcul sur le processeur, plus lent)'}. ${m.cached ? 'Modèle <b>déjà téléchargé</b>.' : `Premier usage : téléchargement du modèle, <b>${m.mb} Mo</b>, une seule fois.`}`;
       } catch (e) { box.textContent = 'Moteur de séparation indisponible : ' + e.message; }
     };
+    f.separate.addEventListener('change', info);
     el.addEventListener('click', (e) => {
       const q = e.target.closest('[data-q]');
       if (q) { quality = q.dataset.q; info(); return; }
-      if (e.target.closest('[data-go]')) { e.preventDefault(); d.close(); this.runSeparation(song, quality); }
+      if (e.target.closest('[data-go]')) {
+        e.preventDefault();
+        const opts = { quality, separate: f.separate.checked, lyrics: f.lyrics.checked, chords: f.chords.checked, title: f.title.value.trim(), artist: f.artist.value.trim() };
+        if (!opts.separate && !opts.lyrics && !opts.chords) { toast('Coche au moins une étape'); return; }
+        d.close();
+        this.runSeparation(song, opts);
+      }
     });
     info();
   }
 
-  async runSeparation(song, quality) {
+  async runSeparation(song, opts) {
     const key = 'sep-' + song.id;
     const ctrl = new AbortController();
-    const job = { title: song.title || 'Morceau', songId: song.id, progress: 0, message: 'Démarrage…', abort: () => ctrl.abort() };
+    const job = { title: opts.title || song.title || 'Morceau', songId: song.id, progress: 0, message: 'Démarrage…', abort: () => ctrl.abort() };
     this.jobs.set(key, job);
     this.dispatchEvent(new Event('jobs'));
     if (!(this.view instanceof LibraryView)) this.go('#/');
     let lock = null;
     try { lock = await navigator.wakeLock?.request('screen'); } catch { /* */ }
     try {
-      await separateSong(song.id, {
-        quality, signal: ctrl.signal,
+      const { report } = await prepareSong(song.id, {
+        ...opts, signal: ctrl.signal,
         onProgress: (s) => { job.progress = s.progress ?? job.progress; job.message = s.message || job.message; this.dispatchEvent(new Event('jobs')); },
       });
       this.jobs.delete(key);
       this.dispatchEvent(new Event('jobs'));
-      toast(`Pistes séparées : ${song.title}`, 5000);
+      const bits = [];
+      if (report.separated) bits.push('pistes séparées');
+      if (opts.lyrics) bits.push(report.lyrics ? 'paroles synchronisées' : 'paroles introuvables sur LRCLIB');
+      if (opts.chords) bits.push(report.keptChords ? `tempo ${report.bpm}` : `${report.chords} accords · ${report.key} · ${report.bpm} BPM`);
+      toast(`Prêt : ${job.title} — ${bits.join(', ')}`, 7000);
       if (this.view instanceof LibraryView) this.route();
     } catch (e) {
       console.error(e);

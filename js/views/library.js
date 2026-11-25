@@ -172,7 +172,7 @@ export class LibraryView {
       { icon: 'edit', label: 'Paroles et accords', action: () => this.app.go(`#/edit/${id}`) },
       { icon: 'pdf', label: 'Exporter en PDF', action: () => this.app.printSong(s) },
       { icon: 'download', label: 'Télécharger le pack (ZIP)', action: async () => { toast('Préparation du pack…'); const { blob, name } = await exportPack(s); download(blob, name); } },
-      { icon: 'mix', label: 'Séparer les pistes', action: () => this.app.separateDialog(s) },
+      { icon: 'mix', label: 'Tout préparer (pistes, paroles, accords)', action: () => this.app.separateDialog(s) },
       { icon: 'mix', label: 'Exporter pour Zoom R20', action: () => this.app.zoomExport(s) },
       { icon: 'list', label: 'Ajouter à une setlist', action: () => this.app.addToSetlist(s) },
       '-',
