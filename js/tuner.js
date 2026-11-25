@@ -69,15 +69,45 @@ function dialSvg() {
   </svg>`;
 }
 
+/** « D A D G B E » ou « D2 A2 D3… » → { strings: [midi…], names: […] } ou { error }. */
+export function parseTuning(text) {
+  const toks = String(text || '').trim().split(/[\s,;\-–]+/).filter(Boolean);
+  if (toks.length < 1 || toks.length > 10) return { error: 'Entre de 1 à 10 notes, de la corde la plus grave à la plus aiguë.' };
+  const strings = [], names = [];
+  let prev = null;
+  for (const t of toks) {
+    const m = /^([A-Ga-g]|do|ré|re|mi|fa|sol|la|si)([#♯b♭]?)(-?\d)?$/i.exec(t.normalize('NFC'));
+    if (!m) return { error: `« ${t} » n’est pas une note (exemples : D, F#, Bb, D2).` };
+    const FRL = { do: 'C', ré: 'D', re: 'D', mi: 'E', fa: 'F', sol: 'G', la: 'A', si: 'B' };
+    const L = (FRL[m[1].toLowerCase()] || m[1].toUpperCase());
+    const acc = m[2] === '#' || m[2] === '♯' ? 1 : m[2] ? -1 : 0;
+    const base = { C: 0, D: 2, E: 4, F: 5, G: 7, A: 9, B: 11 }[L] + acc;
+    let midi;
+    if (m[3] != null) midi = (+m[3] + 1) * 12 + base;
+    else if (prev == null) { midi = 36 + ((base % 12) + 12) % 12; if (midi < 35) midi += 12; while (Math.abs(midi + 12 - 40) < Math.abs(midi - 40)) midi += 12; }
+    else { midi = 12 * Math.floor(prev / 12) + (((base % 12) + 12) % 12); while (midi < prev) midi += 12; } // l'unisson est permis (Open C : … C C)
+    if (midi < 21 || midi > 96) return { error: `« ${t} » est hors de portée.` };
+    strings.push(midi);
+    names.push(L + (acc > 0 ? '♯' : acc < 0 ? '♭' : ''));
+    prev = midi;
+  }
+  return { strings, names };
+}
+
 export async function tunerDialog(app) {
   const prefs = (await app.prefs?.()) || {};
-  let mode = TUNINGS[prefs.tunerMode] ? prefs.tunerMode : 'standard';
+  let customs = Array.isArray(prefs.tunerCustom) ? prefs.tunerCustom : [];
+  const all = () => ({ ...TUNINGS, ...Object.fromEntries(customs.map((c) => [c.id, { ...c, sub: c.names.join(' '), custom: true }])) });
+  let mode = all()[prefs.tunerMode] ? prefs.tunerMode : 'standard';
+  const cur = () => all()[mode] || TUNINGS.standard;
   let a4 = prefs.tunerA4 || 440;
   let lock = -1; // corde imposée (−1 = automatique)
   const done = new Set();
   const d = dialog(`<div class="dlg tuner">
     <div class="tu-head"><h2>Accordeur</h2><button class="icon-btn" data-close="" aria-label="Fermer">✕</button></div>
-    <div class="tu-modes" role="tablist">${Object.entries(TUNINGS).map(([k, v]) => `<button type="button" data-m="${k}" title="${esc(v.sub)}">${esc(v.label)}</button>`).join('')}</div>
+    <div class="tu-modes" data-r="modes"></div>
+    <div class="tu-edit" data-r="edit" hidden></div>
+    <div class="tu-main">
     <div class="tu-stage">
       ${dialSvg()}
       <div class="tu-read"><div class="tu-note"><b data-r="note">–</b><sup data-r="acc"></sup><sub data-r="oct"></sub></div>
@@ -87,22 +117,78 @@ export async function tunerDialog(app) {
     <div class="tu-strings" data-r="strings"></div>
     <div class="tu-foot"><span class="tu-hz" data-r="hz">— Hz</span>
       <span class="tu-a4">La = <button type="button" data-a="-1" aria-label="Baisser">−</button><output data-r="a4">${a4}</output><button type="button" data-a="1" aria-label="Monter">+</button> Hz</span></div>
+    </div>
   </div>`, { cls: 'tuner-dlg' });
   const el = d.el;
   const $ = (r) => el.querySelector(`[data-r="${r}"]`);
   const box = el.querySelector('.tuner');
+  const label = (i) => { const t = cur(); return t.names ? t.names[i] : letter(t.strings[i], mode === 'half'); };
+  const drawModes = () => {
+    $('modes').innerHTML = Object.entries(all()).map(([k, v]) => `<button type="button" data-m="${k}" class="${k === mode ? 'on' : ''} ${v.custom ? 'mine' : ''}" title="${esc(v.sub)}">${esc(v.label)}</button>`).join('')
+      + '<button type="button" class="tu-add" data-edit="new" title="Créer un accordage sur mesure">＋ Sur mesure</button>';
+  };
   const drawStrings = () => {
-    el.querySelectorAll('[data-m]').forEach((b) => b.classList.toggle('on', b.dataset.m === mode));
-    const st = TUNINGS[mode].strings, flat = mode === 'half';
+    drawModes();
+    const st = cur().strings;
     $('strings').innerHTML = st
-      ? st.map((m, i) => `<button type="button" data-s="${i}" class="${lock === i ? 'lock' : ''} ${done.has(i) ? 'done' : ''}" title="Corde ${st.length - i} — toucher pour la cibler"><b>${letter(m, flat)}</b><small>${st.length - i}</small></button>`).join('')
-        + `<span class="tu-auto ${lock < 0 ? 'on' : ''}">${lock < 0 ? 'Auto' : '<button type="button" data-s="-1">Auto</button>'}</span>`
+      ? st.map((m, i) => `<button type="button" data-s="${i}" class="${lock === i ? 'lock' : ''} ${done.has(i) ? 'done' : ''}" title="Corde ${st.length - i} (${label(i)}${octave(m)}) — toucher pour la cibler"><b>${esc(label(i))}</b><small>${st.length - i}</small></button>`).join('')
+        + `<span class="tu-auto">${lock < 0 ? 'Auto' : '<button type="button" data-s="-1">Auto</button>'}${cur().custom ? ` · <button type="button" data-edit="${mode}">Modifier</button>` : ''}</span>`
       : '<span class="tu-auto on">Toutes les notes, de La0 à Do♯6</span>';
   };
   drawStrings();
+
+  // ---- éditeur d'accordage sur mesure ----
+  const openEdit = (id) => {
+    const c = customs.find((x) => x.id === id);
+    const ed = $('edit');
+    ed.hidden = false;
+    el.querySelector('.tu-main').hidden = true;
+    ed.innerHTML = `<h3>${c ? 'Modifier l’accordage' : 'Nouvel accordage'}</h3>
+      <label class="tu-field"><span>Nom</span><input data-f="name" maxlength="24" placeholder="ex. Open G, DADGAD…" value="${esc(c?.label || '')}"></label>
+      <label class="tu-field"><span>Notes, de la corde la plus grave à la plus aiguë</span><input data-f="notes" placeholder="ex. C G E G C C" value="${esc(c ? c.strings.map((m, i) => c.names[i] + octave(m)).join(' ') : '')}" autocapitalize="characters" spellcheck="false"></label>
+      <p class="note">Octave facultative : « D A D G A D » suffit pour une guitare. Ajoute-la si besoin (« G4 C4 E4 A4 » pour un ukulélé). Dièse : #, bémol : b.</p>
+      <div class="tu-ex">Exemples : ${[['Open C', 'C G E G C C'], ['Open G', 'D G D G B D'], ['Open D', 'D A D F# A D'], ['DADGAD', 'D A D G A D'], ['Drop C', 'C G C F A D']].map(([n, t]) => `<button type="button" class="chip" data-ex="${t}" data-exn="${n}">${n}</button>`).join('')}</div>
+      <div class="tu-prev" data-r="prev"></div>
+      <div class="actions">${c ? '<button type="button" class="btn ghost danger" data-ed="del">Supprimer</button>' : ''}<span style="flex:1"></span><button type="button" class="btn ghost" data-ed="cancel">Annuler</button><button type="button" class="btn primary" data-ed="save">Enregistrer</button></div>`;
+    const notes = ed.querySelector('[data-f="notes"]'), name = ed.querySelector('[data-f="name"]');
+    const preview = () => {
+      const r = parseTuning(notes.value);
+      $('prev').innerHTML = !notes.value.trim() ? '' : r.error ? `<span class="err">${esc(r.error)}</span>`
+        : r.strings.map((m, i) => `<span><b>${esc(r.names[i])}</b><small>${octave(m)}</small></span>`).join('');
+      return r;
+    };
+    notes.addEventListener('input', preview);
+    preview();
+    (c ? notes : name).focus();
+    ed.onclick = (e) => {
+      const ex = e.target.closest('[data-ex]');
+      if (ex) { notes.value = ex.dataset.ex; if (!name.value.trim()) name.value = ex.dataset.exn; preview(); return; }
+      const a = e.target.closest('[data-ed]')?.dataset.ed;
+      if (!a) return;
+      if (a === 'save') {
+        const r = preview();
+        if (!notes.value.trim() || r.error) { notes.focus(); if (!notes.value.trim()) $('prev').innerHTML = '<span class="err">Entre les notes des cordes.</span>'; return; }
+        const nm = name.value.trim() || r.names.join(' ');
+        const item = { id: c?.id || 'c' + Date.now().toString(36), label: nm, strings: r.strings, names: r.names };
+        customs = c ? customs.map((x) => (x.id === c.id ? item : x)) : [...customs, item];
+        mode = item.id;
+      } else if (a === 'del') {
+        customs = customs.filter((x) => x.id !== c.id);
+        mode = 'standard';
+      }
+      if (a !== 'cancel') { app.setPref?.('tunerCustom', customs); app.setPref?.('tunerMode', mode); lock = -1; done.clear(); }
+      ed.hidden = true; ed.innerHTML = '';
+      el.querySelector('.tu-main').hidden = false;
+      drawStrings();
+    };
+    ed.onkeydown = (e) => { if (e.key === 'Enter') { e.preventDefault(); ed.querySelector('[data-ed="save"]').click(); } };
+  };
+
   el.addEventListener('click', (e) => {
+    const ed = e.target.closest('[data-edit]');
+    if (ed) { openEdit(ed.dataset.edit); return; }
     const m = e.target.closest('[data-m]');
-    if (m) { mode = m.dataset.m; lock = -1; done.clear(); drawStrings(); app.setPref?.('tunerMode', mode); }
+    if (m) { mode = m.dataset.m; lock = -1; done.clear(); drawStrings(); app.setPref?.('tunerMode', mode); m.scrollIntoView?.({ block: 'nearest', inline: 'nearest' }); }
     const s = e.target.closest('[data-s]');
     if (s) { const i = +s.dataset.s; lock = lock === i ? -1 : i; drawStrings(); }
     const aa = e.target.closest('[data-a]');
@@ -115,9 +201,13 @@ export async function tunerDialog(app) {
   try {
     stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false } });
   } catch (err) {
-    $('msg').innerHTML = err.name === 'NotAllowedError'
+    $('msg').innerHTML = err.name === 'NotAllowedError' || err.name === 'SecurityError'
       ? '<b>Micro refusé.</b> Autorise le micro pour MusiMix (icône à gauche de l’adresse), puis rouvre l’accordeur.'
-      : `<b>Micro inaccessible.</b> ${esc(err.message)}`;
+      : err.name === 'NotFoundError' || err.name === 'OverconstrainedError'
+        ? '<b>Aucun micro trouvé sur cet appareil.</b> Branche un micro (casque, webcam, Zoom R20 en USB…) puis rouvre l’accordeur, ou accorde avec le téléphone.'
+        : err.name === 'NotReadableError'
+          ? '<b>Le micro est déjà utilisé</b> par un autre programme (visio, enregistreur…). Ferme-le puis rouvre l’accordeur.'
+          : `<b>Micro inaccessible.</b> ${esc(err.message)}`;
     box.classList.add('off');
     return;
   }
@@ -132,7 +222,7 @@ export async function tunerDialog(app) {
   const big = new Float32Array(an.fftSize);
   const half = new Float32Array(an.fftSize / 2);
   const sr2 = sr / 2;
-  $('msg').textContent = TUNINGS[mode].strings ? 'Joue une corde à vide, laisse-la sonner.' : 'Joue une note, laisse-la sonner.';
+  $('msg').textContent = cur().strings ? 'Joue une corde à vide, laisse-la sonner.' : 'Joue une note, laisse-la sonner.';
 
   const hist = [];
   let stable = null, lastSeen = 0, needle = 0, vel = 0, shown = 0, okSince = 0, lastT = performance.now(), frame = 0;
@@ -176,7 +266,7 @@ export async function tunerDialog(app) {
     stable = stable && Math.abs(1200 * Math.log2(med / stable)) < 80 ? stable * 0.6 + med * 0.4 : med;
     lastSeen = now;
     const m = midiOf(stable, a4);
-    const st = TUNINGS[mode].strings;
+    const st = cur().strings;
     let target = Math.round(m), si = -1;
     if (st) {
       if (lock >= 0) si = lock;
@@ -185,8 +275,7 @@ export async function tunerDialog(app) {
     }
     const cents = (m - target) * 100;
     shown = Math.max(-55, Math.min(55, cents));
-    const flat = mode === 'half';
-    const L = letter(target, flat);
+    const L = si >= 0 ? label(si) : letter(target, false);
     if (curTarget !== target) {
       curTarget = target;
       $('note').textContent = L[0]; $('acc').textContent = L.slice(1);

@@ -686,3 +686,21 @@ dialog.tuner-dlg { width: min(460px, calc(100vw - 20px)); }
 .take-from label { flex: 1; display: flex; gap: 8px; align-items: center; padding: 10px 12px; border: 1px solid var(--line-2); border-radius: var(--radius-s); cursor: pointer; font-weight: 600; }
 .take-from label:has(input:checked) { border-color: #e5484d; background: color-mix(in srgb, #e5484d 10%, transparent); }
 .rec-go { background: #e5484d !important; border-color: #e5484d !important; }
+.tu-modes { flex-wrap: wrap; overflow: visible; justify-content: flex-start; }
+.tu-modes button.mine { border-style: dashed; }
+.tu-modes button.mine.on { border-style: solid; }
+.tu-modes .tu-add { background: none; border-style: dashed; color: var(--focus); }
+.tu-auto button { border: 0; background: none; color: var(--focus); font: inherit; text-decoration: underline; cursor: pointer; padding: 0; }
+.tu-main[hidden], .tu-edit[hidden] { display: none; }
+.tu-edit { display: grid; gap: 12px; }
+.tu-edit h3 { margin: 0; font: 600 18px var(--font-display); }
+.tu-field { display: grid; gap: 5px; font: 600 13px var(--font-ui); color: var(--ink-2); }
+.tu-field input { font: 500 17px var(--font-ui); padding: 10px 12px; border-radius: var(--radius-s); border: 1px solid var(--line-2); background: var(--surface); color: var(--ink); }
+.tu-field input[data-f="notes"] { letter-spacing: .06em; }
+.tu-ex { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; font: 600 12px var(--font-ui); color: var(--ink-3); }
+.tu-prev { display: flex; gap: 6px; flex-wrap: wrap; min-height: 44px; align-items: center; }
+.tu-prev > span:not(.err) { display: grid; place-content: center; width: 42px; height: 44px; border-radius: 10px; background: var(--surface-2); border: 1px solid var(--line-2); text-align: center; }
+.tu-prev b { font: 600 17px var(--font-display); }
+.tu-prev small { font: 600 10px var(--font-ui); color: var(--ink-3); }
+.tu-prev .err { color: #d1373e; font-weight: 600; }
+.btn.danger { color: #d1373e; }
