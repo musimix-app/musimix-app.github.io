@@ -11,6 +11,11 @@ import { STEM_KINDS, sortStems, exportPack, download } from '../songs.js';
 import { lowerBound } from '../engine.js';
 import { keyName } from '../theory.js';
 import { suggestCapo } from '../capo.js';
+import { TakeRecorder } from '../take.js';
+import { encodeOpus, opusSupported } from '../opus.js';
+import { encodeWav } from '../wav.js';
+import { levelOf } from '../levels.js';
+import { uid } from '../db.js';
 import { midi, nameChord, matchesChord, noteName } from '../midi-input.js';
 import { transposeChord } from '../theory.js';
 
@@ -56,6 +61,7 @@ export class PlayerView {
   }
 
   close() {
+    if (this.take) { this.take.rec.cancel(); this.endTakeUi(); this.take = null; }
     this.midiStop(false);
     this.exitFullStage();
     this.editing.on = false;
@@ -155,6 +161,7 @@ export class PlayerView {
           <span class="time end" data-r="dur">0:00</span>
         </div>
         <div class="t-right">
+          <button class="icon-btn rec-btn" data-act="rec" aria-label="Enregistrer ma prise" title="Enregistrer ma prise au micro">${icon('rec')}</button>
           <button class="icon-btn" data-act="loop" aria-label="Boucle A-B" title="Boucle A-B (L)">${icon('loop')}</button>
           <button class="rate-btn" data-act="rate" aria-label="Vitesse de lecture" title="Vitesse">1×</button>
           <button class="icon-btn" data-act="metro" aria-label="Métronome" title="Métronome (M)">${icon('metro')}</button>
@@ -527,9 +534,11 @@ export class PlayerView {
     if (ev === 'loop') { this.renderLoop(); this.progressStart(); }
     if (ev === 'looped') this.progressStep();
     if (ev === 'ended') this.onEnded();
+    if (this.take?.live && (ev === 'pause' || ev === 'ended' || ev === 'seek' || ev === 'loop')) this.stopTake();
   }
 
   onEnded() {
+    if (this.take) return;
     if (this.ctx.setlist && this.ctx.index < this.ctx.setlist.songs.length - 1) {
       toast('Morceau suivant dans 3 secondes…');
       this.autoNext = setTimeout(() => this.app.playFromSetlist(this.ctx.setlist, this.ctx.index + 1), 3000);
@@ -752,6 +761,112 @@ export class PlayerView {
 
   /** Va au début d'un accord : juste après son temps, pour que ce soit bien lui qui s'affiche
    *  (avant, on se plaçait 50 ms plus tôt et c'était l'accord précédent qui apparaissait). */
+  // ---------- Enregistrer sa prise ----------
+  takeDialog() {
+    if (!this.engine.tracks?.length) { toast('Ajoute d’abord l’audio du morceau'); return; }
+    if (!navigator.mediaDevices?.getUserMedia || typeof AudioWorkletNode === 'undefined') { toast('Enregistrement impossible dans ce navigateur', 5000); return; }
+    const s = this.song;
+    const hasVoice = s.stems.some((st) => st.kind === 'vocals' || st.kind === 'backing');
+    const pos = this.engine.currentTime;
+    const takes = s.stems.filter((st) => st.kind === 'take');
+    const d = dialog(`<form method="dialog" class="take-dlg">
+      <h2>Enregistrer ma prise</h2>
+      <p>Chante ou joue par-dessus le morceau : ta prise devient une piste du mixage, calée sur la chanson.</p>
+      <p class="take-tip">🎧 Mets un <b>casque</b> : sans casque, le micro reprend aussi le morceau.</p>
+      ${hasVoice ? `<label class="check"><input type="checkbox" name="novoice" checked> Couper la voix d’origine pendant la prise</label>` : ''}
+      ${takes.length ? `<label class="check"><input type="checkbox" name="mutetakes" checked> Couper mes prises précédentes</label>` : ''}
+      <div class="seg take-from"><label><input type="radio" name="from" value="start" ${pos < 2 ? 'checked' : ''}> Depuis le début</label><label><input type="radio" name="from" value="here" ${pos >= 2 ? 'checked' : ''}> Depuis ${fmtTime(pos)}</label></div>
+      <p class="note">Pause, ou le bouton ● rouge, pour arrêter.</p>
+      <div class="actions"><button class="btn ghost" data-close="">Annuler</button><button class="btn primary rec-go" data-close="go">● Enregistrer</button></div></form>`);
+    const form = d.el.querySelector('form');
+    d.done.then((v) => {
+      if (v !== 'go') return;
+      const fd = new FormData(form);
+      this.startTake({ noVoice: !!fd.get('novoice'), muteTakes: !!fd.get('mutetakes'), from: fd.get('from') || 'here' });
+    });
+  }
+
+  async startTake(opts) {
+    const rec = new TakeRecorder(this.engine);
+    try { await rec.open(); } catch (err) {
+      rec.cancel();
+      toast(err.name === 'NotAllowedError' ? 'Micro refusé : autorise-le pour MusiMix (icône à gauche de l’adresse)' : `Micro inaccessible : ${err.message}`, 6000);
+      return;
+    }
+    const s = this.song;
+    const restore = { rate: s.prefs.rate || 1 };
+    for (const st of s.stems) {
+      if ((opts.noVoice && (st.kind === 'vocals' || st.kind === 'backing')) || (opts.muteTakes && st.kind === 'take')) this.engine.setTrack(st.id, { mute: true });
+    }
+    if (this.engine.loop) { this.engine.setLoop(null, null); this.loopA = null; this.renderLoop?.(); }
+    if (restore.rate !== 1) { this.engine.setRate(1); toast('Vitesse remise à 100 % pour la prise'); }
+    if (opts.from === 'start') this.engine.seek(0);
+    this.take = { rec, restore, live: false };
+    this.el.classList.add('recording');
+    const badge = document.createElement('div');
+    badge.className = 'rec-badge';
+    badge.innerHTML = '<i></i><b>REC</b><span data-r="rec-t">0:00</span><span class="rec-meter"><span></span></span>';
+    this.el.appendChild(badge);
+    this.take.timer = setInterval(() => {
+      badge.querySelector('[data-r="rec-t"]').textContent = fmtTime(rec.elapsed);
+      badge.querySelector('.rec-meter span').style.width = `${Math.min(100, rec.level * 140)}%`;
+    }, 80);
+    rec.start();
+    await this.engine.play();
+    if (this.take) this.take.live = true;
+  }
+
+  endTakeUi() {
+    clearInterval(this.take?.timer);
+    this.el?.classList.remove('recording');
+    this.el?.querySelector('.rec-badge')?.remove();
+  }
+
+  async stopTake() {
+    const t = this.take;
+    if (!t || t.stopping) return;
+    t.stopping = true;
+    t.live = false;
+    if (this.engine.playing) this.engine.pause();
+    this.endTakeUi();
+    const s = this.song;
+    const res = await t.rec.stop(s.duration || this.engine.duration);
+    // remet le mixage et la vitesse
+    for (const st of s.stems) { const m = s.mix[st.id] || {}; this.engine.setTrack(st.id, { mute: !!m.mute, solo: !!m.solo, vol: m.vol ?? 1 }); }
+    if (t.restore.rate !== 1) this.engine.setRate(t.restore.rate);
+    this.take = null;
+    if (!res || res.end - res.start < 1) { toast('Prise trop courte : rien n’a été gardé'); return; }
+    const lv = levelOf([res.channel]);
+    const quiet = lv.peak < 0.02;
+    const d = dialog(`<div class="dlg"><h2>Prise enregistrée</h2>
+      <p>De ${fmtTime(res.start)} à ${fmtTime(res.end)}.${quiet ? ' <b>Le niveau est très faible</b> : vérifie le micro choisi par le navigateur ou rapproche-toi.' : ''}</p>
+      <div class="actions"><button class="btn ghost" data-close="">Jeter</button><button class="btn primary" data-close="keep">Garder dans le mixage</button></div></div>`);
+    if ((await d.done) !== 'keep') { toast('Prise jetée'); return; }
+    toast('Enregistrement de la piste…');
+    try { await this.saveTake(res, lv); } catch (err) { toast(`Échec : ${err.message}`, 6000); }
+  }
+
+  async saveTake(res, level) {
+    const s = this.song;
+    let blob, name;
+    if (opusSupported()) { blob = await encodeOpus([res.channel], res.sampleRate, { bitrate: 96000 }); name = 'ma-prise.ogg'; }
+    else { blob = encodeWav([res.channel], res.sampleRate, 16); blob = blob instanceof Blob ? blob : new Blob([blob], { type: 'audio/wav' }); name = 'ma-prise.wav'; }
+    const blobId = await db.putBlob(blob);
+    const n = s.stems.filter((st) => st.kind === 'take').length;
+    const id = uid();
+    s.stems.push({ id, kind: 'take', label: n ? `Ma prise ${n + 1}` : 'Ma prise', blobId, name, mime: blob.type, size: blob.size, level, take: { at: Date.now(), from: res.start, to: res.end } });
+    s.stems = sortStems(s.stems);
+    s.mix[id] = { vol: 1, mute: false, solo: false, pan: 0 };
+    // les prises précédentes laissent la place à la nouvelle
+    for (const st of s.stems) if (st.kind === 'take' && st.id !== id) s.mix[st.id] = { ...(s.mix[st.id] || {}), mute: true };
+    await db.putSong(s);
+    const pos = this.engine.currentTime;
+    await this.loadAudio();
+    this.engine.seek(pos);
+    this.renderMixer();
+    toast('Ta prise est dans le mixage. « Sans la voix » pour l’écouter à la place du chant d’origine.', 6000);
+  }
+
   // ---------- Clavier MIDI ----------
   async midiStart(user = false) {
     try { await midi.enable(); } catch (err) {
@@ -1177,6 +1292,7 @@ export class PlayerView {
         if (!this.midiOn) { toast('Active d’abord « Clavier MIDI »'); break; }
         if (midi.advanceNote != null && b.dataset.clear) { midi.advanceNote = null; this.app.setPref('midiKey', null); this.updateMidiUi(); break; }
         midi.learn(); b.textContent = 'Appuie sur une touche…'; toast('Appuie sur la touche du clavier qui servira à avancer', 5000); break;
+      case 'rec': if (this.take) this.stopTake(); else this.takeDialog(); break;
       case 'capo+': p.capo = Math.min(11, (p.capo || 0) + 1); this.updateOptionOutputs(); this.refreshChords(); this.saveSong(); break;
       case 'rate-': case 'rate+': {
         p.rate = Math.round(Math.max(0.5, Math.min(1.5, p.rate + (a === 'rate+' ? 0.05 : -0.05))) * 100) / 100;

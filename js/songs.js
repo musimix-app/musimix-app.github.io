@@ -8,6 +8,7 @@ import { renderFamily, SYNTH_RATE } from './synth.js';
 import { encodeWav } from './wav.js';
 
 export const STEM_KINDS = {
+  take: { label: 'Ma prise', color: '#e5484d', order: -1 },
   vocals: { label: 'Voix', color: 'var(--c-voice)', order: 0 },
   backing: { label: 'Chœurs', color: 'var(--c-voice-2)', order: 1 },
   drums: { label: 'Batterie', color: 'var(--c-rhythm)', order: 2 },
