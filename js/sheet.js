@@ -157,6 +157,11 @@ function parseChordPro(text) {
       else if (k === 'capo') meta.capo = parseInt(v, 10) || 0;
       else if (k === 'tempo' || k === 'bpm') meta.bpm = parseFloat(v) || undefined;
       else if (k === 'album') meta.album = v;
+      else if (k === 'x_piano') {
+        const pz = v.split(/\s+/);
+        const ks = pz.slice(1).map(Number).filter((x) => x >= 21 && x <= 108);
+        if (pz[0] && ks.length) { meta.piano = meta.piano || {}; meta.piano[pz[0]] = ks; }
+      }
       else if (k === 'define') {
         const d = /^(\S+)\s+(?:base-fret\s+(\d+)\s+)?frets\s+([x\d\s-]+?)(?:\s+fingers.*)?$/i.exec(v);
         if (d) {
@@ -309,6 +314,7 @@ export function toChordPro(doc, { withMeta = true } = {}) {
     if (m.bpm) out.push(`{tempo: ${Math.round(m.bpm)}}`);
   }
   for (const [n, fr] of Object.entries(m.shapes || {})) out.push(`{define: ${n} base-fret 1 frets ${fr.map((f) => (f < 0 ? 'x' : f)).join(' ')}}`);
+  for (const [n, ks] of Object.entries(m.piano || {})) out.push(`{x_piano: ${n} ${ks.join(' ')}}`);
   if (out.length) out.push('');
   let chorusOpen = false;
   const closeChorus = () => { if (chorusOpen) { out.push('{end_of_chorus}'); chorusOpen = false; } };

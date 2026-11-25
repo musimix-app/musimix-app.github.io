@@ -34,13 +34,17 @@ const TUNINGS = {
 const cache = new Map();
 /** Doigtés donnés par la grille du morceau ({ 'F#m*': [-1,-1,4,6,7,5], D: […] }) : proposés en premier. */
 let SHAPES = {};
+let PIANO = {};
 let SHAPES_SIG = '';
-export function setSongShapes(shapes) {
-  const sig = JSON.stringify(shapes || {});
+/** shapes : doigtés guitare du morceau ; piano : notes MIDI choisies par accord ({ 'F#m': [54, 61, 66, 69] }). */
+export function setSongShapes(shapes, piano) {
+  const sig = JSON.stringify([shapes || {}, piano || {}]);
   if (sig === SHAPES_SIG) return;
-  SHAPES = shapes || {}; SHAPES_SIG = sig;
+  SHAPES = shapes || {}; PIANO = piano || {}; SHAPES_SIG = sig;
   for (const k of [...cache.keys()]) if (k.startsWith('guitar|')) cache.delete(k);
 }
+export function songShape(name) { return SHAPES[name] || null; }
+export function songPiano(name) { return PIANO[name] || null; }
 function customVoicing(frets) {
   const fretted = frets.map((f, i) => [f, i]).filter(([f]) => f > 0);
   const minF = fretted.length ? Math.min(...fretted.map(([f]) => f)) : 0;
@@ -280,6 +284,11 @@ export function fretboardSVG(name, instrument = 'guitar', index = 0, { showName 
 /** Notes jouées au piano : basse (main gauche) + accord serré (main droite). */
 export function pianoNotes(name) {
   const ch = parseChord(name);
+  const own = PIANO[name];
+  if (own?.length) {
+    const ms = [...own].sort((a, b) => a - b);
+    return { left: ms[0], right: ms.slice(1), pcs: [...new Set(ms.map((m) => m % 12))], bass: ms[0] % 12, root: ch ? ch.root : ms[0] % 12, intervals: ch?.intervals || [], ch, exact: true };
+  }
   if (!ch) return null;
   const bass = ch.bass ?? ch.root;
   const pcs = chordPcs(ch);
@@ -307,7 +316,9 @@ export function pianoSVG(name, { showName = false, labels = false } = {}) {
   let s = `<svg class="piano" viewBox="0 0 ${W} ${H}" role="img" aria-label="${esc(name)} — piano">`;
   if (showName) s += `<text class="d-name" x="${W / 2}" y="16" text-anchor="middle">${esc(name)}</text>`;
   const on = new Map();
-  if (pn) {
+  if (pn?.exact) {
+    for (const m of [pn.left, ...pn.right]) if (m >= 48 && m <= 83) on.set(m, m === pn.left ? 'bass' : (m % 12) === pn.root ? 'root' : 'tone');
+  } else if (pn) {
     // on replie la main droite dans l'octave supérieure du clavier affiché
     on.set(pn.left - (pn.left >= 60 ? 12 : 0), 'bass');
     for (const m of pn.right) {
@@ -321,14 +332,14 @@ export function pianoSVG(name, { showName = false, labels = false } = {}) {
   for (let o = 0; o < octaves; o++) whites.forEach((pc, k) => {
     const midi = startMidi + o * 12 + pc;
     const st = on.get(midi);
-    s += `<rect class="k-white${st ? ' on ' + st : ''}" x="${xWhite(o, k)}" y="${top}" width="${ww}" height="${wh}" rx="2.5"/>`;
+    s += `<rect class="k-white${st ? ' on ' + st : ''}" data-m="${midi}" x="${xWhite(o, k)}" y="${top}" width="${ww}" height="${wh}" rx="2.5"/>`;
   });
   const blackX = { 1: 1, 3: 2, 6: 4, 8: 5, 10: 6 };
   for (let o = 0; o < octaves; o++) blacks.forEach((pc) => {
     const midi = startMidi + o * 12 + pc;
     const st = on.get(midi);
     const x = xWhite(o, blackX[pc]) - bw / 2;
-    s += `<rect class="k-black${st ? ' on ' + st : ''}" x="${x}" y="${top}" width="${bw}" height="${bh}" rx="1.8"/>`;
+    s += `<rect class="k-black${st ? ' on ' + st : ''}" data-m="${midi}" x="${x}" y="${top}" width="${bw}" height="${bh}" rx="1.8"/>`;
   });
   if (pn && labels) {
     for (const [midi, st] of on) {

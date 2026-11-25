@@ -77,7 +77,7 @@ export async function printDialog(app, songs, opts = {}) {
 function songPage(song, st, preview = false) {
   const display = chordDisplay(song, st.transpose, 0);
   const doc = st.chords ? song.doc : { ...song.doc, lines: song.doc.lines.filter((l) => l.type !== 'chords').map((l) => ({ ...l, chords: [] })) };
-  setSongShapes(song.doc?.meta?.shapes);
+  setSongShapes(song.doc?.meta?.shapes, song.doc?.meta?.piano);
   const chords = st.chords && st.diagrams ? uniqueChords(song.doc, display, song.detectedChords) : [];
   const facts = [];
   const k = display.keyLabel;

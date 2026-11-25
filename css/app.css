@@ -556,3 +556,29 @@ dialog .two { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
 .piano .d-name { font: 800 15px var(--font-ui); fill: currentColor; }
 .piano .k-label { font: 700 9px var(--font-ui); fill: currentColor; }
 .lyrics .btn { font-size: 16px; }
+
+/* ── mode « Modifier » du lecteur (accords et paroles) ── */
+.edit-bar { position: sticky; top: 0; z-index: 5; display: flex; gap: 10px; align-items: center; justify-content: space-between; flex-wrap: wrap; padding: 8px 14px; background: color-mix(in srgb, var(--chord) 14%, var(--bg)); border-bottom: 1px solid color-mix(in srgb, var(--chord) 40%, transparent); font-size: 13.5px; color: var(--ink-2); }
+.edit-bar .edit-acts { display: flex; gap: 6px; }
+.lyrics.editing .w .c:not(.e), .lyrics.editing .ln.chords-only .cbar { outline: 1.5px dashed color-mix(in srgb, var(--chord) 70%, transparent); outline-offset: 1px; border-radius: 5px; cursor: grab; touch-action: none; user-select: none; -webkit-user-select: none; }
+.lyrics.editing .w .c.dragging, .lyrics.editing .cbar.dragging { opacity: .25; }
+.lyrics.editing .ln.lyric, .lyrics.editing .ln.section { cursor: context-menu; }
+.lyrics.editing .ln.lyric:hover { background: color-mix(in srgb, var(--chord) 6%, transparent); border-radius: 6px; }
+.drop-mark { position: fixed; width: 3px; background: var(--chord); border-radius: 2px; pointer-events: none; z-index: 60; box-shadow: 0 0 0 2px color-mix(in srgb, var(--chord) 30%, transparent); }
+.chord-ghost { position: fixed; transform: translate(-50%, -50%); z-index: 61; pointer-events: none; background: var(--chord); color: #16181d; font-weight: 800; padding: 3px 10px; border-radius: 8px; box-shadow: 0 6px 18px rgba(0,0,0,.25); font-size: 17px; }
+.chord-editor input.bad { border-color: var(--sung); }
+.chord-editor .ce-names { display: flex; flex-wrap: wrap; gap: 5px; margin: -4px 0 6px; }
+.chord-editor .ce-names button { border: 1px solid var(--line-2); background: transparent; color: var(--chord); font-weight: 800; padding: 3px 9px; border-radius: 999px; font-size: 14px; }
+.chord-editor .ce-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-top: 6px; }
+.chord-editor .ce-pad { display: flex; justify-content: center; color: var(--ink); padding: 6px 0; }
+.chord-editor .ce-fret { display: flex; align-items: center; gap: 10px; }
+.chord-editor .fret-edit { width: 196px; max-width: 70vw; height: auto; cursor: pointer; }
+.chord-editor .fret-edit .ce-dot { fill: var(--chord); }
+.chord-editor .fret-edit .ce-cell:hover rect, .chord-editor .fret-edit .ce-top:hover rect { fill: color-mix(in srgb, var(--chord) 15%, transparent); }
+.chord-editor .ce-shift { display: flex; flex-direction: column; gap: 6px; }
+.chord-editor .piano-edit { width: 100%; max-width: 420px; height: auto; cursor: pointer; }
+.chord-editor .piano-edit .pk.w { fill: #fff; stroke: #9a9a9a; }
+.chord-editor .piano-edit .pk.b { fill: #222; }
+.chord-editor .piano-edit .pk.on { fill: var(--chord); }
+.chord-editor .ce-notes { text-align: center; min-height: 1.4em; }
+.chord-editor .ce-help { text-align: center; font-size: 12.5px; margin-top: -4px; }

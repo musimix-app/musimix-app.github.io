@@ -5,6 +5,7 @@ import { esc, icon, fmtTime, toast, openMenu, drag, debounce, dialog } from '../
 import { renderSheet, lyricLine, chordDisplay, songKey, uniqueChords } from '../render.js';
 import { chordTimeline, sectionsOf } from '../sheet.js';
 import { diagramSVG, voicings, chordFormula, loadChordDb, setSongShapes } from '../diagrams.js';
+import { LyricsEditing } from './chord-edit.js';
 import { STEM_KINDS, sortStems, exportPack, download } from '../songs.js';
 import { lowerBound } from '../engine.js';
 import { keyName } from '../theory.js';
@@ -21,6 +22,7 @@ export class PlayerView {
     this.instrument = 'guitar';
     this.voicingIdx = {};
     this.saveSong = debounce(() => this.song && db.putSong(this.song), 600);
+    this.editing = new LyricsEditing(this);
     this._onTime = () => this.frame();
     this._onKey = (e) => this.onKey(e);
   }
@@ -36,7 +38,7 @@ export class PlayerView {
     this.showChords = prefs.showChords !== false;
     song.prefs = { transpose: 0, audioPitch: false, rate: 1, offset: 0, capo: 0, ...(song.prefs || {}) };
     await loadChordDb();
-    setSongShapes(song.doc?.meta?.shapes);
+    setSongShapes(song.doc?.meta?.shapes, song.doc?.meta?.piano);
     this.build();
     await this.loadAudio();
     song.playCount = (song.playCount || 0) + 1;
@@ -47,6 +49,8 @@ export class PlayerView {
   }
 
   close() {
+    this.editing.on = false;
+    document.querySelector('.drop-mark')?.remove();
     document.removeEventListener('keydown', this._onKey);
     this.engine.removeEventListener('time', this._onTime);
     for (const [ev, fn] of Object.entries(this._engineH || {})) this.engine.removeEventListener(ev, fn);
@@ -606,7 +610,7 @@ export class PlayerView {
   }
 
   autoScroll(lineEl, force) {
-    if (this.mode !== 'lyrics' || !lineEl) return;
+    if (this.mode !== 'lyrics' || !lineEl || this.editing.on) return;
     if (!force && performance.now() - this.userScrollAt < 4000) return;
     this.el.querySelector('.follow-btn').hidden = true;
     const L = this.$lyrics;
@@ -706,7 +710,7 @@ export class PlayerView {
   }
 
   /** Fiche d'un accord : diagramme guitare / ukulélé / piano, positions, notes, tous les accords du morceau. */
-  openChordSheet(name, t = null) {
+  openChordSheet(name, t = null, at = null) {
     if (!name) return;
     const all = uniqueChords(this.song.doc, this.display, this.song.detectedChords);
     let cur = name;
@@ -717,7 +721,7 @@ export class PlayerView {
       <div class="cs-alt"></div>
       <div class="cs-notes"></div>
       ${all.length > 1 ? `<div class="cs-all" aria-label="Accords du morceau">${all.map((n) => `<button data-n="${esc(n)}">${esc(n)}</button>`).join('')}</div>` : ''}
-      <div class="actions">${t != null ? `<button class="btn" data-go>${icon('play')} Jouer d’ici</button>` : ''}<button class="btn primary" data-close="">Fermer</button></div></div>`);
+      <div class="actions">${at ? `<button class="btn ghost" data-edit>${icon('edit')} Modifier</button>` : ''}${t != null ? `<button class="btn" data-go>${icon('play')} Jouer d’ici</button>` : ''}<button class="btn primary" data-close="">Fermer</button></div></div>`);
     const el = d.el;
     const draw = () => {
       const inst = this.instrument;
@@ -738,6 +742,7 @@ export class PlayerView {
       if (nb) { cur = nb.dataset.n; draw(); return; }
       if (e.target.closest('.cs-diag')) { this.voicingIdx[cur] = (this.voicingIdx[cur] || 0) + 1; this._diagKey = null; draw(); return; }
       if (e.target.closest('[data-go]')) { this.engine.seek(Math.max(0, t - 0.05)); d.close(); }
+      if (e.target.closest('[data-edit]')) { d.close(); this.editing.chordDialog(at.li, at.ci); }
     });
     loadChordDb().then(draw, draw);
     draw();
@@ -861,6 +866,7 @@ export class PlayerView {
   bind() {
     const el = this.el;
     el.addEventListener('click', (e) => {
+      if (this.editing.onClick(e)) return;
       const modeB = e.target.closest('[data-mode]');
       if (modeB) { this.setMode(modeB.dataset.mode); return; }
       const instB = e.target.closest('[data-inst]');
@@ -873,7 +879,7 @@ export class PlayerView {
         const lineS = chordEl.closest('.ln')?.dataset.s;
         const c = this.timeline.find((x) => x.li === li && x.ci === ci && x.t != null) || (chordEl.dataset.t ? { t: +chordEl.dataset.t } : lineS ? { t: +lineS } : null);
         // petit écran (pas de panneau de droite) ou accord sans temps : on montre le diagramme
-        if (this.isNarrow() || c?.t == null) { this.openChordSheet(chordEl.textContent.trim(), c?.t ?? null); return; }
+        if (this.isNarrow() || c?.t == null) { this.openChordSheet(chordEl.textContent.trim(), c?.t ?? null, Number.isFinite(li) && Number.isFinite(ci) ? { li, ci } : null); return; }
         this.engine.seek(Math.max(0, c.t - 0.05)); return;
       }
       const mobNow = e.target.closest('.mob-chord .now-chord, .mob-chord .next-chord');
@@ -1053,7 +1059,8 @@ export class PlayerView {
       }
       case 'menu':
         openMenu(b, [
-          { icon: 'edit', label: 'Paroles et accords', action: () => this.app.go(`#/edit/${this.song.id}`) },
+          { icon: 'edit', label: 'Modifier ici (accords, doigtés, texte)', action: () => { if (this.mode !== 'lyrics') this.setMode('lyrics'); this.editing.toggle(true); } },
+          { icon: 'edit', label: 'Paroles et accords (éditeur)', action: () => this.app.go(`#/edit/${this.song.id}`) },
           { icon: 'tap', label: 'Synchroniser les paroles', action: () => this.app.go(`#/edit/${this.song.id}/sync`) },
           { icon: 'info', label: 'Infos et pistes', action: () => this.app.go(`#/edit/${this.song.id}/info`) },
           '-',

@@ -86,7 +86,7 @@ export function lyricLine(l, li, display, extraClass = '') {
       }
       const name = p.c ? display(p.c.name) : '';
       const label = p.c ? `<span class="c" data-li="${li}" data-ci="${p.c.ci}">${esc(name)}</span>` : has ? '<span class="c e"></span>' : '';
-      parts.push(`<span class="w" data-wi="${wi}"${times}>${label}${has ? `<span class="t">${esc(text)}</span>` : esc(text)}</span>`);
+      parts.push(`<span class="w" data-wi="${wi}" data-a="${p.a}"${times}>${label}${has ? `<span class="t">${esc(text)}</span>` : esc(text)}</span>`);
     }
     if (wi < toks.length - 1) parts.push(' ');
   });
@@ -94,7 +94,7 @@ export function lyricLine(l, li, display, extraClass = '') {
   while (k < chords.length) {
     const c = chords[k++];
     const name = display(c.name);
-    parts.push(` <span class="w"><span class="c" data-li="${li}" data-ci="${c.ci}">${esc(name)}</span><span class="t">\u00a0</span></span>`);
+    parts.push(` <span class="w" data-a="${l.text.length}"><span class="c" data-li="${li}" data-ci="${c.ci}">${esc(name)}</span><span class="t">\u00a0</span></span>`);
   }
   const cls = ['ln', 'lyric', has ? 'has-ch' : '', l.chorus ? 'chorus' : '', extraClass].filter(Boolean).join(' ');
   const t = l.s != null ? ` data-s="${l.s.toFixed(3)}" data-e="${(l.e ?? l.s + 4).toFixed(3)}"` : '';
