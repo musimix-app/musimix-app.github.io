@@ -1058,6 +1058,7 @@ export class PlayerView {
           '-',
           { icon: 'pdf', label: 'Exporter en PDF', action: () => this.app.printSong(this.song, { transpose: p.transpose - p.capo, instrument: this.instrument }) },
           { icon: 'download', label: 'Télécharger le pack (ZIP)', action: async () => { toast('Préparation du pack…'); const { blob, name } = await exportPack(this.song); download(blob, name); } },
+          { icon: 'mix', label: 'Séparer les pistes', action: () => this.app.separateDialog(this.song) },
           { icon: 'mix', label: 'Exporter pour Zoom R20', action: () => this.app.zoomExport(this.song) },
           { icon: 'list', label: 'Ajouter à une setlist', action: () => this.app.addToSetlist(this.song) },
         ]);

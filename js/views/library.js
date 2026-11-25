@@ -137,11 +137,11 @@ export class LibraryView {
     if (!box) return;
     const jobs = [...this.app.jobs.values()];
     if (!jobs.length) { box.innerHTML = ''; return; }
-    box.innerHTML = `<p class="section-title">En préparation</p><ul class="songs">${jobs.map((j) => `
+    box.innerHTML = `<p class="section-title">En préparation</p><ul class="songs">${[...this.app.jobs.entries()].map(([k, j]) => `
       <li class="song-row job">
         <div class="t"><b>${esc(j.title)}</b><span>${esc(j.message || 'En attente du Studio…')}</span><div class="bar"><i style="width:${Math.round((j.progress || 0) * 100)}%"></i></div></div>
         <div class="meta">${j.error ? `<span style="color:#c42b2b">Échec</span>` : `${Math.round((j.progress || 0) * 100)} %`}</div>
-        <span></span>
+        ${j.abort && !j.error ? `<button class="icon-btn" data-act="job-cancel" data-k="${esc(k)}" title="Annuler" aria-label="Annuler">${icon('close')}</button>` : '<span></span>'}
       </li>`).join('')}</ul><p class="section-title">Morceaux</p>`;
   }
 
@@ -157,6 +157,7 @@ export class LibraryView {
       else if (a === 'setlists') this.app.go('#/setlists');
       else if (a === 'studio') this.app.studioDialog();
       else if (a === 'sync') { const sy = this.app.sync; if (sy.state === 'reconnect') sy.connect().catch((err) => toast(err.message, 6000)); else if (sy.state === 'error') this.app.go('#/settings'); else sy.run(); }
+      else if (a === 'job-cancel') { this.app.jobs.get(act.dataset.k)?.abort?.(); }
       else if (a === 'song-menu') { e.stopPropagation(); this.songMenu(act, act.closest('[data-id]').dataset.id); }
       return;
     }
@@ -171,6 +172,7 @@ export class LibraryView {
       { icon: 'edit', label: 'Paroles et accords', action: () => this.app.go(`#/edit/${id}`) },
       { icon: 'pdf', label: 'Exporter en PDF', action: () => this.app.printSong(s) },
       { icon: 'download', label: 'Télécharger le pack (ZIP)', action: async () => { toast('Préparation du pack…'); const { blob, name } = await exportPack(s); download(blob, name); } },
+      { icon: 'mix', label: 'Séparer les pistes', action: () => this.app.separateDialog(s) },
       { icon: 'mix', label: 'Exporter pour Zoom R20', action: () => this.app.zoomExport(s) },
       { icon: 'list', label: 'Ajouter à une setlist', action: () => this.app.addToSetlist(s) },
       '-',

@@ -213,6 +213,25 @@ export async function importSingleAudio(file, { sheetText, title, artist } = {})
   return song;
 }
 
+/**
+ * Pistes produites par la séparation dans le navigateur : remplace une séparation précédente,
+ * garde le morceau d'origine (coupé dans le mixage, réactivable), libère les anciens fichiers.
+ */
+export async function addSeparatedStems(song, list, sourceStemId, model) {
+  const old = song.stems.filter((st) => st.sep);
+  for (const st of old) { if (st.blobId) await db.deleteBlob(st.blobId); delete song.mix[st.id]; }
+  song.stems = song.stems.filter((st) => !st.sep);
+  for (const it of list) {
+    const blobId = await db.putBlob(it.blob);
+    song.stems.push({ id: uid(), kind: it.kind, label: STEM_KINDS[it.kind]?.label || it.kind, blobId, name: it.name, mime: it.blob.type || mimeOf(it.name), size: it.blob.size, sep: model });
+  }
+  const orig = song.stems.find((st) => st.id === sourceStemId);
+  if (orig) { orig.label = 'Morceau original'; }
+  finalize(song);
+  if (orig && song.mix[orig.id]) song.mix[orig.id].mute = true;
+  song.separation = { model, at: Date.now() };
+}
+
 function finalize(song) {
   song.stems = sortStems(song.stems);
   // dédoublonne les libellés (deux pistes « Autres »…)

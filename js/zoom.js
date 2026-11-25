@@ -16,10 +16,16 @@ const RATE = 44100;
 // noms compatibles R20 : sans accents ni espaces (soulignés à la place)
 const ascii = (s, max = 40) => String(s || '').normalize('NFKD').replace(/[\u0300-\u036f]/g, '').replace(/[^A-Za-z0-9]+/g, '_').replace(/^_+|_+$/g, '').replace(new RegExp(`^(.{1,${max}})(_|$).*`), '$1').slice(0, max) || 'piste';
 
+/** Pistes à exporter : après une séparation, le morceau d'origine n'est pas une piste du R20 (option « mix » à part). */
+function zoomStems(song) {
+  const st = sortStems(song.stems);
+  return song.separation ? st.filter((s) => s.kind !== 'mix') : st;
+}
+
 export async function zoomDialog(app, song) {
   const prefs = await app.prefs();
   const st = { bits: 24, stereo: !!prefs.zoomStereo, mix: false };
-  const nStems = song.stems.length;
+  const nStems = zoomStems(song).length;
   const d = dialog(`<form method="dialog">
     <h2>Exporter pour le Zoom R20</h2>
     <p>Un fichier WAV 44,1 kHz / 24 bits par piste (${nStems} piste${nStems > 1 ? 's' : ''}), au format du R20, tous calés au début du morceau, plus les accords en MIDI pour la piste synthé.</p>
@@ -73,7 +79,7 @@ export async function zoomDialog(app, song) {
 
 export async function buildZoomPack(song, { bits = 24, stereo = false, mix = false } = {}, onProgress = () => {}) {
   const files = [];
-  const stems = sortStems(song.stems);
+  const stems = zoomStems(song);
   const duration = song.duration || 0;
   const N = Math.ceil((duration + 0.5) * RATE);
   const decoded = [];
