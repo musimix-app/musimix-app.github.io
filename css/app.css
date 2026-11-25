@@ -604,3 +604,53 @@ dialog .two { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
 .player.fullstage .big .big-chord { display: none; }
 .player.fullstage .fs-hint { display: block; position: absolute; bottom: 3vh; left: 0; right: 0; text-align: center; font-size: 14px; color: var(--ink-3); animation: fs-hint 6s forwards; pointer-events: none; }
 @keyframes fs-hint { 0%, 70% { opacity: 1; } 100% { opacity: 0; } }
+
+/* ---------- Accordeur ---------- */
+dialog.tuner-dlg { width: min(460px, calc(100vw - 20px)); }
+.tuner { --tu: var(--chord); gap: 14px; }
+.tuner.near { --tu: var(--c-harmony-2); }
+.tuner.ok { --tu: #1fae6a; }
+.tu-head { display: flex; align-items: center; justify-content: space-between; }
+.tu-modes { display: flex; gap: 6px; overflow-x: auto; scrollbar-width: none; margin: 0 -2px; padding: 2px; }
+.tu-modes button { flex: none; border: 1px solid var(--line-2); background: var(--surface-2); color: var(--ink-2); border-radius: 999px; padding: 7px 13px; font: 600 13px var(--font-ui); cursor: pointer; }
+.tu-modes button.on { background: var(--ink); color: var(--bg); border-color: var(--ink); }
+.tu-stage { position: relative; background: radial-gradient(120% 90% at 50% 100%, var(--surface-2), var(--surface)); border: 1px solid var(--line); border-radius: var(--radius-l); padding: 14px 10px 10px; overflow: hidden; }
+.tuner.ok .tu-stage { box-shadow: inset 0 0 0 2px #1fae6a55, 0 0 34px #1fae6a33; }
+.tu-dial { display: block; width: 100%; height: auto; }
+.tu-track { fill: none; stroke: var(--surface-3); stroke-width: 14; stroke-linecap: round; }
+.tu-ok { fill: none; stroke: #1fae6a; stroke-width: 14; opacity: .35; transition: opacity .2s; }
+.tuner.ok .tu-ok { opacity: 1; }
+.tu-ticks line { stroke: var(--ink-3); stroke-width: 1.2; }
+.tu-ticks line.big { stroke: var(--ink-2); stroke-width: 2; }
+.tu-labs text { fill: var(--ink-3); font: 600 10px var(--font-ui); text-anchor: middle; dominant-baseline: middle; }
+.tu-side { fill: var(--ink-3); font: 500 22px var(--font-display); text-anchor: middle; }
+.tu-needle line { stroke: var(--ink-3); stroke-width: 3.5; stroke-linecap: round; transition: stroke .25s; }
+.tu-needle circle { fill: var(--ink-3); transition: fill .25s; }
+.tuner.live .tu-needle line { stroke: var(--tu); }
+.tuner.live .tu-needle circle { fill: var(--tu); }
+.tu-read { text-align: center; margin-top: -2px; }
+.tu-note { display: inline-flex; align-items: flex-start; line-height: 1; color: var(--ink-3); transition: color .25s; }
+.tuner.live .tu-note { color: var(--ink); }
+.tuner.ok .tu-note { color: #1fae6a; }
+.tu-note b { font: 600 64px/0.9 var(--font-display); font-variation-settings: 'opsz' 96; }
+.tu-note sup { font: 600 28px var(--font-display); margin-left: 2px; }
+.tu-note sub { font: 600 16px var(--font-ui); color: var(--ink-3); align-self: flex-end; margin-left: 2px; }
+.tu-cents { font: 600 13px var(--font-ui); color: var(--ink-3); font-variant-numeric: tabular-nums; margin-top: 4px; }
+.tuner.live .tu-cents { color: var(--tu); }
+.tu-msg { text-align: center; font-weight: 600; min-height: 1.4em; }
+.tuner.ok .tu-msg { color: #1fae6a; }
+.tu-strings { display: flex; gap: 6px; justify-content: center; align-items: center; flex-wrap: wrap; }
+.tu-strings [data-s] { position: relative; width: 46px; height: 52px; border-radius: 12px; border: 1px solid var(--line-2); background: var(--surface-2); color: var(--ink); cursor: pointer; display: grid; place-content: center; gap: 1px; transition: all .2s var(--ease); }
+.tu-strings [data-s] b { font: 600 18px var(--font-display); }
+.tu-strings [data-s] small { font: 600 10px var(--font-ui); color: var(--ink-3); }
+.tu-strings [data-s].cur { border-color: var(--tu); box-shadow: 0 0 0 2px var(--tu); transform: translateY(-2px); }
+.tu-strings [data-s].lock { background: var(--ink); color: var(--bg); }
+.tu-strings [data-s].lock small { color: var(--bg); opacity: .7; }
+.tu-strings [data-s].done::after { content: '✓'; position: absolute; top: -6px; right: -6px; width: 18px; height: 18px; border-radius: 50%; background: #1fae6a; color: #fff; font: 700 11px/18px var(--font-ui); text-align: center; }
+.tu-auto { font: 600 12px var(--font-ui); color: var(--ink-3); padding: 0 6px; }
+.tu-auto button { border: 0; background: none; color: var(--focus); font: inherit; text-decoration: underline; cursor: pointer; }
+.tu-foot { display: flex; justify-content: space-between; align-items: center; color: var(--ink-3); font: 600 13px var(--font-ui); font-variant-numeric: tabular-nums; }
+.tu-a4 { display: inline-flex; align-items: center; gap: 4px; }
+.tu-a4 button { width: 26px; height: 26px; border-radius: 50%; border: 1px solid var(--line-2); background: var(--surface-2); color: var(--ink); cursor: pointer; }
+.tu-a4 output { min-width: 28px; text-align: center; color: var(--ink); }
+.tuner.off .tu-stage { opacity: .5; }

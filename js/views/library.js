@@ -22,6 +22,7 @@ export class LibraryView {
         <button class="studio-pill sync-pill" data-act="sync" hidden>${icon('sync')}<span></span></button>
         <button class="studio-pill" data-act="studio"><i></i><span>Studio</span></button>
         <button class="icon-btn" data-act="setlists" aria-label="Setlists" title="Setlists">${icon('list')}</button>
+        <button class="icon-btn" data-act="tuner" aria-label="Accordeur" title="Accordeur">${icon('tuner')}</button>
         <button class="icon-btn" data-act="settings" aria-label="Réglages" title="Réglages">${icon('settings')}</button>
       </header>
       <main class="library">
@@ -156,6 +157,7 @@ export class LibraryView {
       if (a === 'import') this.app.importDialog();
       else if (a === 'demo') this.app.loadDemo();
       else if (a === 'settings') this.app.go('#/settings');
+      else if (a === 'tuner') import('../tuner.js').then((m) => m.tunerDialog(this.app));
       else if (a === 'setlists') this.app.go('#/setlists');
       else if (a === 'studio') this.app.studioDialog();
       else if (a === 'sync') { const sy = this.app.sync; if (sy.state === 'reconnect') sy.connect().catch((err) => toast(err.message, 6000)); else if (sy.state === 'error') this.app.go('#/settings'); else sy.run(); }

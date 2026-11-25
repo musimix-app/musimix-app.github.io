@@ -87,6 +87,7 @@ export class PlayerView {
             <button data-mode="stage" title="Mode scène : texte en très grand">Scène</button>
             <button data-mode="grid" title="Grille d’accords par mesure">Grille</button>
           </div>
+          <button class="icon-btn" data-act="tuner" aria-label="Accordeur" title="Accordeur (T)">${icon('tuner')}</button>
           <button class="icon-btn" data-act="fullstage" aria-label="Scène plein écran" title="Scène plein écran (P)">${icon('stage')}</button>
           <button class="icon-btn" data-act="text" aria-label="Taille du texte">${icon('textsize')}</button>
           <button class="icon-btn" data-act="menu" aria-label="Plus d’actions">${icon('more')}</button>
@@ -1114,6 +1115,7 @@ export class PlayerView {
       case 'sheet-opts': this.openSheet('opts'); break;
       case 'mix-reset': this.applyPreset('all'); break;
       case 'fullstage': this.enterFullStage(); break;
+      case 'tuner': import('../tuner.js').then((m) => m.tunerDialog(this.app)); break;
       case 'prog-': case 'prog+': {
         p.progStart = Math.min(0.95, Math.max(0.5, Math.round(((p.progStart ?? 0.7) + (a === 'prog+' ? 0.05 : -0.05)) * 100) / 100));
         this.el.querySelectorAll('[data-r="prog"]').forEach((o) => { o.textContent = Math.round(p.progStart * 100) + ' %'; });
@@ -1152,6 +1154,7 @@ export class PlayerView {
     else if (k === 'f' || k === 'F') this.setMode(this.mode === 'stage' ? 'lyrics' : 'stage');
     else if (k === 'g' || k === 'G') this.setMode(this.mode === 'grid' ? 'lyrics' : 'grid');
     else if (k === 'p' || k === 'P') { if (this.fullStage) this.exitFullStage(); else this.enterFullStage(); }
+    else if ((k === 't' || k === 'T') && !document.querySelector('dialog[open]')) import('../tuner.js').then((m) => m.tunerDialog(this.app));
     else if (k === 'Escape') { if (this.fullStage) { this.exitFullStage(); return; } this.closeSheets(); if (this.mode === 'stage') this.setMode('lyrics'); }
     else if (k === 'PageDown' || k === 'ArrowDown' && this.mode === 'stage') { e.preventDefault(); this.pedal(1); }
     else if (k === 'PageUp' || k === 'ArrowUp' && this.mode === 'stage') { e.preventDefault(); this.pedal(-1); }
