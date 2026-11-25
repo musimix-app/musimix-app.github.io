@@ -18,7 +18,7 @@ function pickLyrics(results, duration) {
   return best || null;
 }
 
-export async function prepareSong(songId, { separate = true, quality = 'best', lyrics = true, chords = true, restart = false, title, artist, onProgress = () => {}, signal } = {}) {
+export async function prepareSong(songId, { separate = true, quality = 'best', lyrics = true, chords = true, restart = false, sheet = '', title, artist, onProgress = () => {}, signal } = {}) {
   const report = { separated: false, lyrics: null, chords: 0, bpm: null, key: null };
   let song = await db.getSong(songId);
   if (!song) throw new Error('Morceau introuvable');
@@ -61,6 +61,14 @@ export async function prepareSong(songId, { separate = true, quality = 'best', l
   onProgress({ progress: 0.97, message: 'Mise en place des paroles et des accords…' });
   const fresh = await db.getSong(songId);
   if (restart) fresh.doc = { meta: fresh.doc.meta || {}, lines: [] };
+  if (sheet.trim()) {
+    // grille collée (page entière d'un site acceptée : le tri est fait par parseSheet)
+    const doc = parseSheet(sheet);
+    fresh.doc = { meta: { ...(fresh.doc.meta || {}), ...doc.meta }, lines: doc.lines };
+    if (doc.meta.key) fresh.key = doc.meta.key;
+    if (doc.meta.capo != null) fresh.capo = doc.meta.capo;
+    report.sheet = true;
+  }
   const hadLyrics = lyricLines(fresh.doc).length > 0;
   const hadChords = fresh.doc.lines.some((l) => l.chords?.length);
   if (found) {

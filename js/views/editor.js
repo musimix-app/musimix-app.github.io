@@ -80,7 +80,7 @@ export class EditorView {
           <span class="spacer"></span>
           <span class="stepper" title="Transposer le texte"><button data-act="tt-">−</button><output>Ton</output><button data-act="tt+">+</button></span>
         </div>
-        <div class="callout" data-r="grid-hint" hidden style="margin:10px 16px 0">Ce texte ressemble à une grille « accords au-dessus des paroles ». <button class="btn small" data-act="convert">Convertir en ChordPro</button></div>
+        <div class="callout" data-r="grid-hint" hidden style="margin:10px 16px 0">Ce texte ressemble à une grille « accords au-dessus des paroles » (une page entière copiée d’un site convient : en-tête, pubs, doigtés, tablatures et notes sont retirés). <button class="btn small" data-act="convert">Convertir en ChordPro</button></div>
         <textarea spellcheck="false" aria-label="Paroles et accords au format ChordPro" placeholder="Colle ici les paroles, une grille copiée d’un site (accords au-dessus des paroles) ou du ChordPro.&#10;&#10;[G]Exemple de [C]ligne avec [D]accords">${esc(text)}</textarea>
       </div>
       <div class="pane">

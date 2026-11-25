@@ -259,6 +259,8 @@ class App extends EventTarget {
         <label class="field">Artiste<input type="text" name="artist" value="${esc(song.artist || '')}"></label>
       </div>
       <p class="note">Titre et artiste exacts = paroles trouvées plus sûrement.</p>
+      <label class="field">Ta grille (facultatif) <span class="hint">colle toute la page copiée d’un site de grilles : le tri est fait tout seul</span>
+        <textarea name="sheet" rows="4" placeholder="Accords au-dessus des paroles… Laisse vide pour garder la grille actuelle ou détecter les accords."></textarea></label>
       <div class="opt-row"><span>Séparer les pistes<br><small class="note">voix, batterie, basse, guitare, piano, autres${already ? ' · déjà fait : refaire ?' : ''}</small></span><label class="switch"><input type="checkbox" name="separate" ${already ? '' : 'checked'}><i></i></label></div>
       <div class="opt-row" data-r="qrow"><span>Qualité</span><span class="seg"><button type="button" data-q="best">Max</button><button type="button" data-q="fast">Rapide</button></span></div>
       <div class="callout" data-r="info">Vérification de la carte graphique…</div>
@@ -288,7 +290,7 @@ class App extends EventTarget {
       if (q) { quality = q.dataset.q; info(); return; }
       if (e.target.closest('[data-go]')) {
         e.preventDefault();
-        const opts = { quality, separate: f.separate.checked, lyrics: f.lyrics.checked, chords: f.chords.checked, restart: !!f.restart?.checked, title: f.title.value.trim(), artist: f.artist.value.trim() };
+        const opts = { quality, separate: f.separate.checked, lyrics: f.lyrics.checked, chords: f.chords.checked, restart: !!f.restart?.checked, sheet: f.sheet.value, title: f.title.value.trim(), artist: f.artist.value.trim() };
         if (!opts.separate && !opts.lyrics && !opts.chords) { toast('Coche au moins une étape'); return; }
         d.close();
         this.runSeparation(song, opts);

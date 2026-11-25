@@ -58,13 +58,84 @@ function isChordLine(line) {
 // ─────────────────────────────────────────────────────────── lecture ──
 
 export function looksLikeChordPro(text) {
-  return /\[[A-G][^\]\s]*\]/.test(text) || /^\s*\{\s*\w+\s*[:}]/m.test(text);
+  // [Am] dans le texte = ChordPro ; mais [Intro], [Chorus], [Bridge]… (sites de grilles) n'en sont pas
+  for (const m of String(text).matchAll(/\[([^\]\s]+)\]/g)) if (isChord(m[1])) return true;
+  return /^\s*\{\s*\w+\s*[:}]/m.test(text);
+}
+
+// ───────────────────────────────────────────── page copiée d'un site ──
+
+const FR_NOTES = { do: 'C', 'ré': 'D', re: 'D', mi: 'E', fa: 'F', sol: 'G', la: 'A', si: 'B' };
+const JUNK = [
+  /https?:\/\//i, /^\s*`+\s*$/, /^\s*`?x`?\s*$/i,
+  /^\s*(author|auteur)\b.*$/i, /^\s*(par|by)\s*\[/i, /\b\d[\d\s.,]*\s*(vues|views|enregistrements|saves|commentaires|comments)\b/i,
+  /^\s*(vitesse|speed|transposer|transpose|autoscroll|difficult[ée]|difficulty|accordage|tuning|strumming|rythmique)\b.*$/i,
+  /^\s*(derni[èe]re mise à jour|last update|updated)\b/i, /^\s*(print|imprimer|report bad tab|signaler)\b/i,
+];
+const CUT_AT = /^\s*(\*\*)?\s*\[?\s*(notes?|tab notes|comments?|commentaires)\s*\]?\s*(\*\*)?\s*:?\s*$|^\s*\[\s*end\s*\]\s*$/i;
+
+/**
+ * Nettoie une page de grille copiée d'un site (Ultimate Guitar, Boite à chansons…) :
+ * en-tête, liens, compteurs, réglages, table des doigtés, tablatures, notes et pied de page partent ;
+ * restent les sections et les accords au-dessus des paroles. Retourne { text, meta, cleaned }.
+ */
+export function cleanPastedSheet(input) {
+  let text = String(input || '').replace(/\r\n?/g, '\n').replace(/\t/g, '    ').replace(/ /g, ' ');
+  const meta = {};
+  const alias = {};
+  const lines = text.split('\n');
+  const isDefsHeader = (l) => /^\s*\[\s*chords?\s*\]\s*$/i.test(l);
+  const startIdx = lines.findIndex((l) => SECTION_RE.test(l) && !isDefsHeader(l));
+  const out = [];
+  let cleaned = false;
+  for (let i = 0; i < lines.length; i++) {
+    const ln = lines[i];
+    const t = ln.trim();
+    // métadonnées utiles, où qu'elles soient
+    if (/(tonalit[ée]|^key|\bkey\s*:|^tom\b)/i.test(t) && !meta.key) {
+      const k = /(?:tonalit[ée]|key|tom)\s*:?\s*([A-G][#b♯♭]?m?|do|r[ée]|mi|fa|sol|la|si)\b(\s*(?:mineur|minor))?/i.exec(t);
+      if (k) {
+        let n = k[1]; const fr = FR_NOTES[n.toLowerCase()];
+        if (fr) n = fr; else n = n[0].toUpperCase() + n.slice(1);
+        meta.key = n + (k[2] && !/m$/.test(n) ? 'm' : '');
+      }
+    }
+    const capo = /capo\s*:?\s*(\d+)/i.exec(t);
+    if (capo && meta.capo == null) meta.capo = +capo[1];
+    else if (/capo\s*:?\s*(pas de capo|no capo|sans|none|aucun)/i.test(t) && meta.capo == null) meta.capo = 0;
+    // alias de doigtés : « F#m(4th) = F#m* »
+    const al = /^\s*([A-G]\S*?)(?:\(.*?\))?\s*=\s*(\S+\*)\s*(:.*)?$/.exec(t);
+    if (al) alias[al[2]] = al[1];
+    if (startIdx > 0 && i < startIdx) { if (t) cleaned = true; continue; } // en-tête avant la 1re section
+    if (CUT_AT.test(t)) { cleaned = true; break; } // notes d'explication, fin
+    if (isDefsHeader(t)) { cleaned = true; continue; }
+    // table des doigtés : « D : x-x-0-2-3-2 »
+    if (/^\S+(\s*\(.*?\))?(\s*=\s*\S+)?\s*:\s*[x\d]{1,2}([- ][x\d]{1,2}){3,}$/i.test(t)) { cleaned = true; continue; }
+    if (JUNK.some((re) => re.test(t))) { cleaned = true; continue; }
+    if (/^\s*[eBGDAE]\|/.test(ln)) { cleaned = true; continue; } // tablature
+    out.push(ln);
+  }
+  // accords « F#m* » → nom réel ; annotations « (organ) » retirées des lignes d'accords
+  const chordish = (tk) => isChord(tk.replace(/\*+$/, '')) || /^\(?x\d+\)?$|^\d+x$|^\(.*\)$|^[|/%-]+$/i.test(tk);
+  const fixed = out.map((ln) => {
+    const toks = ln.trim().split(/\s+/).filter(Boolean);
+    if (!toks.length || !toks.every(chordish) || !toks.some((tk) => isChord(tk.replace(/\*+$/, '')))) return ln;
+    return ln.replace(/(\S+?)(\*+)(?=\s|$)/g, (m, c, st) => {
+      const real = alias[c + st] || c;
+      return real + ' '.repeat(Math.max(0, m.length - real.length));
+    }).replace(/\(([^)]*)\)/g, (m, inner) => (isChord(inner) ? m : ' '.repeat(m.length)));
+  });
+  text = fixed.join('\n').replace(/\n{3,}/g, '\n\n').trim();
+  return { text, meta, cleaned };
 }
 
 /** Lit du ChordPro, une grille « accords au-dessus des paroles » ou des paroles simples. */
 export function parseSheet(text) {
   text = String(text || '').replace(/\r\n?/g, '\n').replace(/\t/g, '    ').replace(/ /g, ' ');
-  const doc = looksLikeChordPro(text) ? parseChordPro(text) : parseGrid(text);
+  if (looksLikeChordPro(text)) { const d = parseChordPro(text); markChorus(d.lines); return d; }
+  const c = cleanPastedSheet(text);
+  const doc = parseGrid(c.text);
+  doc.meta = { ...c.meta, ...doc.meta };
   markChorus(doc.lines);
   return doc;
 }
@@ -149,6 +220,10 @@ function parseGrid(text) {
           let p = c.pos - lead;
           if (p < 0) p = 0;
           while (p < t.length && t[p] === ' ') p++;
+          // accord tombé au milieu d'un mot (alignement approximatif des sites) : début du mot s'il est tout près
+          let b = p;
+          while (b > 0 && /[\p{L}\p{N}'’]/u.test(t[b - 1])) b--;
+          if (p - b > 0 && p - b <= 3) p = b;
           return { pos: Math.min(p, t.length), name: c.name };
         });
         lines.push({ type: 'lyric', text: t, chords: dedupePos(snapped) });
