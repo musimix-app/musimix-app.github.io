@@ -1077,6 +1077,7 @@ export class PlayerView {
           { icon: 'mix', label: 'Tout préparer (pistes, paroles, accords)', action: () => this.app.separateDialog(this.song) },
           { icon: 'mix', label: 'Exporter pour Zoom R20', action: () => this.app.zoomExport(this.song) },
           { icon: 'list', label: 'Ajouter à une setlist', action: () => this.app.addToSetlist(this.song) },
+          { icon: 'upload', label: this.song.shared ? 'Ne plus partager' : 'Partager par lien', action: () => this.app.toggleShare(this.song) },
         ]);
         break;
       case 'sheet-mix': this.openSheet('mix'); break;

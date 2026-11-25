@@ -13,6 +13,9 @@
 import { db, dbEvents } from './db.js';
 
 // Identifiant client OAuth (Google Cloud → Identifiants). Peut aussi être collé dans Réglages.
+// Clé de lecture publique (restreinte à ce site et à l'API Drive) : lire un dossier partagé sans connexion.
+export const SHARE_API_KEY = 'AIzaSyDbsxDD9xwbEAi6WMmRBzEu4nWWuGbab80';
+
 export const DEFAULT_CLIENT_ID = '408370398326-3l1jrt7rhtd1sp3isfe55br0t1shp6am.apps.googleusercontent.com';
 
 const SCOPE = 'https://www.googleapis.com/auth/drive.file email';
@@ -332,6 +335,111 @@ export class Sync extends EventTarget {
     await db.set('syncTombs', tombs);
     if (changedRemote) await this.putSmall({ fileId: rSets?.id, name: 'setlists.json', folder, appProperties: { kind: 'setlists' }, data: JSON.stringify({ items: mItems, tombs: mTombs }) });
     if (changedLocal || changedRemote) n++;
+    try { n += await this.sharePass(); } catch (e) { console.warn('[partage]', e); this.shareError = e.message; }
     return n;
   }
+
+  // ───────────────────────────────────────────── partage par lien ──
+  // Dossier « MusiMix – partagé » lisible par toute personne qui a le lien (et seulement elle) :
+  //   index.json (liste), morceau-<id>.json (fiche), audio-<blobId> (pistes). Mis à jour à chaque synchro.
+
+  get shareFolderId() { return this.conf.shareFolder || null; }
+  shareLink(id = this.shareFolderId) { return id ? `${location.origin}${location.pathname}#/partage/${id}` : ''; }
+
+  async shareFolder(create) {
+    const c = this.conf;
+    if (c.shareFolder) {
+      try { const f = await this.api(`${API}/files/${c.shareFolder}?fields=id,trashed`); if (!f.trashed) return c.shareFolder; } catch (e) { if (e.status !== 404) throw e; }
+    }
+    const q = encodeURIComponent("appProperties has { key='musimixShare' and value='1' } and trashed=false");
+    const r = await this.api(`${API}/files?q=${q}&fields=files(id)&spaces=drive`);
+    let id = r.files[0]?.id;
+    if (!id && !create) return null;
+    if (!id) {
+      id = (await this.api(`${API}/files?fields=id`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: 'MusiMix – partagé', mimeType: 'application/vnd.google-apps.folder', appProperties: { musimixShare: '1' } }),
+      })).id;
+      // lisible par qui a le lien (pas listé publiquement)
+      await this.api(`${API}/files/${id}/permissions?fields=id`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ role: 'reader', type: 'anyone', allowFileDiscovery: false }) });
+    }
+    const c2 = this.conf; c2.shareFolder = id; lsSet(c2);
+    this.dispatchEvent(new Event('change'));
+    return id;
+  }
+
+  async sharePass() {
+    const songs = await db.allSongs();
+    const shared = songs.filter((s) => s.shared);
+    const folder = await this.shareFolder(shared.length > 0);
+    if (!folder) return 0;
+    const files = await this.listAll(folder);
+    const rJson = new Map(), rAudio = new Map();
+    let rIndex = null;
+    for (const f of files) {
+      const ap = f.appProperties || {};
+      if (ap.sid) rJson.set(ap.sid, { id: f.id, upd: +ap.upd || 0 });
+      else if (ap.bid) rAudio.set(ap.bid, f.id);
+      else if (f.name === 'index.json') rIndex = f;
+    }
+    let n = 0;
+    const keep = new Set();
+    for (const s of shared) {
+      const stems = (s.stems || []).filter((st) => st.blobId);
+      for (const st of stems) {
+        keep.add(st.blobId);
+        if (rAudio.has(st.blobId)) continue;
+        const blob = await db.getBlob(st.blobId);
+        if (!blob) continue;
+        this.set('syncing', `Partage de « ${s.title || 'morceau'} »…`);
+        const f = await this.putAudio({ name: `audio-${st.blobId}`, folder, appProperties: { bid: st.blobId }, blob });
+        rAudio.set(st.blobId, f.id);
+      }
+      const R = rJson.get(s.id);
+      if (!R || R.upd < (s.updatedAt || 0)) {
+        const { shared: _s, playCount, lastPlayedAt, sharedFrom, ...pub } = s;
+        const f = await this.putSmall({ fileId: R?.id, name: `morceau-${s.id}.json`, folder, appProperties: { sid: s.id, upd: String(s.updatedAt || 0) }, data: JSON.stringify(pub) });
+        rJson.set(s.id, { id: f.id, upd: s.updatedAt || 0 });
+        n++;
+      }
+    }
+    // morceaux qui ne sont plus partagés : retirés du dossier
+    const sharedIds = new Set(shared.map((s) => s.id));
+    for (const [sid, R] of rJson) if (!sharedIds.has(sid)) { await this.api(`${API}/files/${R.id}`, { method: 'DELETE' }, 'none').catch(() => {}); rJson.delete(sid); n++; }
+    for (const [bid, fid] of rAudio) if (!keep.has(bid)) { await this.api(`${API}/files/${fid}`, { method: 'DELETE' }, 'none').catch(() => {}); rAudio.delete(bid); }
+    // index (seulement s'il a changé)
+    const index = {
+      format: 'musimix-partage-1',
+      songs: shared.map((s) => ({ id: s.id, title: s.title, artist: s.artist, duration: s.duration, key: s.key, bpm: s.bpm, upd: s.updatedAt || 0, json: rJson.get(s.id)?.id, stems: (s.stems || []).filter((st) => st.blobId && rAudio.has(st.blobId)).map((st) => ({ bid: st.blobId, file: rAudio.get(st.blobId), size: st.size || 0 })) }))
+        .sort((a, b) => (a.title || '').localeCompare(b.title || '', 'fr')),
+    };
+    const sig = JSON.stringify(index.songs.map((x) => [x.id, x.upd, x.title, x.artist, x.stems.length]));
+    if (!rIndex || this.conf.shareSig !== sig) {
+      await this.putSmall({ fileId: rIndex?.id, name: 'index.json', folder, appProperties: { kind: 'index' }, data: JSON.stringify({ ...index, at: Date.now() }) });
+      const c = this.conf; c.shareSig = sig; lsSet(c);
+      n++;
+    }
+    return n;
+  }
+}
+
+// ───────────────────────────────────────────── lecture d'un partage (sans compte) ──
+
+const pub = (path) => `${API}/${path}${path.includes('?') ? '&' : '?'}key=${SHARE_API_KEY}`;
+
+export async function readShare(folderId) {
+  const q = encodeURIComponent(`'${folderId}' in parents and trashed=false and name='index.json'`);
+  const r = await fetch(pub(`files?q=${q}&fields=files(id)&supportsAllDrives=true`));
+  if (!r.ok) throw new Error(r.status === 404 || r.status === 403 ? 'Ce lien de partage n’existe plus, ou n’est pas encore prêt.' : `Lecture du partage impossible (${r.status})`);
+  const id = (await r.json()).files?.[0]?.id;
+  if (!id) throw new Error('Ce partage est vide pour l’instant.');
+  const ix = await fetch(pub(`files/${id}?alt=media`));
+  if (!ix.ok) throw new Error(`Lecture du partage impossible (${ix.status})`);
+  return ix.json();
+}
+
+export async function fetchShareFile(fileId, kind = 'json') {
+  const r = await fetch(pub(`files/${fileId}?alt=media`));
+  if (!r.ok) throw new Error(`Téléchargement impossible (${r.status})`);
+  return kind === 'blob' ? r.blob() : r.json();
 }

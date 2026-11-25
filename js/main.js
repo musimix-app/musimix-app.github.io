@@ -6,6 +6,7 @@ import { Studio } from './studio.js';
 import { Sync, DEFAULT_CLIENT_ID } from './sync.js';
 import { QUALITIES, modelInfo } from './separate.js';
 import { prepareSong } from './prepare.js';
+import { SharedView } from './views/shared.js';
 import { esc, icon, toast, dialog, pickFiles, confirmBox } from './ui.js';
 import { importFiles, importPack, importSingleAudio, guessTitleArtist, newSong, STEM_KINDS } from './songs.js';
 import { parseSheet, docFromSongJson, fillLineEnds } from './sheet.js';
@@ -99,6 +100,10 @@ class App extends EventTarget {
       await this.view.open(song, extra || 'text');
     } else if (name === 'setlists') {
       this.view = new SetlistsView(this);
+      await this.view.open(id);
+    } else if (name === 'partage' && id) {
+      this.view = new SharedView(this);
+      document.title = 'Morceaux partagés · MusiMix';
       await this.view.open(id);
     } else if (name === 'settings') {
       this.view = { close: () => this.settingsEl?.remove() };
@@ -243,6 +248,42 @@ class App extends EventTarget {
       this.dispatchEvent(new Event('jobs'));
       setTimeout(() => { this.jobs.delete(key); this.dispatchEvent(new Event('jobs')); }, 15000);
     }
+  }
+
+  /** Partager / ne plus partager un morceau (dossier Drive lisible par lien). */
+  async toggleShare(song) {
+    const sy = this.sync;
+    if (!sy.enabled) {
+      if (await confirmBox('Partager par lien', 'Le partage passe par ton Google Drive : connecte d’abord la synchronisation (Réglages → Synchronisation Google Drive).', { ok: 'Ouvrir les réglages' })) this.go('#/settings');
+      return;
+    }
+    const fresh = await db.getSong(song.id);
+    fresh.shared = !fresh.shared;
+    await db.putSong(fresh);
+    Object.assign(song, { shared: fresh.shared, updatedAt: fresh.updatedAt });
+    if (this.view instanceof LibraryView) this.view.render?.();
+    if (fresh.shared) {
+      toast(`« ${fresh.title} » sera partagé à la prochaine synchro (quelques secondes)`, 5000);
+      await sy.run();
+      this.shareDialog();
+    } else {
+      toast(`« ${fresh.title} » n’est plus partagé`);
+      sy.run();
+    }
+  }
+
+  async shareDialog() {
+    const sy = this.sync;
+    const link = sy.shareLink();
+    const n = (await db.allSongs()).filter((x) => x.shared).length;
+    const d = dialog(`<form method="dialog"><h2>Ton lien de partage</h2>
+      ${link ? `<p>Envoie ce lien aux personnes avec qui tu joues : elles verront tes <b>${n} morceau${n > 1 ? 'x' : ''} partagé${n > 1 ? 's' : ''}</b> et pourront les ajouter à leur MusiMix, sans compte. Les autres morceaux restent privés.</p>
+      <label class="field"><input type="text" readonly value="${esc(link)}" data-r="link"></label>
+      <p class="note">C’est le même lien pour tous tes morceaux partagés. Il marche tant que le partage existe ; un morceau que tu ne partages plus en disparaît. Garde-le pour ton cercle (les enregistrements sont protégés par le droit d’auteur).</p>`
+      : '<p>Le dossier de partage se crée à la prochaine synchro. Réessaie dans quelques secondes.</p>'}
+      <div class="actions"><button class="btn ghost" data-close="">Fermer</button>${link ? `${navigator.share ? `<button class="btn" type="button" data-share>${icon('upload')} Envoyer…</button>` : ''}<button class="btn primary" type="button" data-copy>Copier le lien</button>` : ''}</div></form>`);
+    d.el.querySelector('[data-copy]')?.addEventListener('click', async () => { try { await navigator.clipboard.writeText(link); toast('Lien copié'); } catch { d.el.querySelector('[data-r="link"]').select(); toast('Sélectionné : fais Copier'); } });
+    d.el.querySelector('[data-share]')?.addEventListener('click', () => navigator.share({ title: 'Mes morceaux MusiMix', text: 'Mes morceaux partagés dans MusiMix (paroles, accords, pistes) :', url: link }).catch(() => {}));
   }
 
   /** « Tout préparer » dans le navigateur (sans le Studio) : pistes, paroles synchronisées, accords. */
@@ -467,6 +508,10 @@ class App extends EventTarget {
             <p class="note">Adresse à autoriser chez Google (origine et redirection) : <b>${esc(location.origin)}</b> et <b>${esc(location.origin + location.pathname)}</b></p>
           </details>
         </div>
+        <div class="group"><h2>Partage par lien</h2>
+          <p class="note">Menu d’un morceau → <b>Partager par lien</b>. Les morceaux partagés vont dans un dossier « MusiMix – partagé » de ton Drive, lisible seulement par qui a le lien ; les autres restent privés.</p>
+          <div class="row" style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn" data-act="sharelink">${icon('upload')} Voir mon lien de partage</button></div>
+        </div>
         <div class="group"><h2>Stockage</h2>
           <p class="note">${est ? `${fmtBytes(est.usage)} utilisés sur cet appareil.` : ''} Les morceaux restent sur l’appareil, même hors ligne. Sans synchronisation : menu d’un morceau → Télécharger le pack, puis l’ouvrir dans MusiMix sur l’autre appareil.</p>
         </div>
@@ -523,6 +568,7 @@ class App extends EventTarget {
       if (a === 'back') this.go('#/');
       if (a === 'gconnect') { try { await sy.connect(); } catch (err) { toast(err.message, 6000); el.querySelector('[data-r="gid"]').open = true; } }
       if (a === 'gsync') sy.run();
+      if (a === 'sharelink') { if (!sy.enabled) toast('Connecte d’abord la synchronisation Google Drive', 5000); else this.shareDialog(); }
       if (a === 'gdisconnect' && (await confirmBox('Déconnecter Google Drive ?', 'Les morceaux restent sur cet appareil et dans ton Drive ; ils ne se synchroniseront plus ici.', { ok: 'Déconnecter' }))) sy.disconnect();
       if (a === 'studio') this.studioDialog();
     });

@@ -120,7 +120,7 @@ export class LibraryView {
       const stems = s.stems.length > 1;
       const k = songKey(s);
       return `<li class="song-row" data-id="${s.id}" tabindex="0" aria-label="${esc(s.title)}${s.artist ? ', ' + esc(s.artist) : ''}">
-        <div class="t"><b>${esc(s.title || 'Sans titre')}</b><span>${esc(s.artist || '—')}</span></div>
+        <div class="t"><b>${esc(s.title || 'Sans titre')}${s.shared ? ` <i class="shared-tag" title="Partagé par lien">partagé</i>` : ''}</b><span>${esc(s.artist || '—')}</span></div>
         <div class="meta">
           <span class="knobs" title="${[synced && 'Paroles synchronisées', chords && 'Accords', stems && 'Pistes séparées'].filter(Boolean).join(' · ') || 'Audio seul'}"><i class="knob voice ${synced ? 'on' : ''}"></i><i class="knob harmony ${chords ? 'on' : ''}"></i><i class="knob rhythm ${stems ? 'on' : ''}"></i></span>
           <span class="bpm">${s.bpm ? Math.round(s.bpm) + ' bpm' : ''}</span>
@@ -175,6 +175,7 @@ export class LibraryView {
       { icon: 'mix', label: 'Tout préparer (pistes, paroles, accords)', action: () => this.app.separateDialog(s) },
       { icon: 'mix', label: 'Exporter pour Zoom R20', action: () => this.app.zoomExport(s) },
       { icon: 'list', label: 'Ajouter à une setlist', action: () => this.app.addToSetlist(s) },
+      { icon: 'upload', label: s.shared ? 'Ne plus partager' : 'Partager par lien', action: () => this.app.toggleShare(s) },
       '-',
       { icon: 'trash', label: 'Supprimer', danger: true, action: async () => {
         if (!(await confirmBox('Supprimer ce morceau ?', `« ${s.title} » et ses pistes seront effacés${this.app.sync.enabled ? ' de tous tes appareils (synchro Google Drive)' : ' de cet appareil'}.`, { ok: 'Supprimer', danger: true }))) return;
