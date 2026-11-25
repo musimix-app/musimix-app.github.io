@@ -76,13 +76,13 @@ const CUT_AT = /^\s*(\*\*)?\s*\[?\s*(notes?|tab notes|comments?|commentaires)\s*
 
 /**
  * Nettoie une page de grille copiée d'un site (Ultimate Guitar, Boite à chansons…) :
- * en-tête, liens, compteurs, réglages, table des doigtés, tablatures, notes et pied de page partent ;
+ * en-tête, liens, compteurs, réglages, tablatures, notes et pied de page partent ; la table des doigtés
+ * devient meta.shapes (doigtés propres au morceau, « F#m* » compris) ;
  * restent les sections et les accords au-dessus des paroles. Retourne { text, meta, cleaned }.
  */
 export function cleanPastedSheet(input) {
   let text = String(input || '').replace(/\r\n?/g, '\n').replace(/\t/g, '    ').replace(/ /g, ' ');
   const meta = {};
-  const alias = {};
   const lines = text.split('\n');
   const isDefsHeader = (l) => /^\s*\[\s*chords?\s*\]\s*$/i.test(l);
   const startIdx = lines.findIndex((l) => SECTION_RE.test(l) && !isDefsHeader(l));
@@ -103,9 +103,14 @@ export function cleanPastedSheet(input) {
     const capo = /capo\s*:?\s*(\d+)/i.exec(t);
     if (capo && meta.capo == null) meta.capo = +capo[1];
     else if (/capo\s*:?\s*(pas de capo|no capo|sans|none|aucun)/i.test(t) && meta.capo == null) meta.capo = 0;
-    // alias de doigtés : « F#m(4th) = F#m* »
-    const al = /^\s*([A-G]\S*?)(?:\(.*?\))?\s*=\s*(\S+\*)\s*(:.*)?$/.exec(t);
-    if (al) alias[al[2]] = al[1];
+    // table des doigtés : « D : x-x-0-2-3-2 », « F#m(4th) = F#m* : x-x-4-6-7-5 » → doigtés du morceau
+    const def = /^([A-G][^\s:=]*?)(?:\(.*?\))?(?:\s*=\s*([A-G]\S*))?\s*:\s*([x\d]{1,2}(?:[- ][x\d]{1,2}){5})\s*$/i.exec(t);
+    if (def) {
+      const frets = def[3].split(/[- ]/).map((f) => (/x/i.test(f) ? -1 : +f));
+      // « F#m(4th) = F#m* » : le doigté est celui de F#m*, pas celui de F#m
+      const n = def[2] || def[1];
+      if (isChord(n)) { meta.shapes = meta.shapes || {}; meta.shapes[n] = frets; }
+    }
     if (startIdx > 0 && i < startIdx) { if (t) cleaned = true; continue; } // en-tête avant la 1re section
     if (CUT_AT.test(t)) { cleaned = true; break; } // notes d'explication, fin
     if (isDefsHeader(t)) { cleaned = true; continue; }
@@ -115,15 +120,12 @@ export function cleanPastedSheet(input) {
     if (/^\s*[eBGDAE]\|/.test(ln)) { cleaned = true; continue; } // tablature
     out.push(ln);
   }
-  // accords « F#m* » → nom réel ; annotations « (organ) » retirées des lignes d'accords
+  // annotations « (organ) » retirées des lignes d'accords (« F#m* » reste : doigté à part)
   const chordish = (tk) => isChord(tk.replace(/\*+$/, '')) || /^\(?x\d+\)?$|^\d+x$|^\(.*\)$|^[|/%-]+$/i.test(tk);
   const fixed = out.map((ln) => {
     const toks = ln.trim().split(/\s+/).filter(Boolean);
     if (!toks.length || !toks.every(chordish) || !toks.some((tk) => isChord(tk.replace(/\*+$/, '')))) return ln;
-    return ln.replace(/(\S+?)(\*+)(?=\s|$)/g, (m, c, st) => {
-      const real = alias[c + st] || c;
-      return real + ' '.repeat(Math.max(0, m.length - real.length));
-    }).replace(/\(([^)]*)\)/g, (m, inner) => (isChord(inner) ? m : ' '.repeat(m.length)));
+    return ln.replace(/\(([^)]*)\)/g, (m, inner) => (isChord(inner) ? m : ' '.repeat(m.length)));
   });
   text = fixed.join('\n').replace(/\n{3,}/g, '\n\n').trim();
   return { text, meta, cleaned };
@@ -155,6 +157,14 @@ function parseChordPro(text) {
       else if (k === 'capo') meta.capo = parseInt(v, 10) || 0;
       else if (k === 'tempo' || k === 'bpm') meta.bpm = parseFloat(v) || undefined;
       else if (k === 'album') meta.album = v;
+      else if (k === 'define') {
+        const d = /^(\S+)\s+(?:base-fret\s+(\d+)\s+)?frets\s+([x\d\s-]+?)(?:\s+fingers.*)?$/i.exec(v);
+        if (d) {
+          const bf = +(d[2] || 1);
+          const fr = d[3].trim().split(/\s+/).map((f) => (/x|-/i.test(f) ? -1 : +f === 0 ? 0 : +f + bf - 1));
+          if (fr.length === 6) { meta.shapes = meta.shapes || {}; meta.shapes[d[1]] = fr; }
+        }
+      }
       else if (['comment', 'c', 'ci', 'comment_italic', 'cb'].includes(k)) lines.push({ type: 'section', label: v, kind: sectionKind(v), chords: [] });
       else if (k === 'start_of_chorus' || k === 'soc') { inChorus = true; lines.push({ type: 'section', label: v || 'Refrain', kind: 'chorus', chords: [], explicit: true }); }
       else if (k === 'end_of_chorus' || k === 'eoc') { inChorus = false; }
@@ -297,8 +307,9 @@ export function toChordPro(doc, { withMeta = true } = {}) {
     if (m.key) out.push(`{key: ${m.key}}`);
     if (m.capo) out.push(`{capo: ${m.capo}}`);
     if (m.bpm) out.push(`{tempo: ${Math.round(m.bpm)}}`);
-    if (out.length) out.push('');
   }
+  for (const [n, fr] of Object.entries(m.shapes || {})) out.push(`{define: ${n} base-fret 1 frets ${fr.map((f) => (f < 0 ? 'x' : f)).join(' ')}}`);
+  if (out.length) out.push('');
   let chorusOpen = false;
   const closeChorus = () => { if (chorusOpen) { out.push('{end_of_chorus}'); chorusOpen = false; } };
   for (const l of doc.lines) {

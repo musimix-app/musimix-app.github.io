@@ -3,7 +3,7 @@
 
 import { esc, dialog } from './ui.js';
 import { renderSheet, chordDisplay, uniqueChords } from './render.js';
-import { diagramSVG, loadChordDb } from './diagrams.js';
+import { diagramSVG, loadChordDb, setSongShapes } from './diagrams.js';
 import { keyName } from './theory.js';
 
 export async function printDialog(app, songs, opts = {}) {
@@ -77,6 +77,7 @@ export async function printDialog(app, songs, opts = {}) {
 function songPage(song, st, preview = false) {
   const display = chordDisplay(song, st.transpose, 0);
   const doc = st.chords ? song.doc : { ...song.doc, lines: song.doc.lines.filter((l) => l.type !== 'chords').map((l) => ({ ...l, chords: [] })) };
+  setSongShapes(song.doc?.meta?.shapes);
   const chords = st.chords && st.diagrams ? uniqueChords(song.doc, display, song.detectedChords) : [];
   const facts = [];
   const k = display.keyLabel;

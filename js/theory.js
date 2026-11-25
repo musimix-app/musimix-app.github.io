@@ -60,7 +60,11 @@ const CHORD_RE = /^([A-G])(#|♯|b|♭)?([^/\s]*)(?:\/([A-G](?:#|♯|b|♭)?))?$
  */
 export function parseChord(raw) {
   if (!raw) return null;
-  const name = String(raw).trim().replace(/\s+/g, '');
+  let name = String(raw).trim().replace(/\s+/g, '');
+  // « F#m* » : même accord, autre doigté (repère des sites de grilles) ; l'étoile est gardée dans le nom
+  const mk = /\*+$/.exec(name);
+  const mark = mk ? mk[0] : '';
+  if (mark) name = name.slice(0, -mark.length);
   // 6/9, 7/9, 7/4 (notation brésilienne) : ce ne sont pas des basses
   const norm = name.replace(/6\/9/g, '69').replace(/\/(b|#)?(\d+)(?=$|\/|\()/g, '($1$2)');
   const m = CHORD_RE.exec(norm);
@@ -71,7 +75,7 @@ export function parseChord(raw) {
   if (!q) return null;
   const acc = (x) => (x || '').replace('♯', '#').replace('♭', 'b');
   return {
-    root, bass: bass === root ? null : bass, suffix: q.suffix, intervals: q.intervals, minor: q.minor, raw: name,
+    root, bass: bass === root ? null : bass, suffix: q.suffix, intervals: q.intervals, minor: q.minor, raw: name + mark, mark,
     rootName: m[1] + acc(m[2]), bassName: m[4] ? m[4][0] + acc(m[4].slice(1)) : null,
   };
 }
@@ -188,9 +192,10 @@ function canonicalSuffix(s0, out) {
 
 export function chordName(ch, key) {
   if (!ch) return '';
-  if (!key && ch.rootName) return ch.rootName + ch.suffix + (ch.bass !== null ? '/' + ch.bassName : '');
+  const mark = ch.mark || '';
+  if (!key && ch.rootName) return ch.rootName + ch.suffix + (ch.bass !== null ? '/' + ch.bassName : '') + mark;
   const sp = spelling(key);
-  return sp[ch.root] + ch.suffix + (ch.bass !== null ? '/' + sp[ch.bass] : '');
+  return sp[ch.root] + ch.suffix + (ch.bass !== null ? '/' + sp[ch.bass] : '') + mark;
 }
 
 /** Transpose un nom d'accord de n demi-tons, orthographié selon la tonalité cible. */

@@ -32,6 +32,28 @@ const TUNINGS = {
 };
 
 const cache = new Map();
+/** Doigtés donnés par la grille du morceau ({ 'F#m*': [-1,-1,4,6,7,5], D: […] }) : proposés en premier. */
+let SHAPES = {};
+let SHAPES_SIG = '';
+export function setSongShapes(shapes) {
+  const sig = JSON.stringify(shapes || {});
+  if (sig === SHAPES_SIG) return;
+  SHAPES = shapes || {}; SHAPES_SIG = sig;
+  for (const k of [...cache.keys()]) if (k.startsWith('guitar|')) cache.delete(k);
+}
+function customVoicing(frets) {
+  const fretted = frets.map((f, i) => [f, i]).filter(([f]) => f > 0);
+  const minF = fretted.length ? Math.min(...fretted.map(([f]) => f)) : 0;
+  const atMin = fretted.filter(([f]) => f === minF);
+  let barre = null;
+  if (atMin.length >= 2 && fretted.length > 4) {
+    const lo = Math.min(...atMin.map(([, i]) => i)), hi = Math.max(...atMin.map(([, i]) => i));
+    let ok = true;
+    for (let i = lo; i <= hi; i++) if (frets[i] === 0 || (frets[i] > 0 && frets[i] < minF)) ok = false;
+    if (ok) barre = { fret: minF, from: lo, to: hi };
+  }
+  return { frets: [...frets], fingers: assignFingers(frets, barre), base: Math.max(...frets) > 4 && minF > 1 ? minF : 1, barre: barre ? barre.fret : null, barreRange: barre, source: 'song' };
+}
 
 /** Liste de doigtés pour un accord : [{ frets:[…], fingers:[…], base, barre }] (frets absolues, -1 = étouffée). */
 export function voicings(name, instrument = 'guitar') {
@@ -58,6 +80,11 @@ export function voicings(name, instrument = 'guitar') {
     };
     list.sort((a, b) => rank(a) - rank(b));
     list = list.slice(0, 6);
+    const own = instrument === 'guitar' && SHAPES[name];
+    if (own && own.length === 6) {
+      const v = customVoicing(own);
+      list = [v, ...list.filter((x) => x.frets.join() !== v.frets.join())].slice(0, 6);
+    }
   }
   cache.set(ck, list);
   return list;

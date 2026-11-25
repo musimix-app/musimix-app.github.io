@@ -4,7 +4,7 @@ import { db } from '../db.js';
 import { esc, icon, fmtTime, toast, openMenu, drag, debounce, dialog } from '../ui.js';
 import { renderSheet, lyricLine, chordDisplay, songKey, uniqueChords } from '../render.js';
 import { chordTimeline, sectionsOf } from '../sheet.js';
-import { diagramSVG, voicings, chordFormula, loadChordDb } from '../diagrams.js';
+import { diagramSVG, voicings, chordFormula, loadChordDb, setSongShapes } from '../diagrams.js';
 import { STEM_KINDS, sortStems, exportPack, download } from '../songs.js';
 import { lowerBound } from '../engine.js';
 import { keyName } from '../theory.js';
@@ -36,6 +36,7 @@ export class PlayerView {
     this.showChords = prefs.showChords !== false;
     song.prefs = { transpose: 0, audioPitch: false, rate: 1, offset: 0, capo: 0, ...(song.prefs || {}) };
     await loadChordDb();
+    setSongShapes(song.doc?.meta?.shapes);
     this.build();
     await this.loadAudio();
     song.playCount = (song.playCount || 0) + 1;
