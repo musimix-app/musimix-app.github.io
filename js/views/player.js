@@ -50,6 +50,7 @@ export class PlayerView {
   }
 
   close() {
+    this.exitFullStage();
     this.editing.on = false;
     document.querySelector('.drop-mark')?.remove();
     document.removeEventListener('keydown', this._onKey);
@@ -86,6 +87,7 @@ export class PlayerView {
             <button data-mode="stage" title="Mode scène : texte en très grand">Scène</button>
             <button data-mode="grid" title="Grille d’accords par mesure">Grille</button>
           </div>
+          <button class="icon-btn" data-act="fullstage" aria-label="Scène plein écran" title="Scène plein écran (P)">${icon('stage')}</button>
           <button class="icon-btn" data-act="text" aria-label="Taille du texte">${icon('textsize')}</button>
           <button class="icon-btn" data-act="menu" aria-label="Plus d’actions">${icon('more')}</button>
         </div>
@@ -99,6 +101,8 @@ export class PlayerView {
         <div class="lyrics" tabindex="-1"></div>
         <div class="big"></div>
         <div class="grid-view"></div>
+        <div class="fs-chords" aria-live="off"><span class="fs-now" data-r="now"></span><span class="fs-next" data-r="next"></span></div>
+        <div class="fs-hint">Toucher l’écran : lecture / pause · Pédale : partie suivante · Double-toucher ou Échap : quitter</div>
         <button class="btn small follow-btn" data-act="follow" hidden>${icon('sync')} Suivre la lecture</button>
         <div class="countdown" hidden></div>
       </div>
@@ -881,6 +885,14 @@ export class PlayerView {
   bind() {
     const el = this.el;
     el.addEventListener('click', (e) => {
+      if (this.fullStage && e.target.closest('.stage')) {
+        // plein écran : un toucher = lecture / pause (un double-toucher quitte)
+        clearTimeout(this._fsTap);
+        if (this._fsLast && performance.now() - this._fsLast < 320) { this._fsLast = 0; this.exitFullStage(); return; }
+        this._fsLast = performance.now();
+        this._fsTap = setTimeout(() => { if (this.fullStage) this.togglePlay(); }, 330);
+        return;
+      }
       if (this.editing.onClick(e)) return;
       const modeB = e.target.closest('[data-mode]');
       if (modeB) { this.setMode(modeB.dataset.mode); return; }
@@ -1074,6 +1086,7 @@ export class PlayerView {
       }
       case 'menu':
         openMenu(b, [
+          { icon: 'stage', label: 'Scène plein écran', action: () => this.enterFullStage() },
           { icon: 'edit', label: 'Modifier ici (accords, doigtés, texte)', action: () => { if (this.mode !== 'lyrics') this.setMode('lyrics'); this.editing.toggle(true); } },
           { icon: 'edit', label: 'Paroles et accords (éditeur)', action: () => this.app.go(`#/edit/${this.song.id}`) },
           { icon: 'tap', label: 'Synchroniser les paroles', action: () => this.app.go(`#/edit/${this.song.id}/sync`) },
@@ -1090,6 +1103,7 @@ export class PlayerView {
       case 'sheet-mix': this.openSheet('mix'); break;
       case 'sheet-opts': this.openSheet('opts'); break;
       case 'mix-reset': this.applyPreset('all'); break;
+      case 'fullstage': this.enterFullStage(); break;
       case 'show-empty': this.showEmpty = true; this.renderMixer(); break;
       case 'prev-song': if (this.ctx.index > 0) this.app.playFromSetlist(this.ctx.setlist, this.ctx.index - 1); break;
       case 'next-song': if (this.ctx.index < this.ctx.setlist.songs.length - 1) this.app.playFromSetlist(this.ctx.setlist, this.ctx.index + 1); break;
@@ -1120,12 +1134,38 @@ export class PlayerView {
     else if (k === ']') this.action('rate+');
     else if (k === 'f' || k === 'F') this.setMode(this.mode === 'stage' ? 'lyrics' : 'stage');
     else if (k === 'g' || k === 'G') this.setMode(this.mode === 'grid' ? 'lyrics' : 'grid');
-    else if (k === 'Escape') { this.closeSheets(); if (this.mode === 'stage') this.setMode('lyrics'); }
+    else if (k === 'p' || k === 'P') { if (this.fullStage) this.exitFullStage(); else this.enterFullStage(); }
+    else if (k === 'Escape') { if (this.fullStage) { this.exitFullStage(); return; } this.closeSheets(); if (this.mode === 'stage') this.setMode('lyrics'); }
     else if (k === 'PageDown' || k === 'ArrowDown' && this.mode === 'stage') { e.preventDefault(); this.pedal(1); }
     else if (k === 'PageUp' || k === 'ArrowUp' && this.mode === 'stage') { e.preventDefault(); this.pedal(-1); }
   }
 
   /** Pédale Bluetooth (PageDown / PageUp) : morceau suivant en setlist, sinon partie suivante. */
+  /** Scène plein écran : paroles et accords en très grand, sans aucun bouton. */
+  enterFullStage() {
+    if (this.editing.on) this.editing.toggle(false);
+    this._modeBeforeFs = this.mode;
+    this.setMode('stage', false);
+    this.fullStage = true;
+    this.el.classList.add('fullstage');
+    this.el.requestFullscreen?.().catch(() => {});
+    this.requestWake();
+    this._onFs = () => { if (!document.fullscreenElement && this.fullStage) this.exitFullStage(); };
+    document.addEventListener('fullscreenchange', this._onFs);
+    this.lastChordIdx = -2;
+    this.frame(true);
+  }
+
+  exitFullStage() {
+    if (!this.fullStage) return;
+    this.fullStage = false;
+    this.el?.classList.remove('fullstage');
+    document.removeEventListener('fullscreenchange', this._onFs);
+    if (document.fullscreenElement) document.exitFullscreen?.().catch(() => {});
+    if (this._modeBeforeFs && this._modeBeforeFs !== 'stage') this.setMode(this._modeBeforeFs, false);
+    if (!this.engine.playing) this.releaseWake();
+  }
+
   pedal(dir) {
     if (this.ctx.setlist) {
       const i = this.ctx.index + dir;

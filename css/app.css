@@ -587,3 +587,20 @@ dialog .two { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
 .shared-view .song-row { grid-template-columns: 1fr auto auto; }
 .mixer .empty-note { flex-basis: 100%; grid-column: 1 / -1; width: 100%; font-size: 12.5px; margin: 6px 0 0; }
 .linklike { border: 0; background: none; padding: 0; color: var(--chord); font: inherit; font-weight: 700; text-decoration: underline; cursor: pointer; }
+
+/* ── scène plein écran ── */
+.fs-chords, .fs-hint { display: none; }
+.player.fullstage { grid-template-columns: 1fr !important; grid-template-rows: 1fr !important; }
+.player.fullstage > .topbar, .player.fullstage > .rail, .player.fullstage > .transport, .player.fullstage > .mob-chord, .player.fullstage .follow-btn { display: none !important; }
+.player.fullstage .stage { grid-column: 1 / -1; grid-row: 1 / -1; position: fixed; inset: 0; z-index: 40; background: var(--bg); cursor: none; user-select: none; -webkit-user-select: none; }
+.player.fullstage .fs-chords { display: flex; align-items: baseline; gap: 4vw; position: absolute; top: 3vh; left: 6vw; right: 6vw; z-index: 2; }
+.player.fullstage .fs-now { font: 800 clamp(60px, 13vw, 190px)/1 var(--font-ui); color: var(--chord); }
+.player.fullstage .fs-next { font: 700 clamp(24px, 4vw, 56px)/1 var(--font-ui); color: var(--ink-3); }
+.player.fullstage .fs-next small { font-size: .45em; font-weight: 600; margin-right: .4em; letter-spacing: .04em; }
+.player.fullstage .big { padding-top: calc(3vh + clamp(60px, 13vw, 190px) + 2vh); }
+.player.fullstage .big .now-line { font-size: clamp(36px, 7.4vw, 110px); }
+.player.fullstage .big .next-line { font-size: clamp(24px, 4.4vw, 60px); }
+.player.fullstage .big .now-line .w .c { display: none; } /* l'accord est en haut, en très grand */
+.player.fullstage .big .big-chord { display: none; }
+.player.fullstage .fs-hint { display: block; position: absolute; bottom: 3vh; left: 0; right: 0; text-align: center; font-size: 14px; color: var(--ink-3); animation: fs-hint 6s forwards; pointer-events: none; }
+@keyframes fs-hint { 0%, 70% { opacity: 1; } 100% { opacity: 0; } }
