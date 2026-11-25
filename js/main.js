@@ -264,6 +264,7 @@ class App extends EventTarget {
       <div class="callout" data-r="info">Vérification de la carte graphique…</div>
       <div class="opt-row"><span>Paroles synchronisées<br><small class="note">trouvées sur LRCLIB${song.doc?.lines?.some((l) => l.type === 'lyric') ? ' · tes paroles sont gardées, seul le minutage est ajouté' : ''}</small></span><label class="switch"><input type="checkbox" name="lyrics" checked><i></i></label></div>
       <div class="opt-row"><span>Tempo et accords<br><small class="note">${hasChords ? 'ta grille est gardée ; tempo et mesures ajoutés' : 'détectés à l’écoute : une bonne base, à vérifier'}</small></span><label class="switch"><input type="checkbox" name="chords" checked><i></i></label></div>
+      ${song.doc?.lines?.length ? `<div class="opt-row"><span>Repartir de zéro<br><small class="note">remplace les paroles et les accords actuels par ceux trouvés</small></span><label class="switch"><input type="checkbox" name="restart" ${song.prepared ? 'checked' : ''}><i></i></label></div>` : ''}
       <p class="note">La séparation est longue : de quelques minutes à une demi-heure selon l’ordinateur. Laisse MusiMix ouvert (tu peux l’utiliser). Fais-le plutôt sur le PC : le résultat arrive ensuite sur le téléphone par la synchro.</p>
       <div class="actions"><button class="btn ghost" data-close="">Annuler</button><button class="btn primary" data-go>Préparer</button></div></form>`);
     const el = d.el;
@@ -287,7 +288,7 @@ class App extends EventTarget {
       if (q) { quality = q.dataset.q; info(); return; }
       if (e.target.closest('[data-go]')) {
         e.preventDefault();
-        const opts = { quality, separate: f.separate.checked, lyrics: f.lyrics.checked, chords: f.chords.checked, title: f.title.value.trim(), artist: f.artist.value.trim() };
+        const opts = { quality, separate: f.separate.checked, lyrics: f.lyrics.checked, chords: f.chords.checked, restart: !!f.restart?.checked, title: f.title.value.trim(), artist: f.artist.value.trim() };
         if (!opts.separate && !opts.lyrics && !opts.chords) { toast('Coche au moins une étape'); return; }
         d.close();
         this.runSeparation(song, opts);

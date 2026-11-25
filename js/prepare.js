@@ -18,7 +18,7 @@ function pickLyrics(results, duration) {
   return best || null;
 }
 
-export async function prepareSong(songId, { separate = true, quality = 'best', lyrics = true, chords = true, title, artist, onProgress = () => {}, signal } = {}) {
+export async function prepareSong(songId, { separate = true, quality = 'best', lyrics = true, chords = true, restart = false, title, artist, onProgress = () => {}, signal } = {}) {
   const report = { separated: false, lyrics: null, chords: 0, bpm: null, key: null };
   let song = await db.getSong(songId);
   if (!song) throw new Error('Morceau introuvable');
@@ -60,6 +60,7 @@ export async function prepareSong(songId, { separate = true, quality = 'best', l
   // ── 4. assemblage (on relit le morceau : il a pu être modifié pendant ce temps)
   onProgress({ progress: 0.97, message: 'Mise en place des paroles et des accords…' });
   const fresh = await db.getSong(songId);
+  if (restart) fresh.doc = { meta: fresh.doc.meta || {}, lines: [] };
   const hadLyrics = lyricLines(fresh.doc).length > 0;
   const hadChords = fresh.doc.lines.some((l) => l.chords?.length);
   if (found) {
@@ -70,8 +71,13 @@ export async function prepareSong(songId, { separate = true, quality = 'best', l
       fillLineEnds(fresh.doc.lines);
       report.lyrics = { source: 'lrclib', kept: true, matched: n, total: lyricLines(fresh.doc).length };
     } else {
-      const doc = parseSheet(found.plainLyrics || lrc.lines.map((l) => l.text).join('\n'));
-      attachTimings(doc.lines, timed);
+      // on part du texte synchronisé lui-même (et pas des paroles « simples », parfois différentes) :
+      // chaque ligne a ainsi son temps ; un blanc entre deux couplets crée un saut de strophe
+      const sung = timed.filter((l) => /\p{L}/u.test(l.text));
+      let txt = '';
+      sung.forEach((l, k) => { if (k && l.s - sung[k - 1].s > 9) txt += '\n'; txt += l.text + '\n'; });
+      const doc = parseSheet(txt);
+      attachTimings(doc.lines, sung);
       fillLineEnds(doc.lines);
       fresh.doc = { meta: fresh.doc.meta || {}, lines: doc.lines };
       report.lyrics = { source: 'lrclib', kept: false, title: found.trackName, artist: found.artistName };
