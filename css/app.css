@@ -184,6 +184,10 @@ input[type=range]::-moz-range-thumb { width: 14px; height: 14px; border-radius: 
 .studio-pill i { width: 8px; height: 8px; border-radius: 50%; background: var(--ink-3); }
 .studio-pill.online i { background: #26a269; box-shadow: 0 0 0 3px color-mix(in srgb, #26a269 25%, transparent); }
 .studio-pill.offline i { background: var(--line-2); }
+.sync-pill svg { width: 15px; height: 15px; }
+.sync-pill.syncing svg { animation: mm-spin 1.2s linear infinite; color: var(--chord); }
+.sync-pill.reconnect, .sync-pill.error { color: var(--sung); border-color: color-mix(in srgb, var(--sung) 45%, transparent); }
+@keyframes mm-spin { to { transform: rotate(360deg); } }
 
 .section-title { font: 600 13px/1 var(--font-ui); color: var(--ink-3); margin: 28px 2px 10px; letter-spacing: .02em; }
 
@@ -477,6 +481,7 @@ dialog .two { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
   .bars { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 @media (max-width: 560px) {
+  .sync-pill span { font-size: 0; } .sync-pill { padding: 6px 9px; gap: 0; }
   .editor-view .song-title { display: none; }
   .editor-view .topbar { gap: 4px; padding-left: 8px; padding-right: 8px; }
   .editor-view .seg button { padding: 6px 10px; }

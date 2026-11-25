@@ -18,6 +18,7 @@ export class LibraryView {
       <header class="topbar">
         <a class="brand" href="#/" aria-label="MusiMix, accueil"><img src="assets/icons/icon-192.png" alt=""><b>MusiMix</b></a>
         <div class="spacer"></div>
+        <button class="studio-pill sync-pill" data-act="sync" hidden>${icon('sync')}<span></span></button>
         <button class="studio-pill" data-act="studio"><i></i><span>Studio</span></button>
         <button class="icon-btn" data-act="setlists" aria-label="Setlists" title="Setlists">${icon('list')}</button>
         <button class="icon-btn" data-act="settings" aria-label="Réglages" title="Réglages">${icon('settings')}</button>
@@ -38,6 +39,11 @@ export class LibraryView {
     this.renderStudio();
     this._st = () => this.renderStudio();
     this.app.studio.addEventListener('change', this._st);
+    this.renderSync();
+    this._sy = () => this.renderSync();
+    this._pull = async () => { this.songs = await db.allSongs(); this.render(); };
+    this.app.sync.addEventListener('change', this._sy);
+    this.app.sync.addEventListener('pulled', this._pull);
     this._jobs = () => this.renderJobs();
     this.app.addEventListener('jobs', this._jobs);
     this.render();
@@ -47,11 +53,22 @@ export class LibraryView {
   close() {
     this.app.studio.removeEventListener('change', this._st);
     this.app.removeEventListener('jobs', this._jobs);
+    this.app.sync.removeEventListener('change', this._sy);
+    this.app.sync.removeEventListener('pulled', this._pull);
     this.el?.remove();
   }
 
+  renderSync() {
+    const p = this.el.querySelector('[data-act="sync"]');
+    const sy = this.app.sync;
+    p.hidden = !sy.enabled;
+    p.className = 'studio-pill sync-pill ' + sy.state;
+    p.querySelector('span').textContent = { syncing: 'Synchro…', reconnect: 'Synchro en pause', error: 'Synchro : problème' }[sy.state] || 'Synchronisé';
+    p.title = sy.message || (sy.state === 'reconnect' ? 'Touche pour reprendre la synchro' : 'Synchronisation Google Drive');
+  }
+
   renderStudio() {
-    const p = this.el.querySelector('.studio-pill');
+    const p = this.el.querySelector('[data-act="studio"]');
     const st = this.app.studio.state;
     p.className = 'studio-pill ' + st;
     p.querySelector('span').textContent = st === 'online' ? 'Studio connecté' : st === 'offline' ? 'Studio éteint' : 'Studio';
@@ -139,6 +156,7 @@ export class LibraryView {
       else if (a === 'settings') this.app.go('#/settings');
       else if (a === 'setlists') this.app.go('#/setlists');
       else if (a === 'studio') this.app.studioDialog();
+      else if (a === 'sync') { const sy = this.app.sync; if (sy.state === 'reconnect') sy.connect().catch((err) => toast(err.message, 6000)); else if (sy.state === 'error') this.app.go('#/settings'); else sy.run(); }
       else if (a === 'song-menu') { e.stopPropagation(); this.songMenu(act, act.closest('[data-id]').dataset.id); }
       return;
     }
@@ -157,7 +175,7 @@ export class LibraryView {
       { icon: 'list', label: 'Ajouter à une setlist', action: () => this.app.addToSetlist(s) },
       '-',
       { icon: 'trash', label: 'Supprimer', danger: true, action: async () => {
-        if (!(await confirmBox('Supprimer ce morceau ?', `« ${s.title} » et ses pistes seront effacés de cet appareil.`, { ok: 'Supprimer', danger: true }))) return;
+        if (!(await confirmBox('Supprimer ce morceau ?', `« ${s.title} » et ses pistes seront effacés${this.app.sync.enabled ? ' de tous tes appareils (synchro Google Drive)' : ' de cet appareil'}.`, { ok: 'Supprimer', danger: true }))) return;
         await db.deleteSong(id);
         this.songs = this.songs.filter((x) => x.id !== id);
         this.render();

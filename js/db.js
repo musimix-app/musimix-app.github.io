@@ -36,23 +36,41 @@ async function tx(store, mode, fn) {
 
 const req2p = (r) => new Promise((res, rej) => { r.onsuccess = () => res(r.result); r.onerror = () => rej(r.error); });
 
+/** Prévient la synchro qu'une donnée a changé sur cet appareil. */
+export const dbEvents = new EventTarget();
+const changed = () => dbEvents.dispatchEvent(new Event('change'));
+async function tomb(kind, id) {
+  const t = (await db.get('syncTombs', {})) || {};
+  t[kind] = { ...(t[kind] || {}), [id]: Date.now() };
+  await db.set('syncTombs', t);
+}
+
 export const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
 
 export const db = {
   async allSongs() { return tx('songs', 'readonly', (s) => req2p(s.getAll())); },
   async getSong(id) { return tx('songs', 'readonly', (s) => req2p(s.get(id))); },
-  async putSong(song) { song.updatedAt = Date.now(); return tx('songs', 'readwrite', (s) => req2p(s.put(song))); },
+  async putSong(song) { song.updatedAt = Date.now(); const r = await tx('songs', 'readwrite', (s) => req2p(s.put(song))); changed(); return r; },
+  /** Enregistre tel quel (venu d'un autre appareil) : ne touche pas à la date. */
+  async putSongRaw(song) { return tx('songs', 'readwrite', (s) => req2p(s.put(song))); },
   async deleteSong(id) {
+    await this.deleteSongRaw(id);
+    await tomb('songs', id);
+    changed();
+  },
+  async deleteSongRaw(id) {
     const song = await this.getSong(id);
-    if (song) for (const st of song.stems || []) await this.deleteBlob(st.blobId);
+    if (song) for (const st of song.stems || []) if (st.blobId) await this.deleteBlob(st.blobId);
     return tx('songs', 'readwrite', (s) => req2p(s.delete(id)));
   },
   async putBlob(blob, id = uid()) { await tx('blobs', 'readwrite', (s) => req2p(s.put(blob, id))); return id; },
   async getBlob(id) { return tx('blobs', 'readonly', (s) => req2p(s.get(id))); },
   async deleteBlob(id) { return tx('blobs', 'readwrite', (s) => req2p(s.delete(id))); },
   async allSetlists() { return tx('setlists', 'readonly', (s) => req2p(s.getAll())); },
-  async putSetlist(sl) { sl.updatedAt = Date.now(); return tx('setlists', 'readwrite', (s) => req2p(s.put(sl))); },
-  async deleteSetlist(id) { return tx('setlists', 'readwrite', (s) => req2p(s.delete(id))); },
+  async putSetlist(sl) { sl.updatedAt = Date.now(); const r = await tx('setlists', 'readwrite', (s) => req2p(s.put(sl))); changed(); return r; },
+  async putSetlistRaw(sl) { return tx('setlists', 'readwrite', (s) => req2p(s.put(sl))); },
+  async deleteSetlist(id) { await this.deleteSetlistRaw(id); await tomb('setlists', id); changed(); },
+  async deleteSetlistRaw(id) { return tx('setlists', 'readwrite', (s) => req2p(s.delete(id))); },
   async get(key, def = null) { const v = await tx('kv', 'readonly', (s) => req2p(s.get(key))); return v === undefined ? def : v; },
   async set(key, value) { return tx('kv', 'readwrite', (s) => req2p(s.put(value, key))); },
 };

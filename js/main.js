@@ -3,7 +3,8 @@
 import { db, persistStorage, storageEstimate } from './db.js';
 import { Engine } from './engine.js';
 import { Studio } from './studio.js';
-import { esc, icon, toast, dialog, pickFiles } from './ui.js';
+import { Sync, DEFAULT_CLIENT_ID } from './sync.js';
+import { esc, icon, toast, dialog, pickFiles, confirmBox } from './ui.js';
 import { importFiles, importPack, importSingleAudio, guessTitleArtist, newSong, STEM_KINDS } from './songs.js';
 import { parseSheet, docFromSongJson, fillLineEnds } from './sheet.js';
 import { LibraryView, SetlistsView, askName } from './views/library.js';
@@ -18,6 +19,7 @@ class App extends EventTarget {
     this.root = document.getElementById('app');
     this.engine = new Engine();
     this.studio = new Studio();
+    this.sync = new Sync(this);
     this.view = null;
     this.jobs = new Map();
     this._prefs = null;
@@ -26,6 +28,7 @@ class App extends EventTarget {
   async start() {
     await this.applyTheme();
     this.engine.userLatency = ((await this.prefs()).latency || 0) / 1000;
+    if (await this.sync.boot()) return;  // part chez Google renouveler la connexion, revient aussitôt
     await this.studio.init();
     persistStorage();
     window.addEventListener('hashchange', () => this.route());
@@ -357,8 +360,18 @@ class App extends EventTarget {
           <p class="note">Adresse : ${esc(this.studio.url)} · ${this.studio.state === 'online' ? 'connecté' : this.studio.mode === 'bridge' ? 'connexion par fenêtre' : 'pas de réponse'}</p>
           <div><button class="btn" data-act="studio">Configurer le Studio</button></div>
         </div>
+        <div class="group"><h2>Synchronisation Google Drive</h2>
+          <p class="note">Tes morceaux (audio compris), setlists et réglages de mixage passent tout seuls d’un appareil à l’autre, par un dossier « MusiMix » dans ton Google Drive. Connecte le même compte Google sur chaque appareil.</p>
+          <div class="callout" data-r="sync"></div>
+          <div class="row" data-r="sync-btns" style="display:flex;gap:8px;flex-wrap:wrap"></div>
+          <details data-r="gid"><summary><b>Identifiant Google</b> <span class="note">(réglage technique, une seule fois)</span></summary>
+            <label class="field" style="margin-top:10px">Identifiant client OAuth
+              <input type="text" data-r="clientid" value="${esc(p.gdriveClientId || '')}" placeholder="${esc(DEFAULT_CLIENT_ID || '123456-abc.apps.googleusercontent.com')}" autocomplete="off" spellcheck="false"></label>
+            <p class="note">Adresse à autoriser chez Google (origine et redirection) : <b>${esc(location.origin)}</b> et <b>${esc(location.origin + location.pathname)}</b></p>
+          </details>
+        </div>
         <div class="group"><h2>Stockage</h2>
-          <p class="note">${est ? `${fmtBytes(est.usage)} utilisés sur cet appareil.` : ''} Les morceaux restent sur l’appareil, même hors ligne. Pour les passer sur un autre appareil : menu d’un morceau → Télécharger le pack, puis l’ouvrir dans MusiMix.</p>
+          <p class="note">${est ? `${fmtBytes(est.usage)} utilisés sur cet appareil.` : ''} Les morceaux restent sur l’appareil, même hors ligne. Sans synchronisation : menu d’un morceau → Télécharger le pack, puis l’ouvrir dans MusiMix sur l’autre appareil.</p>
         </div>
         <div class="group"><h2>Raccourcis clavier</h2>
           <p class="note">Espace : lecture · ← → : 5 s · L : boucle · [ ] : vitesse · + − : transposer · M : métronome · F : mode scène · G : grille · Page suivante / précédente : pédale (partie ou morceau suivant)</p>
@@ -371,6 +384,29 @@ class App extends EventTarget {
       el.querySelector('[data-r="lat"]').textContent = `${p.latency || 0} ms`;
     };
     sync();
+    const sy = this.sync;
+    const showSync = () => {
+      const box = el.querySelector('[data-r="sync"]');
+      if (!box) return;
+      const last = sy.lastSync ? new Date(sy.lastSync).toLocaleString('fr-FR', { dateStyle: 'short', timeStyle: 'short' }) : '';
+      const txt = {
+        off: 'Désactivée.',
+        noconfig: 'Il manque l’identifiant Google (ci-dessous).',
+        idle: `<b>Activée</b>${sy.email ? ' · ' + esc(sy.email) : ''}${last ? ' · dernière synchro : ' + last : ''}${sy.message ? '<br>' + esc(sy.message) : ''}`,
+        syncing: `<b>${esc(sy.message || 'Synchronisation…')}</b>`,
+        error: `<b>Problème :</b> ${esc(sy.message)}`,
+        reconnect: `<b>En pause</b>${sy.email ? ' · ' + esc(sy.email) : ''} : la connexion Google a expiré.`,
+      }[sy.state] || '';
+      box.innerHTML = txt;
+      el.querySelector('[data-r="sync-btns"]').innerHTML = !sy.enabled
+        ? `<button class="btn primary" data-act="gconnect">${icon('sync')} Connecter Google Drive</button>`
+        : `${sy.state === 'reconnect' ? `<button class="btn primary" data-act="gconnect">Reconnecter</button>` : `<button class="btn" data-act="gsync">${icon('sync')} Synchroniser maintenant</button>`}<button class="btn" data-act="gdisconnect">Déconnecter</button>`;
+    };
+    showSync();
+    sy.addEventListener('change', showSync);
+    const prevClose = this.view?.close;
+    if (this.view) this.view.close = () => { sy.removeEventListener('change', showSync); prevClose?.(); };
+    el.querySelector('[data-r="clientid"]').addEventListener('change', async (e) => { await this.setPref('gdriveClientId', e.target.value.trim()); if (sy.state === 'noconfig') sy.set('off'); toast('Identifiant enregistré'); });
     el.addEventListener('click', async (e) => {
       const v = e.target.closest('[data-v]');
       if (v) {
@@ -388,6 +424,9 @@ class App extends EventTarget {
       }
       const a = e.target.closest('[data-act]')?.dataset.act;
       if (a === 'back') this.go('#/');
+      if (a === 'gconnect') { try { await sy.connect(); } catch (err) { toast(err.message, 6000); el.querySelector('[data-r="gid"]').open = true; } }
+      if (a === 'gsync') sy.run();
+      if (a === 'gdisconnect' && (await confirmBox('Déconnecter Google Drive ?', 'Les morceaux restent sur cet appareil et dans ton Drive ; ils ne se synchroniseront plus ici.', { ok: 'Déconnecter' }))) sy.disconnect();
       if (a === 'studio') this.studioDialog();
     });
   }
