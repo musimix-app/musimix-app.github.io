@@ -47,7 +47,7 @@ export class PlayerView {
     this.mode = prefs.viewMode || 'lyrics';
     this.fontSize = prefs.fontSize || null;
     this.showChords = prefs.showChords !== false;
-    this.showBars = prefs.showBars !== false;
+    this.showBars = prefs.showBars === true; // désactivé par défaut (demande de Gabriel)
     this.midiOn = !!prefs.midi;
     this.midiFollow = prefs.midiFollow !== false;
     midi.advanceNote = prefs.midiKey ?? null;
@@ -282,7 +282,8 @@ export class PlayerView {
     const L = this.$lyrics;
     if (!L) return;
     L.querySelectorAll('.bar-mk').forEach((m) => m.remove());
-    if (!this.showBars || !this.synced) return;
+    L.classList.toggle('show-bars', !!this.showBars);
+    if (!this.synced) return;
     const bars = this.barTimes();
     if (!bars.length) return;
     const off = (this.song.prefs.offset || 0) / 1000;
