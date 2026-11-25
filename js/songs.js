@@ -300,7 +300,20 @@ export async function lrclibSearch({ title, artist, duration }) {
     const r = await fetch(`https://lrclib.net/api/search?${q}`);
     if (r.ok) for (const x of await r.json()) if (!results.some((y) => y.id === x.id)) results.push(x);
   } catch { /* */ }
-  return results.filter((r) => r.syncedLyrics || r.plainLyrics).slice(0, 12);
+  const found = results.filter((r) => r.syncedLyrics || r.plainLyrics);
+  // « Titre (Acoustic Performance) », « Titre - Live », « Titre feat. X » : on réessaie avec le titre seul
+  const bare = cleanTitle(title);
+  if (!found.length && bare && bare !== title) return lrclibSearch({ title: bare, artist, duration });
+  return found.slice(0, 12);
+}
+
+/** Titre sans les mentions de version : (Acoustic Performance), [Live], - Remastered 2011, feat. X… */
+export function cleanTitle(t) {
+  return String(t || '')
+    .replace(/\s*[([][^)\]]*[)\]]\s*/g, ' ')
+    .replace(/\s+-\s+.*$/, '')
+    .replace(/\s+(feat\.?|ft\.?|featuring)\s+.*$/i, '')
+    .replace(/\s+/g, ' ').trim();
 }
 
 /**
