@@ -12,6 +12,8 @@ import { lowerBound } from '../engine.js';
 import { keyName } from '../theory.js';
 import { suggestCapo } from '../capo.js';
 import { TakeRecorder } from '../take.js';
+import { improLayers, neckSvg, keysSvg, ALL_KEYS, keyLabelFr, SCALES } from '../impro.js';
+import { parseKey, pcName } from '../theory.js';
 import { encodeOpus, opusSupported } from '../opus.js';
 import { encodeWav } from '../wav.js';
 import { levelOf } from '../levels.js';
@@ -100,6 +102,7 @@ export class PlayerView {
             <button data-mode="stage" title="Mode scène : texte en très grand">Scène</button>
             <button data-mode="grid" title="Grille d’accords par mesure">Grille</button>
           </div>
+          <button class="icon-btn" data-act="impro" aria-label="Impro" title="Impro : notes qui vont avec le morceau (I)">${icon('impro')}</button>
           <button class="icon-btn" data-act="tuner" aria-label="Accordeur" title="Accordeur (T)">${icon('tuner')}</button>
           <button class="icon-btn" data-act="fullstage" aria-label="Scène plein écran" title="Scène plein écran (P)">${icon('stage')}</button>
           <button class="icon-btn" data-act="text" aria-label="Taille du texte">${icon('textsize')}</button>
@@ -142,6 +145,7 @@ export class PlayerView {
         </div>
         <div class="rail-sec" data-r="opts-sec"></div>
       </aside>
+      <section class="impro-panel" hidden aria-label="Impro"></section>
       <footer class="transport">
         <div class="t-left">
           <button class="icon-btn" data-act="back5" aria-label="Reculer de 5 secondes">${icon('back5')}</button>
@@ -199,6 +203,7 @@ export class PlayerView {
     this._display = null;
     this.renderLyrics();
     this.renderKeyChip();
+    this.renderImpro?.();
     this.lastChordIdx = -2;
     this.frame(true);
   }
@@ -738,6 +743,7 @@ export class PlayerView {
     const shown = name ? d(name) : '';
     const nextShown = next ? d(next) : '';
     this.el.querySelectorAll('[data-r="now"]').forEach((e) => { e.textContent = shown || '–'; });
+    if (this.improOn && name !== this._improChord) { this._improChord = name; this.renderImpro(); }
     if (this.mode === 'stage' && !this.synced) {
       this.$big.innerHTML = `<div class="tag">Accord</div><div class="now-line big-chord">${esc(shown || '–')}</div>${nextShown ? `<div class="next-line">ensuite ${esc(nextShown)}</div>` : ''}`;
     }
@@ -761,6 +767,86 @@ export class PlayerView {
 
   /** Va au début d'un accord : juste après son temps, pour que ce soit bien lui qui s'affiche
    *  (avant, on se plaçait 50 ms plus tôt et c'était l'accord précédent qui apparaissait). */
+  // ---------- Impro : notes qui vont avec le morceau ----------
+  improKey() {
+    const p = this.song.prefs;
+    const own = parseKey(p.improKey);
+    if (own) return own;
+    return this.display.soundingKey || songKey(this.song) || { pc: 0, minor: false };
+  }
+
+  toggleImpro(force) {
+    this.improOn = force ?? !this.improOn;
+    const panel = this.el.querySelector('.impro-panel');
+    panel.hidden = !this.improOn;
+    this.el.classList.toggle('has-impro', this.improOn);
+    this.el.querySelectorAll('[data-act="impro"]').forEach((b) => b.classList.toggle('on', this.improOn));
+    if (this.improOn) {
+      if (!this._improBound) {
+        this._improBound = true;
+        panel.addEventListener('click', (e) => {
+          const t = e.target.closest('[data-im]');
+          if (!t) return;
+          const k = t.dataset.im;
+          const o = this.improOpts;
+          if (k === 'close') { this.toggleImpro(false); return; }
+          if (k in o && typeof o[k] === 'boolean') o[k] = !o[k];
+          if (k === 'names') o.names = o.names === 'notes' ? 'degrees' : 'notes';
+          if (k.startsWith('inst:')) { this.setInstrument(k.slice(5)); }
+          this.app.setPref('impro', o);
+          this.renderImpro();
+        });
+        panel.addEventListener('change', (e) => {
+          if (e.target.matches('[data-im-key]')) {
+            this.song.prefs.improKey = e.target.value || null;
+            this.saveSong();
+            this.renderImpro();
+          }
+        });
+      }
+      this._improChord = this.timeline?.[this.lastChordIdx]?.name ?? null;
+      this.renderImpro();
+    }
+  }
+
+  get improOpts() {
+    if (!this._improOpts) this._improOpts = { penta: true, scale: true, current: true, blues: false, names: 'notes', ...(this.prefsSnap?.impro || {}) };
+    return this._improOpts;
+  }
+
+  renderImpro() {
+    const panel = this.el?.querySelector('.impro-panel');
+    if (!panel || panel.hidden) return;
+    const o = this.improOpts;
+    const key = this.improKey();
+    const p = this.song.prefs;
+    const chord = this._improChord ? this.soundingName(this._improChord) : null;
+    const L = improLayers(key, chord, o);
+    const inst = this.instrument;
+    const S = SCALES[key.minor ? 'minor' : 'major'];
+    const auto = !parseKey(p.improKey);
+    const keyOpts = ALL_KEYS.map((k) => { const v = pcName(k.pc, k) + (k.minor ? 'm' : ''); return `<option value="${v}" ${!auto && k.pc === key.pc && k.minor === key.minor ? 'selected' : ''}>${keyLabelFr(k)}</option>`; }).join('');
+    const chip = (k, label, on, cls = '') => `<button type="button" class="im-chip ${cls} ${on ? 'on' : ''}" data-im="${k}">${label}</button>`;
+    const board = inst === 'piano' ? keysSvg(L, key, { names: o.names }) : neckSvg(L, key, { instrument: inst, capo: p.capo || 0, names: o.names });
+    panel.innerHTML = `
+      <div class="im-head">
+        <b>Impro</b>
+        <label class="im-key">Tonalité <select data-im-key><option value="" ${auto ? 'selected' : ''}>${esc(keyLabelFr(this.display.soundingKey || songKey(this.song) || key))} (auto)</option>${keyOpts}</select></label>
+        <span class="im-now">${chord ? `Accord : <b>${esc(this.display(this._improChord))}</b>` : ''}</span>
+        <span class="im-sp"></span>
+        <span class="seg im-inst">${['guitar', 'ukulele', 'piano'].map((i) => `<button type="button" data-im="inst:${i}" class="${inst === i ? 'on' : ''}">${{ guitar: 'Guitare', ukulele: 'Ukulélé', piano: 'Piano' }[i]}</button>`).join('')}</span>
+        <button type="button" class="icon-btn im-x" data-im="close" aria-label="Fermer l’impro">✕</button>
+      </div>
+      <div class="im-legend">
+        ${chip('current', '<i class="sw chord"></i>Accord en cours', o.current)}
+        ${chip('penta', '<i class="sw penta"></i>Toujours bonnes <small>(pentatonique)</small>', o.penta)}
+        ${chip('scale', `<i class="sw scale"></i>Reste de la gamme ${S.label}`, o.scale)}
+        ${chip('blues', '<i class="sw blues"></i>Note blues', o.blues)}
+        ${chip('names', o.names === 'notes' ? 'Noms : notes' : 'Noms : degrés', true, 'plain')}
+      </div>
+      <div class="im-board">${board}</div>`;
+  }
+
   // ---------- Enregistrer sa prise ----------
   takeDialog() {
     if (!this.engine.tracks?.length) { toast('Ajoute d’abord l’audio du morceau'); return; }
@@ -1099,6 +1185,7 @@ export class PlayerView {
   setInstrument(inst, save = true) {
     this.instrument = inst;
     this.renderCapoSug?.();
+    this.renderImpro?.();
     this._diagKey = null;
     this.syncModeButtons();
     this.lastChordIdx = -2;
@@ -1292,6 +1379,7 @@ export class PlayerView {
         if (!this.midiOn) { toast('Active d’abord « Clavier MIDI »'); break; }
         if (midi.advanceNote != null && b.dataset.clear) { midi.advanceNote = null; this.app.setPref('midiKey', null); this.updateMidiUi(); break; }
         midi.learn(); b.textContent = 'Appuie sur une touche…'; toast('Appuie sur la touche du clavier qui servira à avancer', 5000); break;
+      case 'impro': this.toggleImpro(); break;
       case 'rec': if (this.take) this.stopTake(); else this.takeDialog(); break;
       case 'capo+': p.capo = Math.min(11, (p.capo || 0) + 1); this.updateOptionOutputs(); this.refreshChords(); this.saveSong(); break;
       case 'rate-': case 'rate+': {
@@ -1392,6 +1480,7 @@ export class PlayerView {
     else if (k === 'f' || k === 'F') this.setMode(this.mode === 'stage' ? 'lyrics' : 'stage');
     else if (k === 'g' || k === 'G') this.setMode(this.mode === 'grid' ? 'lyrics' : 'grid');
     else if (k === 'p' || k === 'P') { if (this.fullStage) this.exitFullStage(); else this.enterFullStage(); }
+    else if ((k === 'i' || k === 'I') && !document.querySelector('dialog[open]')) this.toggleImpro();
     else if ((k === 't' || k === 'T') && !document.querySelector('dialog[open]')) import('../tuner.js').then((m) => m.tunerDialog(this.app));
     else if (k === 'Escape') { if (this.fullStage) { this.exitFullStage(); return; } this.closeSheets(); if (this.mode === 'stage') this.setMode('lyrics'); }
     else if (k === 'PageDown' || k === 'ArrowDown' && this.mode === 'stage') { e.preventDefault(); this.pedal(1); }

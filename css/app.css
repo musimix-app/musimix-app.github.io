@@ -704,3 +704,60 @@ dialog.tuner-dlg { width: min(460px, calc(100vw - 20px)); }
 .tu-prev small { font: 600 10px var(--font-ui); color: var(--ink-3); }
 .tu-prev .err { color: #d1373e; font-weight: 600; }
 .btn.danger { color: #d1373e; }
+
+/* ---------- Impro ---------- */
+.player.has-impro { grid-template-rows: auto minmax(0, 1fr) auto auto; }
+.impro-panel { grid-column: 1 / -1; background: var(--surface); border-top: 1px solid var(--line); padding: 10px 16px 6px; display: grid; gap: 8px; max-height: 46vh; overflow: auto; }
+.impro-panel[hidden] { display: none; }
+.icon-btn.on { background: var(--ink); color: var(--bg); }
+.im-head { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.im-head > b { font: 600 18px var(--font-display); }
+.im-key { display: inline-flex; align-items: center; gap: 6px; font: 600 13px var(--font-ui); color: var(--ink-3); }
+.im-key select { font: 600 14px var(--font-ui); padding: 5px 8px; border-radius: var(--radius-s); border: 1px solid var(--line-2); background: var(--surface-2); color: var(--ink); max-width: 210px; }
+.im-now { font: 600 14px var(--font-ui); color: var(--ink-2); }
+.im-now b { font: 600 18px var(--font-display); color: var(--chord); }
+.im-sp { flex: 1; }
+.im-inst button { padding: 5px 10px; font-size: 13px; }
+.im-x { width: 32px; height: 32px; }
+.im-legend { display: flex; gap: 6px; flex-wrap: wrap; }
+.im-chip { display: inline-flex; align-items: center; gap: 6px; border: 1px solid var(--line-2); background: transparent; color: var(--ink-3); border-radius: 999px; padding: 5px 11px; font: 600 12.5px var(--font-ui); cursor: pointer; opacity: .55; }
+.im-chip.on { opacity: 1; color: var(--ink); background: var(--surface-2); }
+.im-chip small { color: var(--ink-3); font-weight: 500; }
+.im-chip.plain { opacity: 1; }
+.im-chip .sw { width: 12px; height: 12px; border-radius: 50%; display: inline-block; }
+.sw.chord { background: var(--chord); }
+.sw.penta { background: var(--c-harmony); }
+.sw.scale { border: 2px solid var(--ink-3); }
+.sw.blues { background: #8b5cf6; }
+.im-board { overflow-x: auto; padding-bottom: 4px; }
+.im-board svg { display: block; width: 100%; height: auto; }
+.im-keys { max-width: 560px; margin: 0 auto; }
+.im-neck text, .im-keys text { font: 700 10.5px var(--font-ui); text-anchor: middle; dominant-baseline: central; }
+.im-fret { stroke: var(--line-2); stroke-width: 2; }
+.im-nut { stroke: var(--ink-2); stroke-width: 6; }
+.im-str { stroke: var(--ink-3); }
+.im-inlay { fill: var(--surface-3); }
+.im-fnum { fill: var(--ink-3); font-size: 11px !important; }
+.im-sname { fill: var(--ink-2); font-size: 12px !important; }
+.im-capo-zone { fill: var(--bg); opacity: .7; }
+.im-capo { fill: var(--ink-2); }
+.im-n circle { stroke-width: 2; }
+.im-chord circle { fill: var(--chord); stroke: var(--chord); }
+.im-chord text { fill: #1a1208; }
+.im-penta circle { fill: var(--c-harmony); stroke: var(--c-harmony); }
+.im-penta text { fill: #fff; }
+.im-scale circle { fill: var(--surface); stroke: var(--ink-3); }
+.im-scale text { fill: var(--ink-2); }
+.im-blues circle { fill: #8b5cf6; stroke: #8b5cf6; }
+.im-blues text { fill: #fff; }
+.im-root circle { stroke: var(--ink); stroke-width: 3; }
+.im-wk { fill: #fbf8f3; stroke: var(--line-2); }
+.im-bk { fill: #22252c; stroke: #22252c; }
+.im-k-chord.im-wk { fill: color-mix(in srgb, var(--chord) 22%, #fbf8f3); }
+.im-k-chord.im-bk { fill: color-mix(in srgb, var(--chord) 45%, #22252c); }
+@media (max-width: 860px) {
+  .player.has-impro { grid-template-rows: auto auto minmax(0, 1fr) auto auto; }
+  .impro-panel { padding: 8px 10px 4px; max-height: 52vh; }
+  .im-board svg.im-neck { width: auto; height: 190px; }
+  .im-inst { display: none; }
+}
