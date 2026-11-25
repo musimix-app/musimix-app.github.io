@@ -13,7 +13,7 @@
 import { db, dbEvents } from './db.js';
 
 // Identifiant client OAuth (Google Cloud → Identifiants). Peut aussi être collé dans Réglages.
-export const DEFAULT_CLIENT_ID = '';
+export const DEFAULT_CLIENT_ID = '408370398326-3l1jrt7rhtd1sp3isfe55br0t1shp6am.apps.googleusercontent.com';
 
 const SCOPE = 'https://www.googleapis.com/auth/drive.file email';
 const API = 'https://www.googleapis.com/drive/v3';
