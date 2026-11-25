@@ -705,6 +705,14 @@ export class PlayerView {
     mini.innerHTML = diagramSVG(shown, this.instrument, { index: idx });
   }
 
+  /** Va au début d'un accord : juste après son temps, pour que ce soit bien lui qui s'affiche
+   *  (avant, on se plaçait 50 ms plus tôt et c'était l'accord précédent qui apparaissait). */
+  seekChord(t) {
+    this.engine.seek(Math.max(0, t + 0.02));
+    this.lastChordIdx = -2;
+    this.frame(true);
+  }
+
   isNarrow() {
     return window.matchMedia('(max-width: 860px)').matches;
   }
@@ -741,7 +749,7 @@ export class PlayerView {
       const nb = e.target.closest('[data-n]');
       if (nb) { cur = nb.dataset.n; draw(); return; }
       if (e.target.closest('.cs-diag')) { this.voicingIdx[cur] = (this.voicingIdx[cur] || 0) + 1; this._diagKey = null; draw(); return; }
-      if (e.target.closest('[data-go]')) { this.engine.seek(Math.max(0, t - 0.05)); d.close(); }
+      if (e.target.closest('[data-go]')) { this.seekChord(t); d.close(); }
       if (e.target.closest('[data-edit]')) { d.close(); this.editing.chordDialog(at.li, at.ci); }
     });
     loadChordDb().then(draw, draw);
@@ -880,7 +888,7 @@ export class PlayerView {
         const c = this.timeline.find((x) => x.li === li && x.ci === ci && x.t != null) || (chordEl.dataset.t ? { t: +chordEl.dataset.t } : lineS ? { t: +lineS } : null);
         // petit écran (pas de panneau de droite) ou accord sans temps : on montre le diagramme
         if (this.isNarrow() || c?.t == null) { this.openChordSheet(chordEl.textContent.trim(), c?.t ?? null, Number.isFinite(li) && Number.isFinite(ci) ? { li, ci } : null); return; }
-        this.engine.seek(Math.max(0, c.t - 0.05)); return;
+        this.seekChord(c.t); return;
       }
       const mobNow = e.target.closest('.mob-chord .now-chord, .mob-chord .next-chord');
       if (mobNow && mobNow.textContent.trim()) {
