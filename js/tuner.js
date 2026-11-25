@@ -131,8 +131,8 @@ export async function tunerDialog(app) {
     drawModes();
     const st = cur().strings;
     $('strings').innerHTML = st
-      ? st.map((m, i) => `<button type="button" data-s="${i}" class="${lock === i ? 'lock' : ''} ${done.has(i) ? 'done' : ''}" title="Corde ${st.length - i} (${label(i)}${octave(m)}) — toucher pour la cibler"><b>${esc(label(i))}</b><small>${st.length - i}</small></button>`).join('')
-        + `<span class="tu-auto">${lock < 0 ? 'Auto' : '<button type="button" data-s="-1">Auto</button>'}${cur().custom ? ` · <button type="button" data-edit="${mode}">Modifier</button>` : ''}</span>`
+      ? '<div class="tu-row">' + st.map((m, i) => `<button type="button" data-s="${i}" class="${lock === i ? 'lock' : ''} ${done.has(i) ? 'done' : ''}" title="Corde ${st.length - i} (${label(i)}${octave(m)}) — toucher pour la cibler"><b>${esc(label(i))}</b><small>${st.length - i}</small></button>`).join('') + '</div>'
+        + `<span class="tu-auto">${lock < 0 ? 'Corde détectée automatiquement · touche une corde pour la cibler' : '<button type="button" data-s="-1">Revenir en automatique</button>'}${cur().custom ? ` · <button type="button" data-edit="${mode}">Modifier cet accordage</button>` : ''}</span>`
       : '<span class="tu-auto on">Toutes les notes, de La0 à Do♯6</span>';
   };
   drawStrings();

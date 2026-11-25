@@ -103,8 +103,8 @@ export class PlayerView {
             <button data-mode="grid" title="Grille d’accords par mesure">Grille</button>
           </div>
           <button class="icon-btn" data-act="impro" aria-label="Impro" title="Impro : notes qui vont avec le morceau (I)">${icon('impro')}</button>
-          <button class="icon-btn" data-act="tuner" aria-label="Accordeur" title="Accordeur (T)">${icon('tuner')}</button>
-          <button class="icon-btn" data-act="fullstage" aria-label="Scène plein écran" title="Scène plein écran (P)">${icon('stage')}</button>
+          <button class="icon-btn hide-s" data-act="tuner" aria-label="Accordeur" title="Accordeur (T)">${icon('tuner')}</button>
+          <button class="icon-btn hide-s" data-act="fullstage" aria-label="Scène plein écran" title="Scène plein écran (P)">${icon('stage')}</button>
           <button class="icon-btn" data-act="text" aria-label="Taille du texte">${icon('textsize')}</button>
           <button class="icon-btn" data-act="menu" aria-label="Plus d’actions">${icon('more')}</button>
         </div>
@@ -861,7 +861,7 @@ export class PlayerView {
       <p class="take-tip">🎧 Mets un <b>casque</b> : sans casque, le micro reprend aussi le morceau.</p>
       ${hasVoice ? `<label class="check"><input type="checkbox" name="novoice" checked> Couper la voix d’origine pendant la prise</label>` : ''}
       ${takes.length ? `<label class="check"><input type="checkbox" name="mutetakes" checked> Couper mes prises précédentes</label>` : ''}
-      <div class="seg take-from"><label><input type="radio" name="from" value="start" ${pos < 2 ? 'checked' : ''}> Depuis le début</label><label><input type="radio" name="from" value="here" ${pos >= 2 ? 'checked' : ''}> Depuis ${fmtTime(pos)}</label></div>
+      <div class="take-from"><label><input type="radio" name="from" value="start" ${pos < 2 ? 'checked' : ''}> Depuis le début</label><label><input type="radio" name="from" value="here" ${pos >= 2 ? 'checked' : ''}> Depuis ${fmtTime(pos)}</label></div>
       <p class="note">Pause, ou le bouton ● rouge, pour arrêter.</p>
       <div class="actions"><button class="btn ghost" data-close="">Annuler</button><button class="btn primary rec-go" data-close="go">● Enregistrer</button></div></form>`);
     const form = d.el.querySelector('form');
@@ -1424,6 +1424,7 @@ export class PlayerView {
       case 'menu':
         openMenu(b, [
           { icon: 'stage', label: 'Scène plein écran', action: () => this.enterFullStage() },
+          { icon: 'tuner', label: 'Accordeur', action: () => import('../tuner.js').then((m) => m.tunerDialog(this.app)) },
           { icon: 'edit', label: 'Modifier ici (accords, doigtés, texte)', action: () => { if (this.mode !== 'lyrics') this.setMode('lyrics'); this.editing.toggle(true); } },
           { icon: 'edit', label: 'Paroles et accords (éditeur)', action: () => this.app.go(`#/edit/${this.song.id}`) },
           { icon: 'tap', label: 'Synchroniser les paroles', action: () => this.app.go(`#/edit/${this.song.id}/sync`) },

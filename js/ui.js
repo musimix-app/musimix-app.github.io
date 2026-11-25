@@ -83,6 +83,7 @@ export function openMenu(anchor, items) {
   if (top + mh > window.innerHeight - 8) top = Math.max(8, r.top - mh - 6);
   m.style.left = left + 'px';
   m.style.top = top + 'px';
+  m.style.maxHeight = Math.max(160, window.innerHeight - top - 8) + 'px';
   m.addEventListener('click', (e) => {
     const b = e.target.closest('button[data-i]');
     if (!b) return;

@@ -761,3 +761,64 @@ dialog.tuner-dlg { width: min(460px, calc(100vw - 20px)); }
   .im-board svg.im-neck { width: auto; height: 190px; }
   .im-inst { display: none; }
 }
+
+/* ---------- Ajustements multi-appareils (25/11/2026) ---------- */
+/* titres du lecteur lisibles sur téléphone : accordeur et plein écran passent dans le menu ⋯ */
+@media (max-width: 600px) { .hide-s { display: none !important; } }
+/* iPhone/iPad : pas de zoom automatique quand on touche un champ (texte ≥ 16 px) */
+@media (pointer: coarse) {
+  input, select, textarea, .im-key select { font-size: max(16px, 1em) !important; }
+  .seg button, .stepper button, .im-chip, .tu-modes button, .chip { min-height: 36px; }
+  .tu-a4 button { width: 34px; height: 34px; }
+  .icon-btn { min-width: 40px; min-height: 40px; }
+}
+.tu-a4 button { width: 30px; height: 30px; }
+/* accordeur : cordes sur une ligne, phrase d'aide dessous */
+.tu-strings { display: grid; gap: 6px; justify-items: center; }
+.tu-row { display: flex; gap: 6px; justify-content: center; width: 100%; }
+.tu-row [data-s] { flex: 0 1 54px; min-width: 0; width: auto; }
+.tu-strings .tu-auto { text-align: center; }
+@media (max-width: 420px) { .tu-strings { gap: 4px; } .tu-strings [data-s] { height: 48px; } .tu-note b { font-size: 54px; } }
+/* impro : plus compact sur téléphone et sur écrans bas */
+@media (max-width: 600px) {
+  .im-legend { gap: 4px; }
+  .im-chip { padding: 4px 9px; font-size: 12px; }
+  .im-chip small { display: none; }
+  .im-head { gap: 8px; }
+  .im-key select { max-width: 170px; }
+}
+.im-board svg.im-neck { height: clamp(150px, 27vh, 250px); width: auto; max-width: none; margin: 0 auto; }
+@media (min-width: 1100px) { .im-board svg.im-neck { max-width: 100%; } }
+@media (max-height: 560px) { .impro-panel { max-height: 58vh; } .im-board svg.im-neck { height: 140px; } }
+/* prise : choix du départ empilé sur petit écran */
+@media (max-width: 480px) { .take-from { flex-direction: column; } }
+
+/* téléphone couché : on garde de la place pour les paroles */
+@media (max-width: 960px) and (max-height: 500px) and (orientation: landscape) {
+  .player { grid-template-columns: minmax(0, 1fr); grid-template-rows: auto 0 minmax(0, 1fr) auto; }
+  .player.has-impro { grid-template-rows: auto 0 minmax(0, 1fr) auto auto; }
+  .player .mob-chord { display: none !important; }
+  .player .transport { grid-row: 4; }
+  .player.has-impro .impro-panel { grid-row: 4; }
+  .player.has-impro .transport { grid-row: 5; }
+  .player .topbar { padding-top: calc(env(safe-area-inset-top) + 2px); padding-bottom: 2px; }
+  .transport { grid-template-columns: auto 1fr auto; grid-template-areas: 'l tl r'; padding-top: 4px; padding-bottom: calc(4px + env(safe-area-inset-bottom)); padding-left: max(10px, env(safe-area-inset-left)); padding-right: max(10px, env(safe-area-inset-right)); }
+  .transport .play { width: 44px; height: 44px; }
+  .impro-panel { max-height: 62vh; }
+}
+dialog { max-height: calc(100dvh - 16px); overflow: auto; overscroll-behavior: contain; }
+@media (max-height: 560px) { .tu-dial { max-height: 28vh; } .tu-note b { font-size: 40px; } .tuner { gap: 8px; } dialog form, .dlg { padding: 16px; gap: 10px; } }
+.menu { max-height: calc(100dvh - 16px); overflow-y: auto; overscroll-behavior: contain; }
+@media (max-width: 400px) {
+  .transport { column-gap: 4px; padding-left: 8px; padding-right: 8px; }
+  .transport .icon-btn { width: 34px; min-width: 34px; height: 38px; }
+  .transport .rate-btn { padding: 0 9px; }
+  .brand b { font-size: 20px; }
+  .brand { gap: 6px; }
+}
+@media (max-width: 350px) { .brand b { display: none; } }
+@media (max-width: 420px) {
+  .library-view .topbar, .topbar { column-gap: 2px; }
+  .studio-pill span { display: none; }
+  .studio-pill { padding: 0 12px; gap: 0; min-height: 40px; min-width: 40px; justify-content: center; }
+}
