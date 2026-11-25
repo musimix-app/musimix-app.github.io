@@ -585,3 +585,5 @@ dialog .two { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
 
 .shared-tag { font-style: normal; font-family: var(--font-ui); font-weight: 700; font-size: 11px; color: var(--chord); border: 1px solid color-mix(in srgb, var(--chord) 50%, transparent); border-radius: 999px; padding: 1px 7px; vertical-align: 2px; margin-left: 6px; }
 .shared-view .song-row { grid-template-columns: 1fr auto auto; }
+.mixer .empty-note { flex-basis: 100%; grid-column: 1 / -1; width: 100%; font-size: 12.5px; margin: 6px 0 0; }
+.linklike { border: 0; background: none; padding: 0; color: var(--chord); font: inherit; font-weight: 700; text-decoration: underline; cursor: pointer; }

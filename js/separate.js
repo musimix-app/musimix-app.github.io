@@ -8,6 +8,7 @@ import { db } from './db.js';
 import { decodeAt, encodeWav } from './wav.js';
 import { encodeOpus, opusSupported } from './opus.js';
 import { addSeparatedStems } from './songs.js';
+import { levelOf } from './levels.js';
 
 const ORT_WASM = 'https://cdn.jsdelivr.net/npm/onnxruntime-web@1.26.0/dist/';
 const KIND = { vocals: 'vocals', drums: 'drums', bass: 'bass', guitar: 'guitar', piano: 'piano', other: 'other' };
@@ -106,7 +107,7 @@ export async function separateSong(songId, { quality = 'best', onProgress = () =
       try { file = { blob: await encodeOpus([L, R], 44100), ext: 'opus' }; } catch (e) { console.warn('[séparation] Opus indisponible, WAV', e); }
     }
     if (!file) file = { blob: encodeWav([L, R], 44100, 16), ext: 'wav' };
-    out.push({ kind: KIND[name], blob: file.blob, name: `${name}.${file.ext}` });
+    out.push({ kind: KIND[name], blob: file.blob, name: `${name}.${file.ext}`, level: levelOf([L, R]) });
   }
   const fresh = await db.getSong(songId);  // l'utilisateur a pu modifier le morceau pendant ce temps
   await addSeparatedStems(fresh, out, src.id, q.model);

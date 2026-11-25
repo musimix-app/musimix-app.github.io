@@ -4,6 +4,7 @@ import { db, uid } from '../db.js';
 import { esc, icon, fmtTime, openMenu, toast, confirmBox, dialog } from '../ui.js';
 import { exportPack, download } from '../songs.js';
 import { songKey } from '../render.js';
+import { scanLibraryLevels } from '../levels.js';
 import { keyName } from '../theory.js';
 
 export class LibraryView {
@@ -44,6 +45,7 @@ export class LibraryView {
     this._pull = async () => { this.songs = await db.allSongs(); this.render(); };
     this.app.sync.addEventListener('change', this._sy);
     this.app.sync.addEventListener('pulled', this._pull);
+    setTimeout(() => scanLibraryLevels(), 3000); // repère les pistes vides de tous les morceaux, tranquillement
     this._jobs = () => this.renderJobs();
     this.app.addEventListener('jobs', this._jobs);
     this.render();

@@ -6,6 +6,7 @@ import { renderSheet, lyricLine, chordDisplay, songKey, uniqueChords } from '../
 import { chordTimeline, sectionsOf } from '../sheet.js';
 import { diagramSVG, voicings, chordFormula, loadChordDb, setSongShapes } from '../diagrams.js';
 import { LyricsEditing } from './chord-edit.js';
+import { ensureLevels, isEmptyStem } from '../levels.js';
 import { STEM_KINDS, sortStems, exportPack, download } from '../songs.js';
 import { lowerBound } from '../engine.js';
 import { keyName } from '../theory.js';
@@ -340,7 +341,10 @@ export class PlayerView {
 
   renderMixer() {
     const s = this.song;
-    const stems = sortStems(s.stems);
+    const all = sortStems(s.stems);
+    // pistes vides (silence) : pas de bouton dans le mixage, sauf si on demande à les voir
+    const hidden = this.showEmpty ? [] : all.filter(isEmptyStem);
+    const stems = all.filter((st) => !hidden.includes(st));
     const strips = stems.map((st) => {
       const m = s.mix[st.id] || { vol: 1 };
       const color = STEM_KINDS[st.kind]?.color || 'var(--c-other)';
@@ -361,7 +365,8 @@ export class PlayerView {
     if (kinds.has('vocals')) presets.push(['karaoke', 'Sans la voix'], ['voice', 'Voix seule']);
     for (const k of ['guitar', 'piano', 'bass', 'drums']) if (kinds.has(k)) presets.push(['no-' + k, 'Sans ' + STEM_KINDS[k].label.toLowerCase()]);
     const presetHtml = presets.map(([k, l]) => `<button class="chip" data-preset="${k}">${esc(l)}</button>`).join('');
-    this.el.querySelectorAll('.mixer').forEach((m) => { m.innerHTML = stems.length ? strips + (stems.length > 1 ? master : '') : '<p class="note">Aucune piste audio.</p>'; });
+    const emptyNote = hidden.length ? `<p class="note empty-note">${hidden.length} piste${hidden.length > 1 ? 's' : ''} vide${hidden.length > 1 ? 's' : ''} masquée${hidden.length > 1 ? 's' : ''} (${hidden.map((x) => esc(x.label)).join(', ')}) · <button class="linklike" data-act="show-empty">afficher</button></p>` : '';
+    this.el.querySelectorAll('.mixer').forEach((m) => { m.innerHTML = stems.length ? strips + (stems.length > 1 ? master : '') + emptyNote : '<p class="note">Aucune piste audio.</p>'; });
     this.el.querySelectorAll('.presets').forEach((p) => { p.innerHTML = presetHtml; });
     this.el.querySelectorAll('.strip').forEach((strip) => this.bindStrip(strip));
     this.updateStrips();
@@ -450,6 +455,8 @@ export class PlayerView {
       stems.push({ id: st.id, kind: st.kind, label: st.label, blob, url: st.url, vol: m.vol ?? 1, mute: !!m.mute, solo: !!m.solo, pan: m.pan || 0 });
     }
     await this.engine.load(stems, { duration: s.duration });
+    // mesure des pistes encore inconnues (une fois), puis mixage sans les pistes vides
+    ensureLevels(s).then((ch) => { if (ch && this.song === s) { db.putSong(s); this.renderMixer(); } }).catch(() => {});
     if (!s.duration && this.engine.duration) { s.duration = this.engine.duration; this.renderLyrics(); }
     this.engine.setMaster(s.master ?? 1);
     this.engine.setRate(s.prefs.rate || 1);
@@ -1083,6 +1090,7 @@ export class PlayerView {
       case 'sheet-mix': this.openSheet('mix'); break;
       case 'sheet-opts': this.openSheet('opts'); break;
       case 'mix-reset': this.applyPreset('all'); break;
+      case 'show-empty': this.showEmpty = true; this.renderMixer(); break;
       case 'prev-song': if (this.ctx.index > 0) this.app.playFromSetlist(this.ctx.setlist, this.ctx.index - 1); break;
       case 'next-song': if (this.ctx.index < this.ctx.setlist.songs.length - 1) this.app.playFromSetlist(this.ctx.setlist, this.ctx.index + 1); break;
       default: break;

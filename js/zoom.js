@@ -1,6 +1,7 @@
 // MusiMix — export pour le Zoom R20 : un WAV 44,1 kHz par piste (tous calés à 0:00,
 // même durée), un fichier MIDI des accords et de la basse, et la marche à suivre.
 
+import { isEmptyStem } from './levels.js';
 import { db } from './db.js';
 import { esc, dialog, toast } from './ui.js';
 import { writeZip } from './zip.js';
@@ -18,7 +19,7 @@ const ascii = (s, max = 40) => String(s || '').normalize('NFKD').replace(/[\u030
 
 /** Pistes à exporter : après une séparation, le morceau d'origine n'est pas une piste du R20 (option « mix » à part). */
 function zoomStems(song) {
-  const st = sortStems(song.stems);
+  const st = sortStems(song.stems).filter((s) => !isEmptyStem(s)); // pistes vides : inutiles sur le R20
   return song.separation ? st.filter((s) => s.kind !== 'mix') : st;
 }
 

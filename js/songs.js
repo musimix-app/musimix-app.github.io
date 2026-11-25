@@ -223,7 +223,7 @@ export async function addSeparatedStems(song, list, sourceStemId, model) {
   song.stems = song.stems.filter((st) => !st.sep);
   for (const it of list) {
     const blobId = await db.putBlob(it.blob);
-    song.stems.push({ id: uid(), kind: it.kind, label: STEM_KINDS[it.kind]?.label || it.kind, blobId, name: it.name, mime: it.blob.type || mimeOf(it.name), size: it.blob.size, sep: model });
+    song.stems.push({ id: uid(), kind: it.kind, label: STEM_KINDS[it.kind]?.label || it.kind, blobId, name: it.name, mime: it.blob.type || mimeOf(it.name), size: it.blob.size, sep: model, ...(it.level ? { level: it.level } : {}) });
   }
   const orig = song.stems.find((st) => st.id === sourceStemId);
   if (orig) { orig.label = 'Morceau original'; }
