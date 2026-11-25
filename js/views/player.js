@@ -11,6 +11,8 @@ import { STEM_KINDS, sortStems, exportPack, download } from '../songs.js';
 import { lowerBound } from '../engine.js';
 import { keyName } from '../theory.js';
 import { suggestCapo } from '../capo.js';
+import { midi, nameChord, matchesChord, noteName } from '../midi-input.js';
+import { transposeChord } from '../theory.js';
 
 export class PlayerView {
   constructor(app) {
@@ -38,6 +40,9 @@ export class PlayerView {
     this.mode = prefs.viewMode || 'lyrics';
     this.fontSize = prefs.fontSize || null;
     this.showChords = prefs.showChords !== false;
+    this.midiOn = !!prefs.midi;
+    this.midiFollow = prefs.midiFollow !== false;
+    midi.advanceNote = prefs.midiKey ?? null;
     song.prefs = { transpose: 0, audioPitch: false, rate: 1, offset: 0, capo: 0, ...(song.prefs || {}) };
     await loadChordDb();
     setSongShapes(song.doc?.meta?.shapes, song.doc?.meta?.piano);
@@ -51,6 +56,7 @@ export class PlayerView {
   }
 
   close() {
+    this.midiStop(false);
     this.exitFullStage();
     this.editing.on = false;
     document.querySelector('.drop-mark')?.remove();
@@ -170,6 +176,7 @@ export class PlayerView {
     this.renderMixer();
     this.setMode(this.mode, false);
     this.setInstrument(this.instrument, false);
+    if (this.midiOn) this.midiStart(false);
     if (this.fontSize) this.el.style.setProperty('--lyrics-size', this.fontSize + 'px');
     this.railWidth = this.prefsSnap?.railWidth || null;
     if (this.railWidth) this.el.style.setProperty('--rail-w', this.railWidth + 'px');
@@ -325,6 +332,11 @@ export class PlayerView {
       <div class="opt-row prog-opts"${p.progressive ? '' : ' hidden'}><span>Départ</span><span class="stepper"><button data-act="prog-">−</button><output data-r="prog">${Math.round((p.progStart ?? 0.7) * 100)} %</output><button data-act="prog+">+</button></span></div>
       <div class="opt-row"><span>Décompte avant lecture</span><label class="switch"><input type="checkbox" data-act="countin" ${p.countIn ? 'checked' : ''}><i></i></label></div>
       <div class="opt-row"><span>Métronome</span><label class="switch"><input type="checkbox" data-act="metro-switch"><i></i></label></div>
+      <div class="opt-row"><span>Clavier MIDI<br><small class="note" data-r="midi-st"></small></span><label class="switch"><input type="checkbox" data-act="midi" ${this.midiOn ? 'checked' : ''}><i></i></label></div>
+      <div class="midi-opts"${this.midiOn ? '' : ' hidden'}>
+        <div class="opt-row"><span>Suivi d’accords<br><small class="note">à l’arrêt, joue l’accord suivant : la lecture avance d’un accord</small></span><label class="switch"><input type="checkbox" data-act="midi-follow" ${this.midiFollow ? 'checked' : ''}><i></i></label></div>
+        <div class="opt-row"><span>Avancer d’un accord<br><small class="note" data-r="midi-key"></small></span><button class="btn small ghost" data-act="midi-learn">Choisir une touche</button></div>
+      </div>
       <div class="opt-row"><span>Afficher les accords</span><label class="switch"><input type="checkbox" data-act="show-chords" ${this.showChords ? 'checked' : ''}><i></i></label></div>
       <div class="opt-row"><span>Décalage paroles</span><span class="stepper"><button data-act="off-">−</button><output data-r="off">${fmtOffset(p.offset)}</output><button data-act="off+">+</button></span></div>
       <div class="opt-row only-m"><span>Affichage</span><span class="seg"><button data-mode="lyrics">Paroles</button><button data-mode="stage">Scène</button><button data-mode="grid">Grille</button></span></div>
@@ -332,6 +344,7 @@ export class PlayerView {
     this.el.querySelector('[data-r="opts-sec"]').innerHTML = html;
     this.el.querySelector('[data-r="opts-m"]').innerHTML = html;
     this.syncModeButtons();
+    this.updateMidiUi();
   }
 
   renderCapoSug() {
@@ -352,6 +365,7 @@ export class PlayerView {
     this.el.querySelectorAll('[data-r="tr"]').forEach((o) => { o.textContent = fmtSemi(p.transpose); });
     this.el.querySelectorAll('[data-r="capo"]').forEach((o) => { o.textContent = p.capo ? p.capo : 'aucun'; });
     this.renderCapoSug();
+    this.updateMidiUi?.();
     this.el.querySelectorAll('[data-r="rate"]').forEach((o) => { o.textContent = Math.round(p.rate * 100) + ' %'; });
     this.el.querySelectorAll('[data-r="off"]').forEach((o) => { o.textContent = fmtOffset(p.offset); });
     this.el.querySelectorAll('[data-act="audio-pitch"]').forEach((i) => { i.checked = !!p.audioPitch; });
@@ -738,6 +752,90 @@ export class PlayerView {
 
   /** Va au début d'un accord : juste après son temps, pour que ce soit bien lui qui s'affiche
    *  (avant, on se plaçait 50 ms plus tôt et c'était l'accord précédent qui apparaissait). */
+  // ---------- Clavier MIDI ----------
+  async midiStart(user = false) {
+    try { await midi.enable(); } catch (err) {
+      if (user) toast(err.message || 'Accès MIDI refusé', 6000);
+      this.midiOn = false; if (user) this.app.setPref('midi', false); this.updateMidiUi(); return;
+    }
+    if (!this._midiH) {
+      this._midiH = {
+        notes: (e) => this.onMidiNotes(e.detail.notes),
+        advance: () => this.midiAdvance(),
+        devices: () => this.updateMidiUi(),
+        learned: (e) => { this.app.setPref('midiKey', e.detail); toast(`Touche ${noteName(e.detail)} : avance d’un accord`); this.updateMidiUi(); },
+      };
+      for (const [k, f] of Object.entries(this._midiH)) midi.addEventListener(k, f);
+    }
+    this.updateMidiUi();
+    if (user) toast(midi.devices.length ? `Clavier détecté : ${midi.devices.join(', ')}` : 'Branche ton clavier en USB : il sera détecté tout seul', 4000);
+  }
+
+  midiStop(ui = true) {
+    if (this._midiH) for (const [k, f] of Object.entries(this._midiH)) midi.removeEventListener(k, f);
+    this._midiH = null;
+    midi.disable();
+    this.el?.querySelector('.midi-chip')?.remove();
+    if (ui) this.updateMidiUi();
+  }
+
+  updateMidiUi() {
+    if (!this.el) return;
+    const st = !midi.supported ? 'pas disponible sur ce navigateur (Chrome ou Edge requis)'
+      : !this.midiOn ? 'suivre les accords et avancer à la pédale'
+      : midi.devices.length ? `🎹 ${midi.devices.join(', ')}` : 'aucun clavier détecté : branche-le en USB';
+    this.el.querySelectorAll('[data-r="midi-st"]').forEach((x) => { x.textContent = st; });
+    const key = midi.advanceNote != null ? ` ou la touche ${noteName(midi.advanceNote)}` : '';
+    this.el.querySelectorAll('[data-r="midi-key"]').forEach((x) => { x.textContent = `pédale de sustain${key}`; });
+    this.el.querySelectorAll('[data-act="midi-learn"]').forEach((x) => {
+      x.textContent = midi.advanceNote != null ? 'Retirer la touche' : 'Choisir une touche';
+      if (midi.advanceNote != null) x.dataset.clear = '1'; else delete x.dataset.clear;
+    });
+    this.el.querySelectorAll('[data-act="midi"]').forEach((x) => { x.checked = this.midiOn; });
+    this.el.querySelectorAll('.midi-opts').forEach((x) => { x.hidden = !this.midiOn; });
+  }
+
+  /** Accord suivant (ayant un temps) après l'accord courant. */
+  nextTimedChord() {
+    const tl = this.timeline || [];
+    for (let j = Math.max(0, this.lastChordIdx + 1); j < tl.length; j++) if (tl[j].t != null && tl[j].t > this.engine.currentTime + 0.05) return tl[j];
+    return null;
+  }
+
+  soundingName(name) {
+    const tr = this.song.prefs.transpose || 0;
+    return tr ? transposeChord(name, tr) : name;
+  }
+
+  onMidiNotes(notes) {
+    let chip = this.el.querySelector('.midi-chip');
+    if (!notes.length) { chip?.classList.add('fade'); return; }
+    if (!chip) { chip = document.createElement('div'); chip.className = 'midi-chip'; this.el.appendChild(chip); }
+    chip.classList.remove('fade', 'ok');
+    const name = nameChord(notes);
+    chip.innerHTML = `<span>🎹</span><b>${esc(name || notes.map(noteName).join(' '))}</b>`;
+    if (!this.midiFollow || notes.length < 2 || !this.hasTimedChords) return;
+    const tl = this.timeline;
+    if (this.engine.playing) {
+      const cur = tl[this.lastChordIdx];
+      if (cur && matchesChord(notes, this.soundingName(cur.name))) chip.classList.add('ok');
+      return;
+    }
+    const cur = tl[this.lastChordIdx];
+    if (cur && matchesChord(notes, this.soundingName(cur.name))) { chip.classList.add('ok'); return; }
+    const nx = this.nextTimedChord();
+    if (nx && matchesChord(notes, this.soundingName(nx.name))) {
+      chip.classList.add('ok');
+      this.seekChord(nx.t);
+    }
+  }
+
+  midiAdvance() {
+    if (!this.hasTimedChords) { toast('Synchronise d’abord les accords (Tout préparer ou Studio)'); return; }
+    const nx = this.nextTimedChord();
+    if (nx) this.seekChord(nx.t);
+  }
+
   seekChord(t) {
     this.engine.seek(Math.max(0, t + 0.02));
     this.lastChordIdx = -2;
@@ -978,6 +1076,8 @@ export class PlayerView {
         if (e.target.checked) { if (this.engine.loop) this.progressStart(true); else toast('Pose une boucle sur le passage à travailler : bouton boucle (ou L), ou touche une partie sur la barre de lecture', 6000); }
         else this.progressStop();
       }
+      if (a === 'midi') { this.midiOn = e.target.checked; this.app.setPref('midi', this.midiOn); if (this.midiOn) this.midiStart(true); else this.midiStop(); }
+      if (a === 'midi-follow') { this.midiFollow = e.target.checked; this.app.setPref('midiFollow', this.midiFollow); this.updateMidiUi(); }
       if (a === 'countin') { this.song.prefs.countIn = e.target.checked; this.updateOptionOutputs(); this.saveSong(); }
       if (a === 'show-chords') {
         this.showChords = e.target.checked;
@@ -1073,6 +1173,10 @@ export class PlayerView {
       case 'tr+': this.setTranspose(p.transpose + 1); break;
       case 'capo-': p.capo = Math.max(0, (p.capo || 0) - 1); this.updateOptionOutputs(); this.refreshChords(); this.saveSong(); break;
       case 'capo-apply': p.capo = +b.dataset.capo; this.updateOptionOutputs(); this.refreshChords(); this.saveSong(); toast(p.capo ? `Capo ${p.capo} : le son ne change pas, seules les formes changent` : 'Capo retiré'); break;
+      case 'midi-learn':
+        if (!this.midiOn) { toast('Active d’abord « Clavier MIDI »'); break; }
+        if (midi.advanceNote != null && b.dataset.clear) { midi.advanceNote = null; this.app.setPref('midiKey', null); this.updateMidiUi(); break; }
+        midi.learn(); b.textContent = 'Appuie sur une touche…'; toast('Appuie sur la touche du clavier qui servira à avancer', 5000); break;
       case 'capo+': p.capo = Math.min(11, (p.capo || 0) + 1); this.updateOptionOutputs(); this.refreshChords(); this.saveSong(); break;
       case 'rate-': case 'rate+': {
         p.rate = Math.round(Math.max(0.5, Math.min(1.5, p.rate + (a === 'rate+' ? 0.05 : -0.05))) * 100) / 100;

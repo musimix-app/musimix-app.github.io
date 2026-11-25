@@ -658,3 +658,12 @@ dialog.tuner-dlg { width: min(460px, calc(100vw - 20px)); }
 .capo-sug small { color: var(--ink-2); }
 .capo-sug small b { color: var(--chord); }
 .capo-sug[hidden] { display: none; }
+
+/* ---------- Clavier MIDI ---------- */
+.midi-chip { position: fixed; right: 18px; bottom: 96px; z-index: 40; display: flex; align-items: center; gap: 8px; padding: 9px 15px; border-radius: 999px; background: var(--surface); border: 1px solid var(--line-2); box-shadow: var(--shadow); font: 600 15px var(--font-ui); transition: opacity .6s, transform .2s var(--ease), border-color .2s, background .2s; }
+.midi-chip b { font: 600 20px var(--font-display); color: var(--chord); }
+.midi-chip.ok { border-color: #1fae6a; background: color-mix(in srgb, #1fae6a 14%, var(--surface)); transform: scale(1.06); }
+.midi-chip.ok b { color: #1fae6a; }
+.midi-chip.fade { opacity: 0; pointer-events: none; }
+.fullstage .midi-chip { bottom: 24px; }
+.midi-opts[hidden] { display: none; }
