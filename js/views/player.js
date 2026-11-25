@@ -318,6 +318,8 @@ export class PlayerView {
       <div class="opt-row"><span>Transposer aussi l’audio</span><label class="switch"><input type="checkbox" data-act="audio-pitch" ${p.audioPitch ? 'checked' : ''} ${audioOk ? '' : 'disabled'}><i></i></label></div>
       <div class="opt-row"><span>Capo</span><span class="stepper"><button data-act="capo-">−</button><output data-r="capo">${p.capo ? p.capo : 'aucun'}</output><button data-act="capo+">+</button></span></div>
       <div class="opt-row"><span>Vitesse</span><span class="stepper"><button data-act="rate-">−</button><output data-r="rate">${Math.round(p.rate * 100)} %</output><button data-act="rate+">+</button></span></div>
+      <div class="opt-row"><span>Boucle progressive<br><small class="note">à chaque tour de boucle, la vitesse monte de ${Math.round((p.progStep ?? 0.05) * 100)} % jusqu’à 100 %</small></span><label class="switch"><input type="checkbox" data-act="prog" ${p.progressive ? 'checked' : ''}><i></i></label></div>
+      <div class="opt-row prog-opts"${p.progressive ? '' : ' hidden'}><span>Départ</span><span class="stepper"><button data-act="prog-">−</button><output data-r="prog">${Math.round((p.progStart ?? 0.7) * 100)} %</output><button data-act="prog+">+</button></span></div>
       <div class="opt-row"><span>Décompte avant lecture</span><label class="switch"><input type="checkbox" data-act="countin" ${p.countIn ? 'checked' : ''}><i></i></label></div>
       <div class="opt-row"><span>Métronome</span><label class="switch"><input type="checkbox" data-act="metro-switch"><i></i></label></div>
       <div class="opt-row"><span>Afficher les accords</span><label class="switch"><input type="checkbox" data-act="show-chords" ${this.showChords ? 'checked' : ''}><i></i></label></div>
@@ -469,7 +471,7 @@ export class PlayerView {
     this.engine.setMetronome(false);
     this.engine.addEventListener('time', this._onTime);
     this._engineH = {};
-    for (const ev of ['play', 'pause', 'seek', 'loop', 'rate', 'ended']) {
+    for (const ev of ['play', 'pause', 'seek', 'loop', 'rate', 'ended', 'looped']) {
       this._engineH[ev] = () => this.onEngine(ev);
       this.engine.addEventListener(ev, this._engineH[ev]);
     }
@@ -491,7 +493,8 @@ export class PlayerView {
       if ('mediaSession' in navigator) navigator.mediaSession.playbackState = this.engine.playing ? 'playing' : 'paused';
     }
     if (ev === 'seek') { this.userScrollAt = 0; this.frame(true); }
-    if (ev === 'loop') this.renderLoop();
+    if (ev === 'loop') { this.renderLoop(); this.progressStart(); }
+    if (ev === 'looped') this.progressStep();
     if (ev === 'ended') this.onEnded();
   }
 
@@ -950,6 +953,13 @@ export class PlayerView {
         this.saveSong();
       }
       if (a === 'metro-switch') { this.el.querySelector('.t-right [data-act="metro"]').click(); }
+      if (a === 'prog') {
+        this.song.prefs.progressive = e.target.checked; this.saveSong();
+        this.el.querySelectorAll('.prog-opts').forEach((x) => { x.hidden = !e.target.checked; });
+        this.el.querySelectorAll('[data-act="prog"]').forEach((x) => { x.checked = e.target.checked; });
+        if (e.target.checked) { if (this.engine.loop) this.progressStart(true); else toast('Pose une boucle sur le passage à travailler : bouton boucle (ou L), ou touche une partie sur la barre de lecture', 6000); }
+        else this.progressStop();
+      }
       if (a === 'countin') { this.song.prefs.countIn = e.target.checked; this.updateOptionOutputs(); this.saveSong(); }
       if (a === 'show-chords') {
         this.showChords = e.target.checked;
@@ -1104,6 +1114,13 @@ export class PlayerView {
       case 'sheet-opts': this.openSheet('opts'); break;
       case 'mix-reset': this.applyPreset('all'); break;
       case 'fullstage': this.enterFullStage(); break;
+      case 'prog-': case 'prog+': {
+        p.progStart = Math.min(0.95, Math.max(0.5, Math.round(((p.progStart ?? 0.7) + (a === 'prog+' ? 0.05 : -0.05)) * 100) / 100));
+        this.el.querySelectorAll('[data-r="prog"]').forEach((o) => { o.textContent = Math.round(p.progStart * 100) + ' %'; });
+        this.saveSong();
+        if (this.prog) this.progressStart(true);
+        break;
+      }
       case 'show-empty': this.showEmpty = true; this.renderMixer(); break;
       case 'prev-song': if (this.ctx.index > 0) this.app.playFromSetlist(this.ctx.setlist, this.ctx.index - 1); break;
       case 'next-song': if (this.ctx.index < this.ctx.setlist.songs.length - 1) this.app.playFromSetlist(this.ctx.setlist, this.ctx.index + 1); break;
@@ -1141,6 +1158,40 @@ export class PlayerView {
   }
 
   /** Pédale Bluetooth (PageDown / PageUp) : morceau suivant en setlist, sinon partie suivante. */
+  // ── boucle progressive : la vitesse monte à chaque tour jusqu'à 100 %
+  progressStart(force = false) {
+    const p = this.song.prefs;
+    if (!p.progressive || !this.engine.loop) { if (!this.engine.loop) this.progressStop(); return; }
+    const key = `${this.engine.loop.a}|${this.engine.loop.b}`;
+    if (this.prog && this.prog.key === key && !force) return;
+    if (!this.prog) this.prog = { before: p.rate || 1 };
+    this.prog.key = key; this.prog.lap = 1;
+    this.setRateLive(p.progStart ?? 0.7);
+    toast(`Boucle progressive : départ à ${Math.round((p.progStart ?? 0.7) * 100)} %`);
+  }
+
+  progressStep() {
+    const p = this.song.prefs;
+    if (!this.prog || !p.progressive) return;
+    this.prog.lap++;
+    const target = 1, step = p.progStep ?? 0.05;
+    const r = Math.min(target, Math.round(((p.rate || 1) + step) * 100) / 100);
+    if (r !== p.rate) { this.setRateLive(r); toast(r >= target ? `Tour ${this.prog.lap} · 100 % : à toi de jouer !` : `Tour ${this.prog.lap} · ${Math.round(r * 100)} %`, 2200); }
+  }
+
+  progressStop() {
+    if (!this.prog) return;
+    this.setRateLive(this.prog.before || 1);
+    this.prog = null;
+  }
+
+  setRateLive(r) {
+    this.song.prefs.rate = r;
+    this.engine.setRate(r);
+    this.updateOptionOutputs();
+    this.saveSong();
+  }
+
   /** Scène plein écran : paroles et accords en très grand, sans aucun bouton. */
   enterFullStage() {
     if (this.editing.on) this.editing.toggle(false);

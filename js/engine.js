@@ -201,7 +201,7 @@ export class Engine extends EventTarget {
         this._est = raw;
       }
       if (this.playing && now - this._lastDrift > 300) { this._lastDrift = now; this._fixDrift(m); }
-      if (this.loop && this.playing && this._est >= this.loop.b) this.seek(this.loop.a);
+      if (this.loop && this.playing && this._est >= this.loop.b) { this.seek(this.loop.a); this.dispatchEvent(new Event('looped')); }
       if (this.metronome.on && this.playing) this._scheduleClicks();
     }
     this.dispatchEvent(new CustomEvent('time', { detail: this._est }));
@@ -223,7 +223,7 @@ export class Engine extends EventTarget {
 
   _onEnded(tr) {
     if (tr.el !== this.masterEl) return;
-    if (this.loop) { this.seek(this.loop.a); return; }
+    if (this.loop) { this.seek(this.loop.a); this.dispatchEvent(new Event('looped')); return; }
     this.playing = false;
     for (const t of this.tracks) t.el.pause();
     this.dispatchEvent(new Event('ended'));
