@@ -325,6 +325,8 @@ export function alignSequences(a, b, eq = (x, y) => x === y) {
 function similar(x, y) {
   if (x === y) return true;
   if (!x || !y) return false;
+  // une ligne qui en regroupe deux (« A, B » contre « A » puis « B ») : le début suffit
+  if (Math.min(x.length, y.length) >= 14 && (x.startsWith(y) || y.startsWith(x))) return true;
   // tolérance : 80 % des mots en commun
   const a = x.split(' '), b = y.split(' ');
   const sb = new Set(b);

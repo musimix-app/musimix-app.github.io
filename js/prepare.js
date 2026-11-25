@@ -68,6 +68,17 @@ export async function prepareSong(songId, { separate = true, quality = 'best', l
     const timed = lrc.lines.map((l) => ({ text: l.text, s: l.s, words: l.words }));
     if (hadLyrics) {
       const n = attachTimings(fresh.doc.lines, timed);
+      // lignes restées sans temps (texte trop différent) : placées entre leurs voisines, pour garder l'ordre
+      const ly = lyricLines(fresh.doc);
+      ly.forEach((l, k) => {
+        if (l.s != null) return;
+        const prev = ly.slice(0, k).reverse().find((x) => x.s != null);
+        const next = ly.slice(k + 1).find((x) => x.s != null);
+        if (prev && next) l.s = (Math.max(prev.s, prev.e ?? prev.s) + next.s) / 2;
+        else if (next) l.s = Math.max(0, next.s - 3);
+        else if (prev) l.s = (prev.e ?? prev.s) + 1;
+        if (l.s != null) l.words = null;
+      });
       fillLineEnds(fresh.doc.lines);
       report.lyrics = { source: 'lrclib', kept: true, matched: n, total: lyricLines(fresh.doc).length };
     } else {
