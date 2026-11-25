@@ -10,6 +10,7 @@ import { ensureLevels, isEmptyStem } from '../levels.js';
 import { STEM_KINDS, sortStems, exportPack, download } from '../songs.js';
 import { lowerBound } from '../engine.js';
 import { keyName } from '../theory.js';
+import { suggestCapo } from '../capo.js';
 
 export class PlayerView {
   constructor(app) {
@@ -318,6 +319,7 @@ export class PlayerView {
       <div class="opt-row"><span>Transposer</span><span class="stepper"><button data-act="tr-">−</button><output data-r="tr">${fmtSemi(p.transpose)}</output><button data-act="tr+">+</button></span></div>
       <div class="opt-row"><span>Transposer aussi l’audio</span><label class="switch"><input type="checkbox" data-act="audio-pitch" ${p.audioPitch ? 'checked' : ''} ${audioOk ? '' : 'disabled'}><i></i></label></div>
       <div class="opt-row"><span>Capo</span><span class="stepper"><button data-act="capo-">−</button><output data-r="capo">${p.capo ? p.capo : 'aucun'}</output><button data-act="capo+">+</button></span></div>
+      <div class="capo-sug" data-r="capo-sug" hidden></div>
       <div class="opt-row"><span>Vitesse</span><span class="stepper"><button data-act="rate-">−</button><output data-r="rate">${Math.round(p.rate * 100)} %</output><button data-act="rate+">+</button></span></div>
       <div class="opt-row"><span>Boucle progressive<br><small class="note">à chaque tour de boucle, la vitesse monte de ${Math.round((p.progStep ?? 0.05) * 100)} % jusqu’à 100 %</small></span><label class="switch"><input type="checkbox" data-act="prog" ${p.progressive ? 'checked' : ''}><i></i></label></div>
       <div class="opt-row prog-opts"${p.progressive ? '' : ' hidden'}><span>Départ</span><span class="stepper"><button data-act="prog-">−</button><output data-r="prog">${Math.round((p.progStart ?? 0.7) * 100)} %</output><button data-act="prog+">+</button></span></div>
@@ -332,10 +334,24 @@ export class PlayerView {
     this.syncModeButtons();
   }
 
+  renderCapoSug() {
+    const boxes = this.el.querySelectorAll('[data-r="capo-sug"]');
+    if (!boxes.length) return;
+    const sug = this.instrument === 'piano' ? null : suggestCapo(this.song, { instrument: this.instrument });
+    boxes.forEach((b) => {
+      b.hidden = !sug;
+      if (!sug) return;
+      const shapes = sug.shapes.slice(0, 6).map((n) => `<b>${esc(n)}</b>`).join(' ');
+      b.innerHTML = `<span>💡 ${sug.capo ? `Capo <b>${sug.capo}</b>` : '<b>Sans capo</b>'} : formes plus faciles<br><small>${shapes}${sug.shapes.length > 6 ? ' …' : ''}</small></span>
+        <button class="btn small" data-act="capo-apply" data-capo="${sug.capo}">Appliquer</button>`;
+    });
+  }
+
   updateOptionOutputs() {
     const p = this.song.prefs;
     this.el.querySelectorAll('[data-r="tr"]').forEach((o) => { o.textContent = fmtSemi(p.transpose); });
     this.el.querySelectorAll('[data-r="capo"]').forEach((o) => { o.textContent = p.capo ? p.capo : 'aucun'; });
+    this.renderCapoSug();
     this.el.querySelectorAll('[data-r="rate"]').forEach((o) => { o.textContent = Math.round(p.rate * 100) + ' %'; });
     this.el.querySelectorAll('[data-r="off"]').forEach((o) => { o.textContent = fmtOffset(p.offset); });
     this.el.querySelectorAll('[data-act="audio-pitch"]').forEach((i) => { i.checked = !!p.audioPitch; });
@@ -869,6 +885,7 @@ export class PlayerView {
 
   setInstrument(inst, save = true) {
     this.instrument = inst;
+    this.renderCapoSug?.();
     this._diagKey = null;
     this.syncModeButtons();
     this.lastChordIdx = -2;
@@ -1055,6 +1072,7 @@ export class PlayerView {
       case 'tr-': this.setTranspose(p.transpose - 1); break;
       case 'tr+': this.setTranspose(p.transpose + 1); break;
       case 'capo-': p.capo = Math.max(0, (p.capo || 0) - 1); this.updateOptionOutputs(); this.refreshChords(); this.saveSong(); break;
+      case 'capo-apply': p.capo = +b.dataset.capo; this.updateOptionOutputs(); this.refreshChords(); this.saveSong(); toast(p.capo ? `Capo ${p.capo} : le son ne change pas, seules les formes changent` : 'Capo retiré'); break;
       case 'capo+': p.capo = Math.min(11, (p.capo || 0) + 1); this.updateOptionOutputs(); this.refreshChords(); this.saveSong(); break;
       case 'rate-': case 'rate+': {
         p.rate = Math.round(Math.max(0.5, Math.min(1.5, p.rate + (a === 'rate+' ? 0.05 : -0.05))) * 100) / 100;
