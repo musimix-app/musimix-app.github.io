@@ -47,6 +47,7 @@ export class PlayerView {
     this.mode = prefs.viewMode || 'lyrics';
     this.fontSize = prefs.fontSize || null;
     this.showChords = prefs.showChords !== false;
+    this.showBars = prefs.showBars !== false;
     this.midiOn = !!prefs.midi;
     this.midiFollow = prefs.midiFollow !== false;
     midi.advanceNote = prefs.midiKey ?? null;
@@ -65,6 +66,7 @@ export class PlayerView {
   close() {
     if (this.take) { this.take.rec.cancel(); this.endTakeUi(); this.take = null; }
     this.midiStop(false);
+    this._barRO?.disconnect();
     this.exitFullStage();
     this.editing.on = false;
     document.querySelector('.drop-mark')?.remove();
@@ -250,6 +252,79 @@ export class PlayerView {
     this.renderLanes();
     this.renderGrid();
     this.renderKeyChip();
+    this._bars = null;
+    this.renderBarMarks();
+    if (!this._barRO && window.ResizeObserver) {
+      let w = 0;
+      this._barRO = new ResizeObserver(() => { const nw = this.$lyrics.clientWidth; if (nw !== w) { w = nw; clearTimeout(this._barT); this._barT = setTimeout(() => this.renderBarMarks(), 120); } });
+      this._barRO.observe(this.$lyrics);
+    }
+  }
+
+  /** Débuts de mesure (temps audio, secondes). */
+  barTimes() {
+    if (this._bars) return this._bars;
+    const s = this.song;
+    let downs = s.downbeats?.length ? s.downbeats : null;
+    if (!downs && s.beats?.length > 8) downs = s.beats.filter((_, i) => i % 4 === 0);
+    if (!downs && s.bpm && this.hasTimedChords) {
+      const period = (60 / s.bpm) * 4;
+      const t0 = this.timeline.find((c) => c.t != null)?.t || 0;
+      downs = [];
+      for (let t = t0 % period; t < (s.duration || this.engine.duration || 0); t += period) downs.push(t);
+    }
+    this._bars = downs || [];
+    return this._bars;
+  }
+
+  /** Traits discrets au début de chaque mesure, posés sur les paroles sans décaler le texte. */
+  renderBarMarks() {
+    const L = this.$lyrics;
+    if (!L) return;
+    L.querySelectorAll('.bar-mk').forEach((m) => m.remove());
+    if (!this.showBars || !this.synced) return;
+    const bars = this.barTimes();
+    if (!bars.length) return;
+    const off = (this.song.prefs.offset || 0) / 1000;
+    const lt = bars.map((d) => d + off); // temps des paroles
+    let bi = 0;
+    for (const ln of L.querySelectorAll('.ln.lyric[data-s]')) {
+      const ws = [...ln.querySelectorAll('.w[data-s]')];
+      if (!ws.length) continue;
+      const lr = ln.getBoundingClientRect();
+      const t0 = +ws[0].dataset.s - 0.06, t1 = +ws[ws.length - 1].dataset.e + 0.06;
+      while (bi > 0 && lt[bi - 1] >= t0) bi--;
+      while (bi < lt.length && lt[bi] < t0) bi++;
+      const frag = [];
+      for (let k = bi; k < lt.length && lt[k] <= t1; k++) {
+        const T = lt[k];
+        let wi = ws.findIndex((w) => T <= +w.dataset.e);
+        if (wi < 0) wi = ws.length - 1;
+        const w = ws[wi];
+        const txt = w.querySelector('.t') || w;
+        const r = txt.getBoundingClientRect();
+        const s = +w.dataset.s, e = +w.dataset.e;
+        let x, pos;
+        const n = (txt.textContent || '').replace(/\s+$/, '').length;
+        if (T < s) { // dans le blanc avant le mot
+          const prev = ws[wi - 1]?.querySelector('.t') || ws[wi - 1];
+          const pr = prev?.getBoundingClientRect();
+          x = pr && Math.abs(pr.top - r.top) < 4 ? (pr.right + r.left) / 2 : r.left - 3;
+          pos = +w.dataset.a;
+        } else {
+          const f = e > s ? Math.min(1, (T - s) / (e - s)) : 0;
+          const ci = Math.round(f * n);
+          pos = +w.dataset.a + ci;
+          x = r.left + (n ? (r.width * ci) / Math.max(n, 1) : 0);
+          // position exacte du caractère si possible
+          const tn = [...txt.childNodes].find((c) => c.nodeType === 3);
+          if (tn && ci <= tn.length) { const rg = document.createRange(); rg.setStart(tn, ci); rg.collapse(true); const cr = rg.getClientRects()[0]; if (cr) x = cr.left; }
+        }
+        const top = w.getBoundingClientRect().top - lr.top;
+        frag.push(`<i class="bar-mk" style="left:${(x - lr.left).toFixed(1)}px;top:${top.toFixed(1)}px;height:${w.getBoundingClientRect().height.toFixed(1)}px" data-pos="${pos}" data-t="${T.toFixed(3)}"></i>`);
+      }
+      if (frag.length) ln.insertAdjacentHTML('beforeend', frag.join(''));
+    }
   }
 
   renderLanes() {
@@ -350,6 +425,7 @@ export class PlayerView {
         <div class="opt-row"><span>Avancer d’un accord<br><small class="note" data-r="midi-key"></small></span><button class="btn small ghost" data-act="midi-learn">Choisir une touche</button></div>
       </div>
       <div class="opt-row"><span>Afficher les accords</span><label class="switch"><input type="checkbox" data-act="show-chords" ${this.showChords ? 'checked' : ''}><i></i></label></div>
+      <div class="opt-row"><span>Afficher les mesures<br><small class="note">petits traits au début de chaque mesure</small></span><label class="switch"><input type="checkbox" data-act="show-bars" ${this.showBars ? 'checked' : ''}><i></i></label></div>
       <div class="opt-row"><span>Décalage paroles</span><span class="stepper"><button data-act="off-">−</button><output data-r="off">${fmtOffset(p.offset)}</output><button data-act="off+">+</button></span></div>
       <div class="opt-row only-m"><span>Affichage</span><span class="seg"><button data-mode="lyrics">Paroles</button><button data-mode="stage">Scène</button><button data-mode="grid">Grille</button></span></div>
       <div class="opt-row only-m"><span>Diagrammes</span><span class="seg"><button data-inst="guitar">Guitare</button><button data-inst="ukulele">Ukulélé</button><button data-inst="piano">Piano</button></span></div>`;
@@ -1281,6 +1357,13 @@ export class PlayerView {
       if (a === 'midi') { this.midiOn = e.target.checked; this.app.setPref('midi', this.midiOn); if (this.midiOn) this.midiStart(true); else this.midiStop(); }
       if (a === 'midi-follow') { this.midiFollow = e.target.checked; this.app.setPref('midiFollow', this.midiFollow); this.updateMidiUi(); }
       if (a === 'countin') { this.song.prefs.countIn = e.target.checked; this.updateOptionOutputs(); this.saveSong(); }
+      if (a === 'show-bars') {
+        this.showBars = e.target.checked;
+        this.app.setPref('showBars', this.showBars);
+        this.el.querySelectorAll('[data-act="show-bars"]').forEach((x) => { x.checked = this.showBars; });
+        this.renderBarMarks();
+        if (this.showBars && !this.barTimes().length) toast('Pas de tempo pour ce morceau : lance « Tout préparer » (étape Tempo et accords)', 6000);
+      }
       if (a === 'show-chords') {
         this.showChords = e.target.checked;
         this.$lyrics.classList.toggle('hide-chords', !this.showChords);
@@ -1386,7 +1469,7 @@ export class PlayerView {
         p.rate = Math.round(Math.max(0.5, Math.min(1.5, p.rate + (a === 'rate+' ? 0.05 : -0.05))) * 100) / 100;
         this.engine.setRate(p.rate); this.updateOptionOutputs(); this.saveSong(); break;
       }
-      case 'off-': case 'off+': p.offset = (p.offset || 0) + (a === 'off+' ? 50 : -50); this.updateOptionOutputs(); this.frame(true); this.saveSong(); break;
+      case 'off-': case 'off+': p.offset = (p.offset || 0) + (a === 'off+' ? 50 : -50); this.updateOptionOutputs(); this.frame(true); this.renderBarMarks(); this.saveSong(); break;
       case 'rate':
         openMenu(b, [0.5, 0.6, 0.7, 0.75, 0.8, 0.85, 0.9, 1, 1.1, 1.25].map((r) => ({
           label: `${Math.round(r * 100)} %${r === 1 ? ' (normal)' : ''}${Math.abs(r - p.rate) < 0.001 ? '  ✓' : ''}`,
@@ -1461,6 +1544,7 @@ export class PlayerView {
     if (px) px = Math.max(14, Math.min(48, px));
     if (px) this.el.style.setProperty('--lyrics-size', px + 'px'); else this.el.style.removeProperty('--lyrics-size');
     this.app.setPref('fontSize', px);
+    clearTimeout(this._barT); this._barT = setTimeout(() => this.renderBarMarks(), 60);
     this.curLine = -2;
     this.frame(true);
   }

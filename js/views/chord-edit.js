@@ -105,6 +105,7 @@ export class LyricsEditing {
     const line = this.lines[li];
     if (line?.type === 'lyric') {
       const hit = this.posFromPoint(e.clientX, e.clientY);
+      this.snapT = hit?.li === li && hit.t != null ? { li, pos: hit.pos, t: hit.t } : null;
       this.wordMenu(e.target.closest('.w') || ln, li, hit?.li === li ? hit.pos : line.text.length);
     } else if (line?.type === 'chords') {
       this.addChordDialog(li, line.chords.length);
@@ -157,6 +158,15 @@ export class LyricsEditing {
       pos = +best.dataset.a + (x > r.left + r.width / 2 ? txt.replace(/ /g, '').length : 0);
     }
     pos = Math.max(0, Math.min(line.text.length, pos));
+    // aimant : près d'un trait de mesure, l'accord se cale exactement sur le début de la mesure
+    let snap = null, sd = 18;
+    for (const mk of ln.querySelectorAll('.bar-mk')) {
+      const r = mk.getBoundingClientRect();
+      if (y < r.top - 26 || y > r.bottom + 14) continue;
+      const dx = Math.abs(x - r.left);
+      if (dx < sd) { sd = dx; snap = mk; }
+    }
+    if (snap) return { li, pos: Math.max(0, Math.min(line.text.length, +snap.dataset.pos)), t: +snap.dataset.t, snap, el: ln };
     return { li, pos, el: ln };
   }
 
@@ -167,7 +177,9 @@ export class LyricsEditing {
     const lr = hit.el.getBoundingClientRect();
     let left = x;
     const line = this.lines[hit.li];
-    if (line.type === 'lyric') {
+    mk.classList.toggle('snap', !!hit.snap);
+    if (hit.snap) left = hit.snap.getBoundingClientRect().left + 1;
+    else if (line.type === 'lyric') {
       const w = [...hit.el.querySelectorAll('.w[data-a]')].reverse().find((el) => +el.dataset.a <= hit.pos);
       if (w) {
         const t = w.querySelector('.t') || w;
@@ -238,13 +250,13 @@ export class LyricsEditing {
     const c = from?.chords?.[ci];
     if (!c) return;
     const to = this.lines[hit.li];
-    if (hit.li === li && to.type === 'lyric' && c.pos === hit.pos) return;
+    if (hit.li === li && to.type === 'lyric' && c.pos === hit.pos && (hit.t == null || Math.abs((c.t ?? -1) - hit.t) < 0.01)) return;
     this.snapshot();
     const t = this.chordTime(li, ci);
     from.chords.splice(ci, 1);
     if (to.type === 'lyric') {
       to.chords = (to.chords || []).filter((x) => x.pos !== hit.pos);
-      to.chords.push({ pos: hit.pos, name: c.name });
+      to.chords.push(hit.t != null ? { pos: hit.pos, name: c.name, t: hit.t } : { pos: hit.pos, name: c.name });
       to.chords.sort((a, b) => a.pos - b.pos);
     } else {
       let idx = hit.index;
@@ -268,7 +280,7 @@ export class LyricsEditing {
     const word = toks[k < 0 ? toks.length - 1 : k];
     const canSplit = k > 0;
     openMenu(anchor, [
-      { icon: 'plus', label: `Ajouter un accord ici${word ? ` (« ${word.w.slice(0, 18)} »)` : ''}`, action: () => this.addChordDialog(li, word && pos <= word.start + 1 ? word.start : pos) },
+      { icon: 'plus', label: this.snapT?.pos === pos ? 'Ajouter un accord au début de la mesure' : `Ajouter un accord ici${word ? ` (« ${word.w.slice(0, 18)} »)` : ''}`, action: () => this.addChordDialog(li, this.snapT?.pos === pos || !word || pos > word.start + 1 ? pos : word.start) },
       { icon: 'edit', label: 'Modifier le texte de la ligne', action: () => this.textDialog(li) },
       ...(canSplit ? [{ icon: 'list', label: `Aller à la ligne avant « ${word.w.slice(0, 18)} »`, action: () => this.splitLine(li, word.start) }] : []),
       ...(this.nextLyric(li) != null ? [{ icon: 'list', label: 'Joindre la ligne suivante', action: () => this.joinNext(li) }] : []),
@@ -521,7 +533,8 @@ export class LyricsEditing {
           else c.name = st;
         } else if (line.type === 'lyric') {
           line.chords = (line.chords || []).filter((x) => x.pos !== pos);
-          line.chords.push({ pos, name: st });
+          const sn = this.snapT && this.snapT.li === li && this.snapT.pos === pos ? this.snapT.t : null;
+          line.chords.push(sn != null ? { pos, name: st, t: sn } : { pos, name: st });
           line.chords.sort((a, b) => a.pos - b.pos);
         } else {
           line.chords.splice(pos, 0, { pos, name: st, t: line.chords[pos - 1]?.t });
