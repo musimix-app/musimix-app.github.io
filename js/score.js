@@ -62,7 +62,8 @@ export class ScoreView {
       this.o.onTracks?.(score.tracks.map((t, i) => ({ i, name: t.name || `Piste ${i + 1}` })), c.track || 0);
     });
     api.playerReady.on(() => this.attach());
-    api.midiLoaded?.on?.(() => this.applySync());
+    api.midiLoaded?.on?.(() => { this.applySync(); setTimeout(() => this.applySync(), 0); });
+    api.renderFinished?.on?.(() => { if (this.ready) this.applySync(); });
     api.load(bytes, [c.track || 0]);
   }
 
@@ -86,6 +87,8 @@ export class ScoreView {
     this.ready = true;
     this.applySync();
     this.update(eng.currentTime, true);
+    // au chargement, alphaTab peut régénérer son MIDI juste après et perdre le calage : on le repose
+    [250, 900, 2500].forEach((d) => setTimeout(() => { if (this.api) { this.applySync(); this.update(eng.currentTime, true); } }, d));
   }
 
   /** Pose les sync points : mesure k jouée → k-ième début de mesure détecté (+ décalage). */
