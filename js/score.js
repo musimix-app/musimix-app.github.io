@@ -124,6 +124,7 @@ export class ScoreView {
       add(mb, occ, (t + offset) * 1000);
       placed++;
     });
+    this._start = (raw[0] ?? 0);
     if (!placed) add(tl[0].masterBar, 0, Math.max(0, ((raw[0] ?? 0) + offset) * 1000)); // seul le départ : la partition suit son propre tempo
     api.updateSyncPoints?.();
     this.placed = placed;
@@ -171,12 +172,16 @@ export class ScoreView {
    */
   scoreLyrics() {
     const score = this.score, tl = this.api?.tickCache?.masterBars, downs = this._downs || [];
-    if (!score || !tl?.length || downs.length < 2) return [];
+    if (!score || !tl?.length) return [];
+    // sans mesures détectées : la partition suit son propre tempo à partir du point de départ
+    const t0 = downs.length >= 2 ? null : (this._start || 0);
+    const sec = (tick) => (tick / 960) * (60 / (score.tempo || 120));
     const out = [], seen = new Map();
     tl.forEach((lk, k) => {
       const mb = lk.masterBar, occ = seen.get(mb.index) || 0;
       seen.set(mb.index, occ + 1);
-      const a = downs[k], b = downs[k + 1] ?? (a != null ? a + (a - (downs[k - 1] ?? a - 2)) : null);
+      const a = t0 != null ? t0 + sec(lk.start) : downs[k];
+      const b = t0 != null ? t0 + sec(lk.end) : downs[k + 1] ?? (a != null ? a + (a - (downs[k - 1] ?? a - 2)) : null);
       if (a == null || b == null) return;
       const len = lk.end - lk.start;
       for (const tr of score.tracks) {
@@ -185,6 +190,7 @@ export class ScoreView {
           const ly = bt.lyrics?.length ? bt.lyrics[Math.min(occ, bt.lyrics.length - 1)] : null;
           if (!ly || !ly.trim()) continue;
           out.push({ w: ly.trim(), t: a + (bt.playbackStart / len) * (b - a) + (this._off || 0) });
+          if (bt.lyrics.length > 1 && occ === 0) window.__mmLyrMulti = true;
         }
       }
     });
