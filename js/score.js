@@ -55,6 +55,7 @@ export class ScoreView {
     });
     this.api = api;
     this.AT = AT;
+    window.__mmScore = this; // diagnostic
     api.error.on((e) => this.o.onStatus?.(`Partition illisible : ${e?.message || e}`));
     api.scoreLoaded.on((score) => {
       this.score = score;
@@ -76,9 +77,10 @@ export class ScoreView {
       set playbackRate(v) { /* la vitesse se règle dans MusiMix */ },
       get masterVolume() { return 1; },
       set masterVolume(v) { /* idem */ },
-      seekTo: (ms) => { eng.seek(Math.max(0, ms / 1000)); },
-      play: () => { if (!eng.playing) eng.play(); },
-      pause: () => { if (eng.playing) eng.pause(); },
+      // alphaTab renvoie parfois la position qu'on vient de lui donner : on n'obéit qu'à un vrai saut (clic sur une note)
+      seekTo: (ms) => { this.log('seekTo', ms); const t = Math.max(0, ms / 1000); if (Math.abs(t - eng.currentTime) > 0.3) eng.seek(t); },
+      play: () => { this.log('play'); if (!eng.playing) eng.play(); },
+      pause: () => { this.log('pause'); if (eng.playing && performance.now() - (this._userPlay || 0) > 800) eng.pause(); },
     };
     this.out = out;
     this.ready = true;
@@ -120,6 +122,11 @@ export class ScoreView {
     this.placed = placed;
     this.o.onStatus?.(placed ? `Calage : ${placed} mesures posées sur l’audio` : 'Calage sur le tempo de la partition (prépare le morceau pour un calage mesure par mesure)');
   }
+
+  log(...a) { (window.__mmScoreLog ||= []).push([Math.round(performance.now()), ...a]); if (window.__mmScoreLog.length > 60) window.__mmScoreLog.shift(); }
+
+  /** Lecture lancée par MusiMix : alphaTab ne doit pas la couper dans la foulée. */
+  userPlay() { this._userPlay = performance.now(); }
 
   update(t, force = false) {
     if (!this.ready || !this.out) return;

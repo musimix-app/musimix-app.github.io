@@ -648,6 +648,7 @@ export class PlayerView {
     if (ev === 'looped') this.progressStep();
     if (ev === 'ended') this.onEnded();
     if ((ev === 'play' || ev === 'pause') && this.r20On) this.r20Leds();
+    if (ev === 'play') this.scoreView?.userPlay();
     if (this.take?.live && (ev === 'pause' || ev === 'ended' || ev === 'seek' || ev === 'loop')) this.stopTake();
   }
 
