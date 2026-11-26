@@ -140,7 +140,8 @@ export class PlayerView {
             <button class="btn small sc-lyr-btn" data-sc="lyrics:1" aria-pressed="false" title="Afficher les paroles au-dessus de la partition">Paroles</button>
             <span class="sc-loff" hidden><span class="note">Décalage paroles</span>
               <span class="stepper" title="+ : les paroles s'allument plus tôt"><button data-sc="loff:-0.5" title="−0,5 s">«</button><button data-sc="loff:-0.05">−</button><output data-r="sc-loff">0 s</output><button data-sc="loff:0.05">+</button><button data-sc="loff:0.5" title="+0,5 s">»</button></span>
-              <button class="btn small ghost" data-sc="auto:lyr" title="Écoute la voix et cale les paroles dessus">Auto</button></span>
+              <button class="btn small ghost" data-sc="auto:lyr" title="Écoute la voix et cale les paroles dessus">Auto</button>
+              <button class="btn small ghost" data-sc="auto:words" title="Chaque mot prend le temps de sa note dans la partition (si elle contient les paroles)">Mot à mot</button></span>
             <span class="note sc-status" data-r="sc-status"></span>
           </div>
           <div class="sc-lyrics" hidden aria-live="off"></div>
@@ -959,7 +960,7 @@ export class PlayerView {
         if (k === 'zoom') this.scoreView.setScale((this.song.score.scale || 1) + (v === '+' ? 0.1 : -0.1));
         if (k === 'bar') this.scoreView.nudge({ firstBar: +v });
         if (k === 'off') this.scoreView.nudge({ offset: +v });
-        if (k === 'auto') { v === 'lyr' ? this.autoLyrics() : this.autoScore(); return; }
+        if (k === 'auto') { v === 'lyr' ? this.autoLyrics() : v === 'words' ? this.autoWords() : this.autoScore(); return; }
         if (k === 'loff') {
           const p = this.song.prefs;
           p.offset = Math.round((p.offset || 0) + +v * 1000);
@@ -999,7 +1000,7 @@ export class PlayerView {
     this._autoBusy = true;
     toast('Calage des paroles : écoute de la voix…', 20000);
     try {
-      const { alignLyrics, alignFromScore } = await import('../autoalign.js?v=4.26.2');
+      const { alignLyrics, alignFromScore } = await import('../autoalign.js?v=4.27.0');
       // 1) la partition contient les paroles et elle est calée : c'est la référence la plus sûre
       let r = null;
       if (this.song.score) {
@@ -1022,13 +1023,37 @@ export class PlayerView {
     finally { this._autoBusy = false; }
   }
 
+  /** Minutage mot à mot pris dans les paroles écrites sous les notes de la partition. */
+  async autoWords() {
+    if (this._autoBusy || !this.scoreView) return;
+    const syl = this.scoreView.scoreLyrics?.() || [];
+    if (!syl.length) { toast('Cette partition ne contient pas de paroles sous les notes', 6000); return; }
+    this._autoBusy = true;
+    try {
+      const { wordsFromScore } = await import('../autoalign.js?v=4.27.0');
+      const s = this.song, p = s.prefs;
+      const backup = JSON.stringify(s.doc.lines), offBefore = p.offset || 0;
+      // le décalage actuel est intégré aux temps (les lignes absentes de la partition restent en place)
+      const off = offBefore / 1000;
+      if (off) for (const l of s.doc.lines) if (l.type === 'lyric' && l.s != null) { l.s -= off; if (l.e != null) l.e -= off; l.words?.forEach((w) => { w.s -= off; if (w.e != null) w.e -= off; }); }
+      const r = await wordsFromScore(s, syl);
+      if (!r) { s.doc.lines = JSON.parse(backup); toast(`Trop peu de mots retrouvés dans la partition (${syl.length} syllabes lues) : rien n’a été changé`, 7000); return; }
+      p.offset = 0;
+      await db.putSong(s);
+      this._undoWords = { lines: backup, offset: offBefore };
+      this.renderLyrics(); this.curLine = -2; this.frame(true); this.updateOptionOutputs(); this.renderScoreLyrics(true);
+      toast(`Mot à mot : ${r.lines} lignes calées d’après la partition (${r.words} mots sur ${r.total})`, 7000);
+    } catch (err) { console.error(err); toast(err.message || 'Impossible', 6000); }
+    finally { this._autoBusy = false; }
+  }
+
   /** Écoute le début du morceau et y pose la 1re note de la partition. */
   async autoScore() {
     if (this._autoBusy || !this.scoreView) return;
     this._autoBusy = true;
     toast('Calage de la partition : écoute du début du morceau…', 4000);
     try {
-      const { musicStart } = await import('../autoalign.js?v=4.26.2');
+      const { musicStart } = await import('../autoalign.js?v=4.27.0');
       const onset = await musicStart(this.song);
       const r = this.scoreView.autoStart(onset);
       if (!r) toast('Pas de note trouvée dans la partition', 5000);

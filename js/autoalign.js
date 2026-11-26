@@ -143,3 +143,41 @@ export function alignFromScore(song, syl) {
   const med = top.slice().sort((a, b) => a - b)[top.length >> 1];
   return { shift: Math.round(med * 100) / 100, conf: top.length / diffs.length, n: top.length, of: lines.length };
 }
+
+/**
+ * Minutage mot à mot d'après la partition : chaque mot des paroles prend le temps de la syllabe
+ * correspondante écrite sous les notes (la partition étant calée sur l'audio).
+ * Modifie song.doc ; renvoie { lines, words, total } ou null si trop peu de correspondances.
+ */
+export async function wordsFromScore(song, syl) {
+  const { tokenize, alignSequences, interpolateWords, fillLineEnds } = await import('./sheet.js');
+  if (!syl?.length) return null;
+  const sw = [];
+  for (const s of syl) for (const part of s.w.split(/\s+/)) {
+    const p = norm(part);
+    if (!p) continue;
+    const prev = sw[sw.length - 1];
+    if (prev?.open) { prev.w += p; prev.open = /-$/.test(part); prev.e = s.t; }
+    else sw.push({ w: p, t: s.t, open: /-$/.test(part) });
+  }
+  sw.forEach((x, i) => { x.e = sw[i + 1] ? Math.min(sw[i + 1].t, x.t + 1.2) : x.t + 0.6; });
+  const lines = (song.doc?.lines || []).filter((l) => l.type === 'lyric' && l.text?.trim());
+  const dw = [];
+  lines.forEach((l, li) => tokenize(l.text).forEach((tk, wi) => dw.push({ li, wi, w: norm(tk.w) })));
+  const eq = (a, b) => a === b || (a.length >= 3 && b.length >= 3 && (a.startsWith(b) || b.startsWith(a)));
+  const pairs = alignSequences(dw.map((x) => x.w), sw.map((x) => x.w), eq);
+  if (pairs.length < dw.length * 0.4) return null;
+  const res = lines.map((l) => new Array(tokenize(l.text).length).fill(null));
+  for (const [i, j] of pairs) res[dw[i].li][dw[i].wi] = { s: sw[j].t, e: sw[j].e };
+  let nl = 0;
+  lines.forEach((l, li) => {
+    const r = res[li], known = r.filter(Boolean);
+    if (known.length < Math.max(1, r.length * 0.3)) return; // pas dans la partition : on garde son minutage actuel
+    const s = known[0].s, e = known[known.length - 1].e;
+    l.words = interpolateWords(r, s, e);
+    l.s = l.words?.[0]?.s ?? s; l.e = e;
+    nl++;
+  });
+  fillLineEnds(song.doc.lines);
+  return { lines: nl, words: pairs.length, total: dw.length };
+}
