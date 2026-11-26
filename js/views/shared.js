@@ -87,7 +87,9 @@ export class SharedView {
     try {
       const song = await fetchShareFile(it.json);
       const files = new Map(it.stems.map((x) => [x.bid, x.file]));
-      for (const st of song.stems || []) {
+      if (it.score) files.set(it.score.bid, it.score.file);
+      const wanted = [...(song.stems || []), ...(song.score?.blobId ? [{ blobId: song.score.blobId, mime: song.score.mime }] : [])];
+      for (const st of wanted) {
         if (!st.blobId || (await db.getBlob(st.blobId))) continue;
         const fid = files.get(st.blobId);
         if (!fid) continue;
@@ -99,6 +101,8 @@ export class SharedView {
       // une mise à jour garde les réglages de la personne (mixage, transposition…)
       if (local) { song.mix = local.mix || song.mix; song.prefs = local.prefs || song.prefs; song.playCount = local.playCount; }
       for (const st of local?.stems || []) if (st.blobId && !(song.stems || []).some((x) => x.blobId === st.blobId)) await db.deleteBlob(st.blobId);
+      if (local?.score?.blobId && local.score.blobId !== song.score?.blobId) await db.deleteBlob(local.score.blobId);
+      if (song.score && !files.has(song.score.blobId) && !(await db.getBlob(song.score.blobId))) delete song.score; // partition pas encore partagée
       song.sharedFrom = { folder: this.folder, upd: it.upd, at: Date.now() };
       delete song.shared;
       await db.putSong(song);

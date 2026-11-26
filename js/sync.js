@@ -388,7 +388,7 @@ export class Sync extends EventTarget {
     let n = 0;
     const keep = new Set();
     for (const s of shared) {
-      const stems = (s.stems || []).filter((st) => st.blobId);
+      const stems = blobsOf(s).filter((st) => st.blobId);
       for (const st of stems) {
         keep.add(st.blobId);
         if (rAudio.has(st.blobId)) continue;
@@ -413,10 +413,11 @@ export class Sync extends EventTarget {
     // index (seulement s'il a changé)
     const index = {
       format: 'musimix-partage-1',
-      songs: shared.map((s) => ({ id: s.id, title: s.title, artist: s.artist, duration: s.duration, key: s.key, bpm: s.bpm, upd: s.updatedAt || 0, json: rJson.get(s.id)?.id, stems: (s.stems || []).filter((st) => st.blobId && rAudio.has(st.blobId)).map((st) => ({ bid: st.blobId, file: rAudio.get(st.blobId), size: st.size || 0 })) }))
+      songs: shared.map((s) => ({ id: s.id, title: s.title, artist: s.artist, duration: s.duration, key: s.key, bpm: s.bpm, upd: s.updatedAt || 0, json: rJson.get(s.id)?.id, stems: (s.stems || []).filter((st) => st.blobId && rAudio.has(st.blobId)).map((st) => ({ bid: st.blobId, file: rAudio.get(st.blobId), size: st.size || 0 })),
+        ...(s.score?.blobId && rAudio.has(s.score.blobId) ? { score: { bid: s.score.blobId, file: rAudio.get(s.score.blobId) } } : {}) }))
         .sort((a, b) => (a.title || '').localeCompare(b.title || '', 'fr')),
     };
-    const sig = JSON.stringify(index.songs.map((x) => [x.id, x.upd, x.title, x.artist, x.stems.length]));
+    const sig = JSON.stringify(index.songs.map((x) => [x.id, x.upd, x.title, x.artist, x.stems.length, x.score?.bid || '']));
     if (!rIndex || this.conf.shareSig !== sig) {
       await this.putSmall({ fileId: rIndex?.id, name: 'index.json', folder, appProperties: { kind: 'index' }, data: JSON.stringify({ ...index, at: Date.now() }) });
       const c = this.conf; c.shareSig = sig; lsSet(c);
