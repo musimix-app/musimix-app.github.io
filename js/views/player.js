@@ -999,12 +999,12 @@ export class PlayerView {
     this._autoBusy = true;
     toast('Calage des paroles : écoute de la voix…', 20000);
     try {
-      const { alignLyrics, alignFromScore } = await import('../autoalign.js');
+      const { alignLyrics, alignFromScore } = await import('../autoalign.js?v=4.26.1');
       // 1) la partition contient les paroles et elle est calée : c'est la référence la plus sûre
       let r = null;
       if (this.song.score) {
         if (!this.scoreView) { const m = this.mode; this.setMode('score', false); await new Promise((ok) => setTimeout(ok, 2500)); if (m !== 'score') this.setMode(m, false); }
-        const fs = alignFromScore(this.song, this.scoreView?.scoreLyrics?.());
+        const fs = typeof alignFromScore === 'function' && alignFromScore(this.song, this.scoreView?.scoreLyrics?.());
         if (fs && fs.conf >= 0.5) r = { ...fs, src: 'partition' };
       }
       // 2) sinon, on écoute la piste Voix
@@ -1024,7 +1024,7 @@ export class PlayerView {
     this._autoBusy = true;
     toast('Calage de la partition : écoute du début du morceau…', 4000);
     try {
-      const { musicStart } = await import('../autoalign.js');
+      const { musicStart } = await import('../autoalign.js?v=4.26.1');
       const onset = await musicStart(this.song);
       const r = this.scoreView.autoStart(onset);
       if (!r) toast('Pas de note trouvée dans la partition', 5000);
