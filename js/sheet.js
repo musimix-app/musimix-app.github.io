@@ -445,7 +445,8 @@ function similar(x, y) {
  */
 export function attachTimings(lines, timed) {
   const lyr = lines.map((l, i) => [l, i]).filter(([l]) => l.type === 'lyric');
-  let pairs = alignSequences(lyr.map(([l]) => normText(l.text)), timed.map((t) => normText(t.text)), similar);
+  const nm = (t) => normText(t).replace(/\b(coz|cos|cuz|cus|because|cause)\b/g, 'cause').replace(/\b(gonna)\b/g, 'going to').replace(/\b(wanna)\b/g, 'want to').replace(/in\b/g, 'ing').replace(/\bim\b/g, 'i m');
+  let pairs = alignSequences(lyr.map(([l]) => nm(l.text)), timed.map((t) => nm(t.text)), similar);
   // textes trop différents (LRC traduit, autre orthographe…) mais même nombre de lignes : on cale dans l'ordre
   const tIdx = timed.map((t, j) => [t, j]).filter(([t]) => normText(t.text)).map(([, j]) => j);
   const near = Math.abs(tIdx.length - lyr.length) <= Math.max(2, Math.round(lyr.length * 0.1));
@@ -455,12 +456,35 @@ export function attachTimings(lines, timed) {
     pairs = Array.from({ length: n }, (_, i) => [i, tIdx[i]]);
     attachTimings.byOrder = true;
   }
-  for (const [i, j] of pairs) {
+  // trous : lignes du texte sans correspondance entre deux lignes calées (ligne qui en regroupe deux,
+  // orthographe différente…) → elles prennent, dans l'ordre, les lignes du .lrc restées libres au même endroit
+  if (!attachTimings.byOrder && pairs.length) {
+    const extra = [];
+    const anchors = [[-1, -1], ...pairs, [lyr.length, timed.length]];
+    for (let k = 0; k + 1 < anchors.length; k++) {
+      const [i0, j0] = anchors[k], [i1, j1] = anchors[k + 1];
+      const D = []; for (let i = i0 + 1; i < i1; i++) D.push(i);
+      const T = []; for (let j = j0 + 1; j < j1; j++) if (normText(timed[j].text)) T.push(j);
+      if (!D.length || !T.length || D.length > T.length + 1) continue;
+      const dw = D.map((i) => Math.max(1, tokenize(lyr[i][0].text).length)), tw = T.map((j) => Math.max(1, tokenize(timed[j].text).length));
+      const dTot = dw.reduce((a, b) => a + b, 0), tTot = tw.reduce((a, b) => a + b, 0);
+      let acc = 0, used = -1;
+      D.forEach((i, n) => {
+        const f = acc / dTot; acc += dw[n];
+        let tAcc = 0, pick = 0;
+        for (let m = 0; m < T.length; m++) { if (Math.abs(tAcc / tTot - f) < Math.abs(T.slice(0, pick).reduce((a, j, q) => a + tw[q], 0) / tTot - f)) pick = m; tAcc += tw[m]; }
+        if (pick <= used) pick = used + 1;
+        if (pick < T.length) { extra.push([i, T[pick], true]); used = pick; }
+      });
+    }
+    pairs = [...pairs, ...extra].sort((a, b) => a[0] - b[0]);
+  }
+  for (const [i, j, loose] of pairs) {
     const line = lyr[i][0];
     const t = timed[j];
     line.s = t.s;
     const toks = tokenize(line.text);
-    if (t.words?.length && !attachTimings.byOrder) {
+    if (t.words?.length && !attachTimings.byOrder && !loose) {
       line.words = mapWords(toks, t.words, t);
     } else {
       line.words = null;
