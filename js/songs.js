@@ -107,6 +107,7 @@ export function applyLRC(song, text) {
   if (!song.doc.lines.some((l) => l.type === 'lyric')) {
     song.doc.lines = lrc.lines.map((l) => ({ type: 'lyric', text: l.text, chords: [] }));
   }
+  for (const l of song.doc.lines) if (l.type === 'lyric') { delete l.s; delete l.e; l.words = null; }
   attachTimings(song.doc.lines, lrc.lines.map((l) => ({ text: l.text, s: l.s, words: l.words })));
   if (lrc.meta.title && !song.title) song.title = lrc.meta.title;
   if (lrc.meta.artist && !song.artist) song.artist = lrc.meta.artist;

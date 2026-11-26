@@ -252,8 +252,10 @@ export class PlayerView {
     const s = this.song;
     this.timeline = chordTimeline(s.doc, s.duration || this.engine.duration, s.detectedChords);
     this.timedLines = [];
-    s.doc.lines.forEach((l, li) => { if (l.type === 'lyric' && l.s != null) this.timedLines.push({ li, s: l.s, e: l.e }); });
-    this.timedLines.sort((a, b) => a.s - b.s);
+    const tl0 = [];
+    s.doc.lines.forEach((l, li) => { if (l.type === 'lyric' && l.s != null) tl0.push({ li, s: l.s, e: l.e }); });
+    // une ligne dont le temps est en désordre (reste d'un ancien calage) ferait revenir le rose en arrière : on l'ignore
+    this.timedLines = increasing(tl0);
     this.synced = this.timedLines.length > 0;
     this.hasTimedChords = this.timeline.some((c) => c.t != null);
     const hasLines = s.doc.lines.some((l) => l.type === 'lyric' || l.type === 'chords');
@@ -1965,6 +1967,19 @@ export class PlayerView {
 
 function chunk(arr, n) { const out = []; for (let i = 0; i < arr.length; i += n) out.push(arr.slice(i, i + n)); return out; }
 function fmtSemi(n) { return n ? (n > 0 ? '+' : '−') + Math.abs(n) : '0'; }
+/** Plus longue suite de lignes aux temps croissants (dans l'ordre du texte). */
+function increasing(a) {
+  const n = a.length, len = new Array(n).fill(1), prev = new Array(n).fill(-1);
+  let best = -1;
+  for (let i = 0; i < n; i++) {
+    for (let j = Math.max(0, i - 200); j < i; j++) if (a[j].s < a[i].s && len[j] + 1 > len[i]) { len[i] = len[j] + 1; prev[i] = j; }
+    if (best < 0 || len[i] >= len[best]) best = i;
+  }
+  const out = [];
+  for (let i = best; i >= 0; i = prev[i]) out.push(a[i]);
+  return out.reverse();
+}
+
 function fmtOffset(ms) { return ms ? `${ms > 0 ? '+' : '−'}${Math.abs(ms / 1000).toFixed(2).replace('.', ',')} s` : '0 s'; }
 
 function beatsFromBpm(song) {

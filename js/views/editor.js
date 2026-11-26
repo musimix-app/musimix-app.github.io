@@ -113,6 +113,7 @@ export class EditorView {
     this.applyText();
     const lrc = parseLRC(txt);
     if (!s.doc.lines.some((l) => l.type === 'lyric')) s.doc = parseSheet(lrc.lines.map((l) => l.text).join('\n'));
+    for (const l of s.doc.lines) if (l.type === 'lyric') { delete l.s; delete l.e; l.words = null; }
     attachTimings(s.doc.lines, lrc.lines.map((l) => ({ text: l.text, s: l.s, words: l.words })));
     fillLineEnds(s.doc.lines);
     this.dirty = true;
@@ -188,6 +189,7 @@ export class EditorView {
       if (keepChords) {
         // garde la partition actuelle (avec accords), prend seulement les temps
         this.applyText();
+        for (const l of s.doc.lines) if (l.type === 'lyric') { delete l.s; delete l.e; l.words = null; }
         attachTimings(s.doc.lines, lrc.lines.map((l) => ({ text: l.text, s: l.s, words: l.words })));
         fillLineEnds(s.doc.lines);
         toast('Synchro récupérée pour les lignes correspondantes');
