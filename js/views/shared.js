@@ -99,7 +99,7 @@ export class SharedView {
       const local = await db.getSong(id);
       if (local && !local.sharedFrom) throw new Error('Un morceau avec le même identifiant existe déjà');
       // une mise à jour garde les réglages de la personne (mixage, transposition…)
-      if (local) { song.mix = local.mix || song.mix; song.prefs = local.prefs || song.prefs; song.playCount = local.playCount; }
+      if (local) { const off = song.prefs?.offset; song.mix = local.mix || song.mix; song.prefs = { ...(local.prefs || song.prefs || {}), offset: off }; song.playCount = local.playCount; } // le calage des paroles suit celui qui partage
       for (const st of local?.stems || []) if (st.blobId && !(song.stems || []).some((x) => x.blobId === st.blobId)) await db.deleteBlob(st.blobId);
       if (local?.score?.blobId && local.score.blobId !== song.score?.blobId) await db.deleteBlob(local.score.blobId);
       if (song.score && !files.has(song.score.blobId) && !(await db.getBlob(song.score.blobId))) delete song.score; // partition pas encore partagée
