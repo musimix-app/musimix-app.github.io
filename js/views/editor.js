@@ -120,7 +120,10 @@ export class EditorView {
     if (this.textarea) this.textarea.value = cp;
     this.pendingText = cp;
     const n = s.doc.lines.filter((l) => l.type === 'lyric' && l.s != null).length;
-    toast(`Minutage ajouté sur ${n} lignes · accords gardés`, 5000);
+    const tot = s.doc.lines.filter((l) => l.type === 'lyric').length;
+    toast(attachTimings.byOrder
+      ? `Le texte du .lrc ne ressemble pas à tes paroles (traduction ?) : minutage posé ligne par ligne, dans l'ordre, sur ${n} lignes. Vérifie à l'écoute.`
+      : n < tot * 0.5 ? `Minutage ajouté sur seulement ${n} lignes sur ${tot} : le .lrc ne correspond pas bien à tes paroles (autre version, traduction ?)` : `Minutage ajouté sur ${n} lignes · accords gardés`, 8000);
     this.showTab?.('text');
     if (this.textarea) this.updatePreview?.();
   }

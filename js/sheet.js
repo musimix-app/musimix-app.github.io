@@ -441,13 +441,22 @@ function similar(x, y) {
  */
 export function attachTimings(lines, timed) {
   const lyr = lines.map((l, i) => [l, i]).filter(([l]) => l.type === 'lyric');
-  const pairs = alignSequences(lyr.map(([l]) => normText(l.text)), timed.map((t) => normText(t.text)), similar);
+  let pairs = alignSequences(lyr.map(([l]) => normText(l.text)), timed.map((t) => normText(t.text)), similar);
+  // textes trop différents (LRC traduit, autre orthographe…) mais même nombre de lignes : on cale dans l'ordre
+  const tIdx = timed.map((t, j) => [t, j]).filter(([t]) => normText(t.text)).map(([, j]) => j);
+  const near = Math.abs(tIdx.length - lyr.length) <= Math.max(2, Math.round(lyr.length * 0.1));
+  attachTimings.byOrder = false;
+  if (lyr.length >= 3 && pairs.length < Math.min(lyr.length, tIdx.length) * 0.4 && near) {
+    const n = Math.min(lyr.length, tIdx.length);
+    pairs = Array.from({ length: n }, (_, i) => [i, tIdx[i]]);
+    attachTimings.byOrder = true;
+  }
   for (const [i, j] of pairs) {
     const line = lyr[i][0];
     const t = timed[j];
     line.s = t.s;
     const toks = tokenize(line.text);
-    if (t.words?.length) {
+    if (t.words?.length && !attachTimings.byOrder) {
       line.words = mapWords(toks, t.words, t);
     } else {
       line.words = null;

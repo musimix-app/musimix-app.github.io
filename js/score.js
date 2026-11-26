@@ -79,12 +79,14 @@ export class ScoreView {
       get masterVolume() { return 1; },
       set masterVolume(v) { /* idem */ },
       // alphaTab renvoie parfois la position qu'on vient de lui donner : on n'obéit qu'à un vrai saut (clic sur une note)
-      seekTo: (ms) => { this.log('seekTo', ms); const t = Math.max(0, ms / 1000); if (Math.abs(t - eng.currentTime) > 0.3) eng.seek(t); },
-      play: () => { this.log('play'); if (!eng.playing) eng.play(); },
-      pause: () => { this.log('pause'); if (eng.playing && performance.now() - (this._userPlay || 0) > 800) eng.pause(); },
+      // on n'obéit qu'après un vrai clic dans la partition : au chargement, alphaTab demande « aller à 0 » / « pause »
+      seekTo: (ms) => { this.log('seekTo', ms); const t = Math.max(0, ms / 1000); if (this.clicked() && Math.abs(t - eng.currentTime) > 0.3) eng.seek(t); },
+      play: () => { this.log('play'); if (this.clicked() && !eng.playing) eng.play(); },
+      pause: () => { this.log('pause'); if (this.clicked() && eng.playing && performance.now() - (this._userPlay || 0) > 800) eng.pause(); },
     };
     this.out = out;
     this.ready = true;
+    if (!this._ptrHook) { this._ptrHook = true; this.host.addEventListener('pointerdown', () => { this._ptr = performance.now(); }, { capture: true, passive: true }); }
     this.applySync();
     this.update(eng.currentTime, true);
     // au chargement, alphaTab peut régénérer son MIDI juste après et perdre le calage : on le repose
@@ -127,6 +129,8 @@ export class ScoreView {
     const fix = this.ratio > 1.5 ? ' (tempo détecté doublé : corrigé)' : this.ratio < 0.67 ? ' (tempo détecté réduit de moitié : corrigé)' : '';
     this.o.onStatus?.(placed ? `Calage : ${placed} mesures posées sur l’audio${fix}. Si le curseur est en avance ou en retard d’une demi-mesure, touche « mes. » + ou −.` : 'Calage sur le tempo de la partition (prépare le morceau pour un calage mesure par mesure)');
   }
+
+  clicked() { return performance.now() - (this._ptr || 0) < 1500; }
 
   log(...a) { (window.__mmScoreLog ||= []).push([Math.round(performance.now()), ...a]); if (window.__mmScoreLog.length > 60) window.__mmScoreLog.shift(); }
 
