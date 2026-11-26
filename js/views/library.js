@@ -144,7 +144,8 @@ export class LibraryView {
       <li class="song-row job">
         <div class="t"><b>${esc(j.title)}</b><span>${esc(j.message || 'En attente du Studio…')}</span><div class="bar"><i style="width:${Math.round((j.progress || 0) * 100)}%"></i></div></div>
         <div class="meta">${j.error ? `<span style="color:#c42b2b">Échec</span>` : `${Math.round((j.progress || 0) * 100)} %`}</div>
-        ${j.abort && !j.error ? `<button class="icon-btn" data-act="job-cancel" data-k="${esc(k)}" title="Annuler" aria-label="Annuler">${icon('close')}</button>` : '<span></span>'}
+        ${j.abort && !j.error ? `<button class="icon-btn" data-act="job-cancel" data-k="${esc(k)}" title="Annuler" aria-label="Annuler">${icon('close')}</button>`
+          : j.error ? `<span class="job-acts">${j.retry ? `<button class="btn small" data-act="job-retry" data-k="${esc(k)}">Réessayer</button>` : ''}<button class="icon-btn" data-act="job-dismiss" data-k="${esc(k)}" title="Fermer" aria-label="Fermer">${icon('close')}</button></span>` : '<span></span>'}
       </li>`).join('')}</ul><p class="section-title">Morceaux</p>`;
   }
 
@@ -158,6 +159,8 @@ export class LibraryView {
       else if (a === 'demo') this.app.loadDemo();
       else if (a === 'settings') this.app.go('#/settings');
       else if (a === 'tuner') import('../tuner.js').then((m) => m.tunerDialog(this.app));
+      else if (a === 'job-retry') this.app.jobs.get(act.dataset.k)?.retry?.();
+      else if (a === 'job-dismiss') this.app.jobs.get(act.dataset.k)?.dismiss?.();
       else if (a === 'setlists') this.app.go('#/setlists');
       else if (a === 'studio') this.app.studioDialog();
       else if (a === 'sync') { const sy = this.app.sync; if (sy.state === 'reconnect') sy.connect().catch((err) => toast(err.message, 6000)); else if (sy.state === 'error') this.app.go('#/settings'); else sy.run(); }

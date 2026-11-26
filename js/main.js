@@ -38,6 +38,11 @@ class App extends EventTarget {
     this.setupDrop();
     this.route();
     this.resumeJobs();
+    try {
+      const rt = JSON.parse(sessionStorage.getItem('mm-retry') || 'null');
+      sessionStorage.removeItem('mm-retry');
+      if (rt?.id) db.getSong(rt.id).then((song) => song && this.runSeparation(song, rt.opts));
+    } catch { /* */ }
     this.registerSW();
     // l'appli peut recevoir des fichiers partagés (PWA installée, Android)
     if ('launchQueue' in window) window.launchQueue.setConsumer(async (p) => { if (p.files?.length) this.handleFiles(await Promise.all(p.files.map((h) => h.getFile()))); });
@@ -364,10 +369,21 @@ class App extends EventTarget {
       if (this.view instanceof LibraryView) this.route();
     } catch (e) {
       console.error(e);
-      job.error = e.name === 'AbortError' ? 'Annulé' : (e.message || 'Échec');
+      const net = /Failed to fetch|NetworkError|Load failed|dynamically imported module|importing a module/i.test(e.message || '');
+      job.error = e.name === 'AbortError' ? 'Annulé'
+        : net ? 'Connexion interrompue pendant le chargement. Vérifie le réseau puis touche Réessayer.'
+        : (e.message || 'Échec');
       job.message = job.error;
+      job.abort = null;
+      if (e.name !== 'AbortError') job.retry = () => {
+        this.jobs.delete(key);
+        // un module raté reste raté jusqu'au rechargement : on recharge la page et on relance tout seul
+        if (net) { try { sessionStorage.setItem('mm-retry', JSON.stringify({ id: song.id, opts })); } catch { /* */ } location.reload(); return; }
+        this.runSeparation(song, opts);
+      };
+      job.dismiss = () => { this.jobs.delete(key); this.dispatchEvent(new Event('jobs')); };
       this.dispatchEvent(new Event('jobs'));
-      setTimeout(() => { this.jobs.delete(key); this.dispatchEvent(new Event('jobs')); }, 15000);
+      if (e.name === 'AbortError') setTimeout(() => job.dismiss(), 4000);
     } finally {
       lock?.release?.().catch(() => {});
     }

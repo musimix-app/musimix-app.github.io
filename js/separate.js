@@ -19,7 +19,10 @@ export const QUALITIES = {
 };
 
 let lib = null;
-const loadLib = () => (lib ||= import('./vendor/unblend/index.js'));
+// réseau capricieux : un deuxième essai avant d'abandonner (et pas de promesse ratée gardée en mémoire)
+const loadLib = () => (lib ||= import('./vendor/unblend/index.js')
+  .catch(() => new Promise((r) => setTimeout(r, 1500)).then(() => import(`./vendor/unblend/index.js?r=${Date.now()}`)))
+  .catch((e) => { lib = null; throw e; }));
 
 export async function gpuInfo() {
   try {

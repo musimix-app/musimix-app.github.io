@@ -1,6 +1,6 @@
 // MusiMix — service worker : l'appli fonctionne hors ligne une fois ouverte.
 // Les morceaux sont stockés dans l'appareil (IndexedDB), pas dans ce cache.
-const VERSION = 'musimix-4.19.2';
+const VERSION = 'musimix-4.19.3';
 const SHELL = [
   './',
   'assets/fonts/Atkinson.ttf',
@@ -39,6 +39,23 @@ const SHELL = [
   'js/analyze.js',
   'js/prepare.js',
   'js/separate.js',
+  'js/vendor/unblend/audio-processor.js',
+  'js/vendor/unblend/constants.js',
+  'js/vendor/unblend/index.js',
+  'js/vendor/unblend/istft-client.js',
+  'js/vendor/unblend/model-artifacts.js',
+  'js/vendor/unblend/model-fetch.js',
+  'js/vendor/unblend/model-metadata.js',
+  'js/vendor/unblend/onnx-client.js',
+  'js/vendor/unblend/overlap-accumulator.js',
+  'js/vendor/unblend/pipeline.js',
+  'js/vendor/unblend/separator.js',
+  'js/vendor/unblend/stft-client.js',
+  'js/vendor/unblend/vendor/fft.js',
+  'js/vendor/unblend/webgpu-checks.js',
+  'js/vendor/unblend/workers/istft-worker.js',
+  'js/vendor/unblend/workers/onnx-worker.js',
+  'js/vendor/unblend/workers/stft-worker.js',
   'js/theory.js',
   'js/ui.js',
   'js/views/editor.js',
@@ -70,6 +87,6 @@ self.addEventListener('fetch', (e) => {
     fetch(req, { cache: 'no-cache' }).then((res) => {
       if (res.ok) { const copy = res.clone(); caches.open(VERSION).then((c) => c.put(req, copy)); }
       return res;
-    }).catch(() => caches.match(req, { ignoreSearch: true }).then((r) => r || caches.match('index.html')))
+    }).catch(() => caches.match(req, { ignoreSearch: true }).then((r) => r || (req.mode === 'navigate' ? caches.match('index.html') : Response.error())))
   );
 });
