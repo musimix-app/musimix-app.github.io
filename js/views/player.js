@@ -136,8 +136,10 @@ export class PlayerView {
             <span class="sc-sync"><span class="note">Calage</span>
               <span class="stepper" title="Mesure de l’audio où commence la partition"><button data-sc="bar:-1">−</button><output data-r="sc-bar">mes. 1</output><button data-sc="bar:1">+</button></span>
               <span class="stepper" title="Décalage fin"><button data-sc="off:-0.05">−</button><output data-r="sc-off">0,00 s</output><button data-sc="off:0.05">+</button></span></span>
+            <button class="btn small sc-lyr-btn" data-sc="lyrics:1" aria-pressed="false" title="Afficher les paroles au-dessus de la partition">Paroles</button>
             <span class="note sc-status" data-r="sc-status"></span>
           </div>
+          <div class="sc-lyrics" hidden aria-live="off"></div>
           <div class="score-host"></div>
         </div>
         <div class="fs-chords" aria-live="off"><span class="fs-now" data-r="now"></span><span class="fs-next" data-r="next"></span></div>
@@ -759,6 +761,7 @@ export class PlayerView {
         this.curLine = li;
         this.curWords = cur ? [...cur.querySelectorAll('.w[data-s]')].map((w) => ({ w, s: +w.dataset.s, e: +w.dataset.e })) : [];
         if (this.mode === 'stage') this.renderBig(i);
+        if (this.mode === 'score') this.renderScoreLyrics(false, i);
       }
       // karaoké mot à mot
       for (const x of this.curWords || []) {
@@ -838,6 +841,7 @@ export class PlayerView {
       this.lastChordIdx = idx;
       const c = tl[idx];
       if (c) this.chordEls.get(`${c.li}|${c.ci}`)?.classList.add('now');
+      if (this.mode === 'score' && this.song.score?.showLyrics) this.markScoreChord(c);
       let n = idx + 1;
       while (tl[n] && c && tl[n].name === c.name) n++;
       this.showChord(c ? c.name : null, tl[n]?.name || null);
@@ -943,12 +947,13 @@ export class PlayerView {
       this._scBound = true;
       view.querySelector('.score-bar').addEventListener('click', (e) => {
         const b = e.target.closest('[data-sc]');
-        if (!b || !this.scoreView) return;
+        if (!b || (!this.scoreView && !b.dataset.sc.startsWith('lyrics'))) return;
         const [k, v] = b.dataset.sc.split(':');
         if (k === 'layout') this.scoreView.setLayout(v);
         if (k === 'zoom') this.scoreView.setScale((this.song.score.scale || 1) + (v === '+' ? 0.1 : -0.1));
         if (k === 'bar') this.scoreView.nudge({ firstBar: +v });
         if (k === 'off') this.scoreView.nudge({ offset: +v });
+        if (k === 'lyrics') { this.song.score.showLyrics = !this.song.score.showLyrics; this.saveSong(); this.renderScoreLyrics(true); }
         this.updateScoreBar();
       });
       view.querySelector('[data-r="sc-track"]').addEventListener('change', (e) => this.scoreView?.setTrack(+e.target.value));
@@ -975,12 +980,49 @@ export class PlayerView {
     }
   }
 
+  /** Bandeau de paroles (ligne en cours + suivante, avec accords) au-dessus de la partition. */
+  renderScoreLyrics(force = false, idx) {
+    const box = this.el.querySelector('.sc-lyrics');
+    if (!box) return;
+    const on = !!this.song.score?.showLyrics;
+    box.hidden = !on;
+    if (!on) return;
+    if (!this.synced) { box.innerHTML = '<p class="note">Paroles non calées sur l’audio : lance « Tout préparer » ou importe un .lrc pour les voir défiler ici.</p>'; return; }
+    const tl = this.timedLines || [];
+    let i = idx;
+    if (i == null || force) {
+      const t = this.t; i = -1;
+      for (let k = 0; k < tl.length; k++) { if (tl[k].s <= t + 0.05) i = k; else break; }
+    }
+    const pick = (k) => { const ln = tl[k] && this.lineEls.get(tl[k].li); return ln ? ln.outerHTML : ''; };
+    const cur = i >= 0 ? pick(i) : '';
+    const next = pick(i + 1);
+    box.innerHTML = `<div class="scl-cur">${cur || '<p class="ln note">…</p>'}</div><div class="scl-next">${next}</div>`;
+    box.querySelectorAll('.cur,.past,.sung,.singing,.now').forEach((e) => e.classList.remove('cur', 'past', 'sung', 'singing', 'now'));
+    this.markScoreChord(this.timeline?.[this.lastChordIdx]);
+  }
+
+  markScoreChord(c) {
+    const box = this.el.querySelector('.sc-lyrics');
+    if (!box || box.hidden) return;
+    box.querySelectorAll('.now').forEach((e) => e.classList.remove('now'));
+    if (!c) return;
+    const src = this.chordEls.get(`${c.li}|${c.ci}`);
+    const line = src?.closest('.ln[data-li]');
+    if (!line) return;
+    const all = [...line.querySelectorAll('.c')], k = all.indexOf(src);
+    const copy = box.querySelector(`.scl-cur .ln[data-li="${line.dataset.li}"]`);
+    copy?.querySelectorAll('.c')[k]?.classList.add('now');
+  }
+
   updateScoreBar() {
     const sc = this.song.score;
     if (!sc) return;
     const v = this.el.querySelector('.score-view');
     v.querySelectorAll('[data-sc^="layout:"]').forEach((b) => b.classList.toggle('on', b.dataset.sc === `layout:${sc.layout || 'both'}`));
     const s = sc.sync || {};
+    const lb = v.querySelector('.sc-lyr-btn');
+    lb.classList.toggle('on', !!sc.showLyrics); lb.setAttribute('aria-pressed', String(!!sc.showLyrics));
     v.querySelector('[data-r="sc-bar"]').textContent = `mes. ${(s.firstBar || 0) + 1}`;
     v.querySelector('[data-r="sc-off"]').textContent = `${(s.offset || 0) >= 0 ? '+' : '−'}${Math.abs(s.offset || 0).toFixed(2).replace('.', ',')} s`;
   }
@@ -1469,7 +1511,7 @@ export class PlayerView {
     stage.classList.toggle('stage-mode', mode === 'stage');
     stage.classList.toggle('grid-mode', mode === 'grid');
     stage.classList.toggle('score-mode', mode === 'score');
-    if (mode === 'score') this.mountScore();
+    if (mode === 'score') { this.mountScore(); this.renderScoreLyrics(true); }
     this.syncModeButtons();
     this.curLine = -2;
     this.curBar = -2;

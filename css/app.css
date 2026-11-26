@@ -862,3 +862,14 @@ dialog.diag-dlg { width: min(560px, calc(100vw - 20px)); }
 .score-host .at-highlight * { fill: var(--chord); stroke: var(--chord); }
 .score-host .at-selection div { background: color-mix(in srgb, var(--chord) 20%, transparent); }
 @media (max-width: 600px) { .sc-sync .note { display: none; } .score-bar { padding: 6px 8px; gap: 6px; } }
+
+/* Paroles au-dessus de la partition */
+.sc-lyrics { padding: 6px 16px 8px; border-bottom: 1px solid var(--line); background: var(--surface); font-size: 20px; line-height: 1.25; max-height: 34%; overflow: hidden; }
+.sc-lyrics[hidden] { display: none; }
+.sc-lyrics .ln { margin: 0; padding: 0; }
+.sc-lyrics .bar-mk { display: none; }
+.sc-lyrics .scl-cur { color: var(--ink); font-weight: 600; }
+.sc-lyrics .scl-next { color: var(--ink-3, var(--muted)); font-size: .8em; opacity: .75; margin-top: 2px; }
+.sc-lyrics .scl-next .c { opacity: .8; }
+.sc-lyr-btn.on { background: var(--chord); color: #fff; border-color: var(--chord); }
+@media (max-width: 600px) { .sc-lyrics { font-size: 16px; padding: 4px 10px 6px; } }
