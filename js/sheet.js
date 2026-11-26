@@ -70,6 +70,8 @@ const JUNK = [
   /https?:\/\//i, /^\s*`+\s*$/, /^\s*`?x`?\s*$/i,
   /^\s*(author|auteur)\b.*$/i, /^\s*(par|by)\s*\[/i, /\b\d[\d\s.,]*\s*(vues|views|enregistrements|saves|commentaires|comments)\b/i,
   /^\s*(vitesse|speed|transposer|transpose|autoscroll|difficult[ée]|difficulty|accordage|tuning|strumming|rythmique)\b.*$/i,
+  /^\s*(page|p\.)\s*\d+\s*(\/|sur|of|de)\s*\d+\s*$/i, /^\s*\d+\s*\/\s*\d+\s*$/, /^\s*[-=_*~·•]{5,}\s*$/,
+  /^\s*(titres?|artistes?|interpr[èe]tes?|paroles et musique|paroles|musique|compositeurs?|auteurs?|album|ann[ée]e)\s*:\s*\S.*$/i,
   /^\s*(derni[èe]re mise à jour|last update|updated)\b/i, /^\s*(print|imprimer|report bad tab|signaler)\b/i,
 ];
 const CUT_AT = /^\s*(\*\*)?\s*\[?\s*(notes?|tab notes|comments?|commentaires)\s*\]?\s*(\*\*)?\s*:?\s*$|^\s*\[\s*end\s*\]\s*$/i;
@@ -143,6 +145,8 @@ export function parseSheet(text) {
   text = String(text || '').replace(/\r\n?/g, '\n').replace(/\t/g, '    ').replace(/ /g, ' ');
   // horodatages LRC : jamais affichés comme des paroles
   if (looksLikeLRC(text)) text = parseLRC(text).lines.map((l) => l.text).join('\n');
+  // numéros de page d'une page imprimée/copiée (« Page 1/3 ») : jamais des paroles
+  text = text.replace(/^[ \t]*(page|p\.)\s*\d+\s*(\/|sur|of|de)\s*\d+[ \t]*(\r?\n|$)/gim, '');
   if (looksLikeChordPro(text)) { const d = parseChordPro(text); markChorus(d.lines); return d; }
   const c = cleanPastedSheet(text);
   const doc = parseGrid(c.text);
