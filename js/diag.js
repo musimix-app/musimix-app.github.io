@@ -17,7 +17,7 @@ export function describeMidi([st, d1, d2]) {
   }
   if (cmd === 0x80 || cmd === 0x90) return `relâché ${d1}`;
   if (cmd === 0xb0) return d1 === 64 ? `pédale ${d2 >= 64 ? 'enfoncée' : 'relâchée'}` : `contrôle ${d1} = ${d2} (canal ${ch})`;
-  if (st === 0xf0) return 'sysex';
+  if (st === 0xf0) return 'sysex (poignée de main Mackie)';
   return 'message';
 }
 
@@ -56,11 +56,17 @@ export async function diagDialog(app) {
       : '<p class="err">Aucun appareil MIDI vu par le navigateur. Vérifie le câble (un câble de données, pas seulement de charge), puis, sur le R20 : interface audio en <b>Multi Track</b> et <b>DAW Control</b> sur On.</p>';
     $('port').innerHTML = '<option value="">Automatique</option>' + ins.map((i) => `<option ${prefs.r20Port === i.name ? 'selected' : ''}>${esc(i.name || '')}</option>`).join('');
     listeners.forEach(([i, f]) => i.removeEventListener('midimessage', f)); listeners.length = 0;
-    for (const i of ins) { const f = (e) => log(i.name, e.data); i.addEventListener('midimessage', f); listeners.push([i, f]); }
+    for (const i of ins) { const f = (e) => log(i.name, e.data); i.addEventListener('midimessage', f); listeners.push([i, f]); i.open?.().catch(() => {}); }
+    // réveille une surface Mackie Control (le R20 attend parfois que le « logiciel » se présente)
+    if (report.sysex === 'oui') for (const o of outs) if (isSurfaceName(o.name) || isSurfaceName(o.manufacturer)) { try { o.open?.(); for (const id of [0x14, 0x15]) o.send([0xf0, 0, 0, 0x66, id, 0, 0xf7]); } catch { /* */ } }
   };
   if (!navigator.requestMIDIAccess) $('midi').innerHTML = '<p class="err">Ce navigateur ne gère pas le MIDI. Sur Android, utilise <b>Chrome</b> ; sur iPad/iPhone, ce n’est pas possible.</p>';
   else {
-    try { access = await navigator.requestMIDIAccess({ sysex: false }); drawPorts(); access.onstatechange = drawPorts; }
+    try {
+      try { access = await navigator.requestMIDIAccess({ sysex: true }); report.sysex = 'oui'; }
+      catch { access = await navigator.requestMIDIAccess({ sysex: false }); report.sysex = 'non'; }
+      drawPorts(); access.onstatechange = drawPorts;
+    }
     catch (err) { $('midi').innerHTML = `<p class="err">Accès MIDI refusé (${esc(err.name)}). Autorise « Appareils MIDI » pour ce site dans les réglages du navigateur.</p>`; }
   }
   $('port').addEventListener('change', (e) => { app.setPref?.('r20Port', e.target.value || null); toast(e.target.value ? `Le R20 sera lu sur « ${e.target.value} »` : 'Port du R20 : automatique'); });
@@ -73,7 +79,7 @@ export async function diagDialog(app) {
     const cur = chosen || prefs.micId || '';
     $('mic').innerHTML = `<label class="field">Micro utilisé par MusiMix (prise, accordeur)
       <select data-r="micsel"><option value="">Par défaut du système</option>${mics.map((m) => `<option value="${esc(m.deviceId)}" ${m.deviceId === cur ? 'selected' : ''}>${esc(m.label || 'Micro')}</option>`).join('')}</select></label>
-      <p class="note" data-r="micinfo"></p>`;
+      <p class="note" data-r="micinfo"></p>${mics.some((m) => /usb/i.test(m.label)) && !/usb/i.test(mics.find((m) => m.deviceId === cur)?.label || '') ? '<p class="note"><b>Avec le R20 : choisis « USB audio »</b> (sinon c’est le micro de la tablette).</p>' : ''}`;
     $('out').innerHTML = outs.length ? `<p class="note">Sorties vues : ${outs.map((o) => esc(o.label || 'sortie')).join(' · ')}</p>` : '<p class="note">Sur Android, le son part tout seul vers l’appareil USB branché (le R20) : fais le bip de test, il doit sortir dans le casque du R20.</p>';
     $('micsel').addEventListener('change', (e) => { const o = e.target.selectedOptions[0]; app.setPref?.('micId', e.target.value || null); app.setPref?.('micLabel', e.target.value ? o.textContent : null); openMic(e.target.value); });
   };
@@ -105,7 +111,7 @@ export async function diagDialog(app) {
       report.sortie = `${ctx.sampleRate} Hz · latence de sortie ${Math.round(((ctx.outputLatency || 0) + (ctx.baseLatency || 0)) * 1000)} ms`;
     }
     if (a === 'copy') {
-      const txt = ['RAPPORT MUSIMIX', `Navigateur : ${report.navigateur}`, 'MIDI :', ...(report.midi.length ? report.midi : ['(aucun)']), 'Derniers messages :', ...(report.messages.slice(0, 20).length ? report.messages.slice(0, 20) : ['(aucun)']), `Micros : ${report.micros.join(' | ') || '(non listés)'}`, `Micro ouvert : ${report.micro || '(aucun)'}`, `Sortie : ${report.sortie || '?'}`].join('\n');
+      const txt = ['RAPPORT MUSIMIX (v2)', `Navigateur : ${report.navigateur}`, `Sysex : ${report.sysex || '?'}`, 'MIDI :', ...(report.midi.length ? report.midi : ['(aucun)']), 'Derniers messages :', ...(report.messages.slice(0, 20).length ? report.messages.slice(0, 20) : ['(aucun)']), `Micros : ${report.micros.join(' | ') || '(non listés)'}`, `Micro ouvert : ${report.micro || '(aucun)'}`, `Sortie : ${report.sortie || '?'}`].join('\n');
       try { await navigator.clipboard.writeText(txt); toast('Rapport copié : colle-le à Claude'); } catch { toast('Copie impossible ici'); }
     }
   });
