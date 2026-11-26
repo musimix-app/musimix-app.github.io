@@ -1,6 +1,6 @@
 // MusiMix — service worker : l'appli fonctionne hors ligne une fois ouverte.
 // Les morceaux sont stockés dans l'appareil (IndexedDB), pas dans ce cache.
-const VERSION = 'musimix-4.22.2';
+const VERSION = 'musimix-4.23.0';
 const SHELL = [
   './',
   'assets/fonts/Atkinson.ttf',
@@ -35,6 +35,7 @@ const SHELL = [
   'js/midi-input.js',
   'js/surface.js',
   'js/diag.js',
+  'js/score.js',
   'js/take.js',
   'js/opus.js',
   'js/impro.js',
@@ -74,13 +75,18 @@ self.addEventListener('install', (e) => {
 });
 
 self.addEventListener('activate', (e) => {
-  e.waitUntil(caches.keys().then((keys) => Promise.all(keys.filter((k) => k !== VERSION).map((k) => caches.delete(k)))).then(() => self.clients.claim()));
+  e.waitUntil(caches.keys().then((keys) => Promise.all(keys.filter((k) => k !== VERSION && k !== 'alphatab').map((k) => caches.delete(k)))).then(() => self.clients.claim()));
 });
 
 self.addEventListener('fetch', (e) => {
   const req = e.request;
   if (req.method !== 'GET') return;
   const url = new URL(req.url);
+  // lecteur de partitions alphaTab (CDN) : gardé après le premier usage, pour marcher hors ligne
+  if (url.hostname === 'cdn.jsdelivr.net' && url.pathname.includes('/@coderline/alphatab@')) {
+    e.respondWith(caches.open('alphatab').then((c) => c.match(req).then((hit) => hit || fetch(req).then((res) => { if (res.ok) c.put(req, res.clone()); return res; }))));
+    return;
+  }
   if (url.origin !== location.origin) return;                 // Studio, LRCLIB : jamais en cache
   if (/\.(mp3|wav|flac|m4a|ogg)$/i.test(url.pathname)) return; // audio de démo : réseau
   if (url.pathname.includes('/api/') || url.pathname.endsWith('/bridge')) return;

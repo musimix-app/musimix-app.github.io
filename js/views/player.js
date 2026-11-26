@@ -12,6 +12,8 @@ import { lowerBound } from '../engine.js';
 import { keyName } from '../theory.js';
 import { suggestCapo } from '../capo.js';
 import { TakeRecorder } from '../take.js';
+import { ScoreView, SCORE_EXT } from '../score.js';
+import { pickFiles } from '../ui.js';
 import { improLayers, neckSvg, keysSvg, ALL_KEYS, keyLabelFr, SCALES } from '../impro.js';
 import { parseKey, pcName } from '../theory.js';
 import { encodeOpus, opusSupported } from '../opus.js';
@@ -45,7 +47,7 @@ export class PlayerView {
     const prefs = await this.app.prefs();
     this.prefsSnap = prefs;
     this.instrument = prefs.instrument || 'guitar';
-    this.mode = prefs.viewMode || 'lyrics';
+    this.mode = prefs.viewMode === 'score' && !this.song?.score ? 'lyrics' : (prefs.viewMode || 'lyrics');
     this.fontSize = prefs.fontSize || null;
     this.showChords = prefs.showChords !== false;
     this.showBars = prefs.showBars === true; // désactivé par défaut (demande de Gabriel)
@@ -69,6 +71,7 @@ export class PlayerView {
   close() {
     if (this.take) { this.take.rec.cancel(); this.endTakeUi(); this.take = null; }
     this.midiStop(false);
+    this.scoreView?.destroy(); this.scoreView = null;
     this.r20Stop(false);
     this._barRO?.disconnect();
     this.exitFullStage();
@@ -107,6 +110,7 @@ export class PlayerView {
             <button data-mode="lyrics" title="Paroles et accords">Paroles</button>
             <button data-mode="stage" title="Mode scène : texte en très grand">Scène</button>
             <button data-mode="grid" title="Grille d’accords par mesure">Grille</button>
+            <button data-mode="score" title="Partition / tablature (Guitar Pro, MusicXML)"${this.song.score ? '' : ' hidden'}>Partition</button>
           </div>
           <button class="icon-btn" data-act="impro" aria-label="Impro" title="Impro : notes qui vont avec le morceau (I)">${icon('impro')}</button>
           <button class="icon-btn hide-s" data-act="tuner" aria-label="Accordeur" title="Accordeur (T)">${icon('tuner')}</button>
@@ -124,6 +128,18 @@ export class PlayerView {
         <div class="lyrics" tabindex="-1"></div>
         <div class="big"></div>
         <div class="grid-view"></div>
+        <div class="score-view">
+          <div class="score-bar">
+            <select data-r="sc-track" aria-label="Piste de la partition"></select>
+            <span class="seg"><button data-sc="layout:tab">Tab</button><button data-sc="layout:both">Les deux</button><button data-sc="layout:score">Portée</button></span>
+            <span class="stepper" title="Taille"><button data-sc="zoom:-">−</button><output>A</output><button data-sc="zoom:+">+</button></span>
+            <span class="sc-sync"><span class="note">Calage</span>
+              <span class="stepper" title="Mesure de l’audio où commence la partition"><button data-sc="bar:-1">−</button><output data-r="sc-bar">mes. 1</output><button data-sc="bar:1">+</button></span>
+              <span class="stepper" title="Décalage fin"><button data-sc="off:-0.05">−</button><output data-r="sc-off">0,00 s</output><button data-sc="off:0.05">+</button></span></span>
+            <span class="note sc-status" data-r="sc-status"></span>
+          </div>
+          <div class="score-host"></div>
+        </div>
         <div class="fs-chords" aria-live="off"><span class="fs-now" data-r="now"></span><span class="fs-next" data-r="next"></span></div>
         <div class="fs-hint">Toucher l’écran : lecture / pause · Pédale : partie suivante · Double-toucher ou Échap : quitter</div>
         <button class="btn small follow-btn" data-act="follow" hidden>${icon('sync')} Suivre la lecture</button>
@@ -434,7 +450,7 @@ export class PlayerView {
       <div class="opt-row"><span>Afficher les accords</span><label class="switch"><input type="checkbox" data-act="show-chords" ${this.showChords ? 'checked' : ''}><i></i></label></div>
       <div class="opt-row"><span>Afficher les mesures<br><small class="note">petits traits au début de chaque mesure</small></span><label class="switch"><input type="checkbox" data-act="show-bars" ${this.showBars ? 'checked' : ''}><i></i></label></div>
       <div class="opt-row"><span>Décalage paroles</span><span class="stepper"><button data-act="off-">−</button><output data-r="off">${fmtOffset(p.offset)}</output><button data-act="off+">+</button></span></div>
-      <div class="opt-row only-m"><span>Affichage</span><span class="seg"><button data-mode="lyrics">Paroles</button><button data-mode="stage">Scène</button><button data-mode="grid">Grille</button></span></div>
+      <div class="opt-row only-m"><span>Affichage</span><span class="seg"><button data-mode="lyrics">Paroles</button><button data-mode="stage">Scène</button><button data-mode="grid">Grille</button><button data-mode="score"${this.song.score ? '' : ' hidden'}>Partition</button></span></div>
       <div class="opt-row only-m"><span>Diagrammes</span><span class="seg"><button data-inst="guitar">Guitare</button><button data-inst="ukulele">Ukulélé</button><button data-inst="piano">Piano</button></span></div>`;
     this.el.querySelector('[data-r="opts-sec"]').innerHTML = html;
     this.el.querySelector('[data-r="opts-m"]').innerHTML = html;
@@ -709,6 +725,7 @@ export class PlayerView {
   frame(force = false) {
     if (!this.el) return;
     const t = this.t;
+    if (this.mode === 'score') this.scoreView?.update(this.engine.displayTime ?? this.engine.currentTime, force);
     const dur = this.song.duration || this.engine.duration || 0;
     // barre de lecture
     const pct = dur ? Math.min(100, (this.engine.currentTime / dur) * 100) : 0;
@@ -860,6 +877,113 @@ export class PlayerView {
 
   /** Va au début d'un accord : juste après son temps, pour que ce soit bien lui qui s'affiche
    *  (avant, on se plaçait 50 ms plus tôt et c'était l'accord précédent qui apparaissait). */
+  // ---------- Partition (Guitar Pro / MusicXML) ----------
+  scoreDialog() {
+    const has = !!this.song.score;
+    const d = dialog(`<form method="dialog">
+      <h2>Partition</h2>
+      <p>Fichier <b>Guitar Pro</b> (.gp, .gpx, .gp5, .gp4, .gp3) ou <b>MusicXML</b> (.musicxml, .mxl, .xml, export de MuseScore). Elle s’affiche dans la vue « Partition », calée sur l’audio du morceau.</p>
+      ${has ? `<p class="note">Actuelle : <b>${esc(this.song.score.name || 'partition')}</b></p>` : ''}
+      <label class="field">Ou un lien direct vers le fichier<input type="url" name="url" placeholder="https://…/morceau.gp5"></label>
+      <div class="actions">${has ? '<button type="button" class="btn ghost danger" data-v="del">Retirer</button>' : ''}<button class="btn ghost" value="">Annuler</button><button type="button" class="btn" data-v="url">Depuis le lien</button><button type="button" class="btn primary" data-v="file">Ouvrir un fichier</button></div></form>`);
+    const form = d.el.querySelector('form');
+    d.el.addEventListener('click', (e) => {
+      const v = e.target.closest('[data-v]')?.dataset.v;
+      if (!v) return;
+      // le sélecteur de fichier doit s'ouvrir dans le clic même (sinon le navigateur le bloque)
+      const picked = v === 'file' ? pickFiles({ accept: '.gp,.gpx,.gp3,.gp4,.gp5,.musicxml,.mxl,.xml', multiple: false }) : null;
+      d.close(v);
+      run(v, picked);
+    });
+    const run = async (v, picked) => {
+      try {
+        if (v === 'del') { this.scoreView?.destroy(); this.scoreView = null; delete this.song.score; await db.putSong(this.song); this.refreshScoreButtons(); if (this.mode === 'score') this.setMode('lyrics'); toast('Partition retirée'); return; }
+        let blob, name;
+        if (v === 'file') {
+          const [f] = (await picked) || [];
+          if (!f) return;
+          blob = f; name = f.name;
+        } else if (v === 'url') {
+          const url = new FormData(form).get('url')?.toString().trim();
+          if (!url) { toast('Colle d’abord le lien du fichier'); return; }
+          toast('Téléchargement de la partition…');
+          const r = await fetch(url);
+          if (!r.ok) throw new Error(`le lien répond ${r.status}`);
+          blob = await r.blob(); name = decodeURIComponent(url.split('/').pop().split('?')[0]) || 'partition';
+        } else return;
+        await this.setScoreBlob(blob, name);
+      } catch (err) { toast(`Partition impossible : ${err.message || err}`, 6000); }
+    };
+  }
+
+  async setScoreBlob(blob, name) {
+    if (!SCORE_EXT.test(name)) toast('Ce n’est peut-être pas une partition : essai quand même…');
+    const blobId = await db.putBlob(blob);
+    this.song.score = { blobId, name, mime: blob.type || 'application/octet-stream', track: 0, layout: 'both', sync: { firstBar: 0, offset: 0, auto: true } };
+    await db.putSong(this.song);
+    this.scoreView?.destroy(); this.scoreView = null;
+    this.refreshScoreButtons();
+    this.setMode('score');
+    toast(`Partition ajoutée : ${name}`);
+  }
+
+  refreshScoreButtons() { this.el.querySelectorAll('[data-mode="score"]').forEach((b) => { b.hidden = !this.song.score; }); }
+
+  async mountScore() {
+    const sc = this.song.score;
+    const view = this.el.querySelector('.score-view');
+    const status = (txt) => { const o = view.querySelector('[data-r="sc-status"]'); if (o) o.textContent = txt; };
+    if (!sc) { view.querySelector('.score-host').innerHTML = '<p class="note" style="padding:20px">Pas de partition pour ce morceau : menu ⋯ → Ajouter une partition.</p>'; return; }
+    this.updateScoreBar();
+    if (this.scoreView) return;
+    const host = view.querySelector('.score-host');
+    host.innerHTML = '<p class="note" style="padding:20px">Chargement de la partition…</p>';
+    if (!this._scBound) {
+      this._scBound = true;
+      view.querySelector('.score-bar').addEventListener('click', (e) => {
+        const b = e.target.closest('[data-sc]');
+        if (!b || !this.scoreView) return;
+        const [k, v] = b.dataset.sc.split(':');
+        if (k === 'layout') this.scoreView.setLayout(v);
+        if (k === 'zoom') this.scoreView.setScale((this.song.score.scale || 1) + (v === '+' ? 0.1 : -0.1));
+        if (k === 'bar') this.scoreView.nudge({ firstBar: +v });
+        if (k === 'off') this.scoreView.nudge({ offset: +v });
+        this.updateScoreBar();
+      });
+      view.querySelector('[data-r="sc-track"]').addEventListener('change', (e) => this.scoreView?.setTrack(+e.target.value));
+    }
+    try {
+      const blob = await db.getBlob(sc.blobId);
+      if (!blob) throw new Error('fichier absent sur cet appareil (synchro en cours ?)');
+      this.scoreView = new ScoreView(host, {
+        engine: this.engine,
+        song: this.song,
+        onStatus: status,
+        getDownbeats: () => this.song.downbeats?.length ? this.song.downbeats : (this.barTimes?.() || []),
+        save: () => this.saveSong(),
+        onTracks: (tracks, cur) => {
+          const sel = view.querySelector('[data-r="sc-track"]');
+          sel.innerHTML = tracks.map((t) => `<option value="${t.i}" ${t.i === cur ? 'selected' : ''}>${esc(t.name)}</option>`).join('');
+          sel.hidden = tracks.length < 2;
+        },
+      });
+      await this.scoreView.mount(new Uint8Array(await blob.arrayBuffer()));
+    } catch (err) {
+      this.scoreView = null;
+      host.innerHTML = `<p class="note" style="padding:20px">Partition impossible à afficher : ${esc(err.message || String(err))}</p>`;
+    }
+  }
+
+  updateScoreBar() {
+    const sc = this.song.score;
+    if (!sc) return;
+    const v = this.el.querySelector('.score-view');
+    v.querySelectorAll('[data-sc^="layout:"]').forEach((b) => b.classList.toggle('on', b.dataset.sc === `layout:${sc.layout || 'both'}`));
+    const s = sc.sync || {};
+    v.querySelector('[data-r="sc-bar"]').textContent = `mes. ${(s.firstBar || 0) + 1}`;
+    v.querySelector('[data-r="sc-off"]').textContent = `${(s.offset || 0) >= 0 ? '+' : '−'}${Math.abs(s.offset || 0).toFixed(2).replace('.', ',')} s`;
+  }
+
   // ---------- Impro : notes qui vont avec le morceau ----------
   improKey() {
     const p = this.song.prefs;
@@ -1343,6 +1467,8 @@ export class PlayerView {
     const stage = this.el.querySelector('.stage');
     stage.classList.toggle('stage-mode', mode === 'stage');
     stage.classList.toggle('grid-mode', mode === 'grid');
+    stage.classList.toggle('score-mode', mode === 'score');
+    if (mode === 'score') this.mountScore();
     this.syncModeButtons();
     this.curLine = -2;
     this.curBar = -2;
@@ -1611,6 +1737,7 @@ export class PlayerView {
           { icon: 'tuner', label: 'Accordeur', action: () => import('../tuner.js').then((m) => m.tunerDialog(this.app)) },
           { icon: 'edit', label: 'Modifier ici (accords, doigtés, texte)', action: () => { if (this.mode !== 'lyrics') this.setMode('lyrics'); this.editing.toggle(true); } },
           { icon: 'edit', label: 'Paroles et accords (éditeur)', action: () => this.app.go(`#/edit/${this.song.id}`) },
+          { icon: 'upload', label: this.song.score ? 'Partition : changer ou retirer' : 'Ajouter une partition (Guitar Pro, MusicXML)', action: () => this.scoreDialog() },
           { icon: 'tap', label: 'Synchroniser les paroles', action: () => this.app.go(`#/edit/${this.song.id}/sync`) },
           { icon: 'info', label: 'Infos et pistes', action: () => this.app.go(`#/edit/${this.song.id}/info`) },
           '-',

@@ -844,3 +844,21 @@ dialog.diag-dlg { width: min(560px, calc(100vw - 20px)); }
 .diag-meter { height: 8px; border-radius: 4px; background: var(--surface-3); overflow: hidden; }
 .diag-meter i { display: block; height: 100%; width: 0; background: var(--c-harmony); transition: width .06s linear; }
 .diag .err { color: #d1373e; font-weight: 600; }
+
+/* ---------- Partition (alphaTab) ---------- */
+.score-view { display: none; }
+.score-mode .lyrics, .score-mode .big, .score-mode .grid-view { display: none; }
+.score-mode .score-view { display: flex; flex-direction: column; position: absolute; inset: 0; }
+.score-bar { display: flex; gap: 8px 12px; align-items: center; flex-wrap: wrap; padding: 8px 14px; border-bottom: 1px solid var(--line); background: var(--surface); }
+.score-bar select { font: 600 14px var(--font-ui); padding: 5px 8px; border-radius: var(--radius-s); border: 1px solid var(--line-2); background: var(--surface-2); color: var(--ink); max-width: 200px; }
+.score-bar select[hidden] { display: none; }
+.score-bar .seg button { padding: 5px 10px; font-size: 13px; }
+.sc-sync { display: inline-flex; gap: 6px; align-items: center; }
+.sc-status { flex: 1 1 100%; font-size: 12px; }
+.score-host { flex: 1; overflow: auto; background: #fff; color: #111; -webkit-overflow-scrolling: touch; }
+.score-sheet { min-height: 100%; }
+.score-host .at-cursor-bar { background: color-mix(in srgb, var(--chord) 18%, transparent); }
+.score-host .at-cursor-beat { background: var(--chord); width: 3px; }
+.score-host .at-highlight * { fill: var(--chord); stroke: var(--chord); }
+.score-host .at-selection div { background: color-mix(in srgb, var(--chord) 20%, transparent); }
+@media (max-width: 600px) { .sc-sync .note { display: none; } .score-bar { padding: 6px 8px; gap: 6px; } }

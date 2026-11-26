@@ -14,6 +14,9 @@ import { db, dbEvents } from './db.js';
 
 // Identifiant client OAuth (Google Cloud → Identifiants). Peut aussi être collé dans Réglages.
 // Clé de lecture publique (restreinte à ce site et à l'API Drive) : lire un dossier partagé sans connexion.
+// fichiers d'un morceau à faire voyager : pistes audio + partition (Guitar Pro / MusicXML)
+const blobsOf = (s) => [...(s?.stems || []), ...(s?.score?.blobId ? [{ blobId: s.score.blobId, mime: s.score.mime }] : [])];
+
 export const SHARE_API_KEY = 'AIzaSyDbsxDD9xwbEAi6WMmRBzEu4nWWuGbab80';
 
 export const DEFAULT_CLIENT_ID = '408370398326-3l1jrt7rhtd1sp3isfe55br0t1shp6am.apps.googleusercontent.com';
@@ -268,7 +271,7 @@ export class Sync extends EventTarget {
           }
           await this.putSmall({ fileId: R.id, appProperties: { sid: id, upd: String(lt), del: '1' }, data: JSON.stringify({ id, deleted: true, updatedAt: lt }) });
         } else {
-          for (const st of L.stems || []) {
+          for (const st of blobsOf(L)) {
             if (!st.blobId || rAudio.has(st.blobId)) continue;
             const blob = await db.getBlob(st.blobId);
             if (!blob) continue;
@@ -289,7 +292,7 @@ export class Sync extends EventTarget {
         }
         const S = await this.api(`${API}/files/${R.id}?alt=media`);
         if (!S?.id) continue;
-        for (const st of S.stems || []) {
+        for (const st of blobsOf(S)) {
           if (!st.blobId || (await db.getBlob(st.blobId))) continue;
           const fid = rAudio.get(st.blobId);
           if (!fid) continue;
