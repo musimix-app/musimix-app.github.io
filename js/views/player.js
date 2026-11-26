@@ -137,6 +137,8 @@ export class PlayerView {
               <span class="stepper" title="Mesure de l’audio où commence la partition"><button data-sc="bar:-1">−</button><output data-r="sc-bar">mes. 1</output><button data-sc="bar:1">+</button></span>
               <span class="stepper" title="Décalage fin"><button data-sc="off:-0.05">−</button><output data-r="sc-off">0,00 s</output><button data-sc="off:0.05">+</button></span></span>
             <button class="btn small sc-lyr-btn" data-sc="lyrics:1" aria-pressed="false" title="Afficher les paroles au-dessus de la partition">Paroles</button>
+            <span class="sc-loff" hidden><span class="note">Décalage paroles</span>
+              <span class="stepper" title="+ : les paroles s'allument plus tôt"><button data-sc="loff:-0.5" title="−0,5 s">«</button><button data-sc="loff:-0.05">−</button><output data-r="sc-loff">0 s</output><button data-sc="loff:0.05">+</button><button data-sc="loff:0.5" title="+0,5 s">»</button></span></span>
             <span class="note sc-status" data-r="sc-status"></span>
           </div>
           <div class="sc-lyrics" hidden aria-live="off"></div>
@@ -953,6 +955,12 @@ export class PlayerView {
         if (k === 'zoom') this.scoreView.setScale((this.song.score.scale || 1) + (v === '+' ? 0.1 : -0.1));
         if (k === 'bar') this.scoreView.nudge({ firstBar: +v });
         if (k === 'off') this.scoreView.nudge({ offset: +v });
+        if (k === 'loff') {
+          const p = this.song.prefs;
+          p.offset = Math.round((p.offset || 0) + +v * 1000);
+          this.updateOptionOutputs(); this.renderBarMarks(); this.saveSong(); this.curLine = -2; this.frame(true); this.renderScoreLyrics(true);
+          toast(`Paroles décalées de ${fmtOffset(p.offset)}`);
+        }
         if (k === 'lyrics') { this.song.score.showLyrics = !this.song.score.showLyrics; this.saveSong(); this.renderScoreLyrics(true); }
         this.updateScoreBar();
       });
@@ -1023,6 +1031,8 @@ export class PlayerView {
     const s = sc.sync || {};
     const lb = v.querySelector('.sc-lyr-btn');
     lb.classList.toggle('on', !!sc.showLyrics); lb.setAttribute('aria-pressed', String(!!sc.showLyrics));
+    v.querySelector('.sc-loff').hidden = !sc.showLyrics;
+    v.querySelector('[data-r="sc-loff"]').textContent = fmtOffset(this.song.prefs.offset);
     v.querySelector('[data-r="sc-bar"]').textContent = `mes. ${(s.firstBar || 0) + 1}`;
     v.querySelector('[data-r="sc-off"]').textContent = `${(s.offset || 0) >= 0 ? '+' : '−'}${Math.abs(s.offset || 0).toFixed(2).replace('.', ',')} s`;
   }
