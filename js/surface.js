@@ -24,18 +24,19 @@ export class Surface extends EventTarget {
   }
 
   disable() {
-    for (const i of this.ins) i.removeEventListener('midimessage', this._h);
+    for (const i of this.ins) if (i.onmidimessage === this._h) i.onmidimessage = null;
     if (this.access) this.access.onstatechange = null;
     this.access = null; this.ins = []; this.outs = [];
   }
 
   _bind() {
-    for (const i of this.ins) i.removeEventListener('midimessage', this._h);
+    for (const i of this.ins) if (i.onmidimessage === this._h) i.onmidimessage = null;
     // port choisi à la main (Tester mon matériel) sinon reconnaissance par le nom
     const pick = (p) => (this.port ? p.name === this.port : isSurfaceName(p.name) || isSurfaceName(p.manufacturer));
     this.ins = [...this.access.inputs.values()].filter(pick);
     this.outs = [...this.access.outputs.values()].filter(pick);
-    for (const i of this.ins) { i.addEventListener('midimessage', this._h); i.open?.().catch(() => {}); } // addEventListener n'ouvre pas le port tout seul
+    // onmidimessage = la façon la plus sûre d'ouvrir le port (Chrome Android) ; open() en plus par précaution
+    for (const i of this.ins) { i.onmidimessage = this._h; i.open?.().catch(() => {}); }
     for (const o of this.outs) o.open?.().catch(() => {});
     this.hello();
   }

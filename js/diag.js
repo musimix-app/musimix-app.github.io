@@ -13,6 +13,7 @@ export function describeMidi([st, d1, d2]) {
     if (MCU_NAMES[d1]) return `bouton ${MCU_NAMES[d1]}`;
     if (d1 >= MCU.MUTE && d1 < MCU.MUTE + 8) return `bouton MUTE ${d1 - MCU.MUTE + 1}`;
     if (d1 >= MCU.SOLO && d1 < MCU.SOLO + 8) return `bouton SOLO ${d1 - MCU.SOLO + 1}`;
+    if (d1 >= MCU.SELECT && d1 < MCU.SELECT + 8) return `piste ${d1 - MCU.SELECT + 1} touchée`;
     return `note ${d1} (vélocité ${d2})`;
   }
   if (cmd === 0x80 || cmd === 0x90) return `relâché ${d1}`;
@@ -28,6 +29,7 @@ export async function diagDialog(app) {
     <p class="note">Branche le R20 (ou ton clavier), puis bouge un fader et appuie sur PLAY : chaque message reçu s’affiche ci-dessous. En cas de souci, touche « Copier le rapport » et colle-le à Claude.</p>
     <section><h3>Appareils MIDI</h3><div data-r="midi">Recherche…</div>
       <div class="opt-row"><span>Port du R20<br><small class="note">si le nom n’est pas reconnu tout seul</small></span><select data-r="port"><option value="">Automatique</option></select></div>
+      <div class="note" data-r="state"></div>
       <div class="diag-log" data-r="log"><span class="note">Aucun message pour l’instant.</span></div></section>
     <section><h3>Micro</h3><div data-r="mic"><button class="btn small" data-a="mic">Autoriser le micro et lister les entrées</button></div>
       <div class="diag-meter"><i data-r="lvl"></i></div></section>
@@ -39,7 +41,8 @@ export async function diagDialog(app) {
   const report = { navigateur: navigator.userAgent, midi: [], messages: [], micros: [], micro: null, sortie: null };
   let access = null, stream = null, ctx = null, raf = 0;
   const listeners = [];
-  const stop = () => { cancelAnimationFrame(raf); listeners.forEach(([i, f]) => i.removeEventListener('midimessage', f)); stream?.getTracks().forEach((t) => t.stop()); ctx?.close().catch(() => {}); };
+  const counts = new Map();
+  const stop = () => { cancelAnimationFrame(raf); listeners.forEach(([i]) => { i.onmidimessage = null; }); stream?.getTracks().forEach((t) => t.stop()); ctx?.close().catch(() => {}); };
   d.done.then(stop);
 
   // ---- MIDI
@@ -48,6 +51,13 @@ export async function diagDialog(app) {
     report.messages.unshift(line); report.messages.length = Math.min(report.messages.length, 40);
     $('log').innerHTML = report.messages.slice(0, 12).map((l) => `<div>${esc(l)}</div>`).join('');
   };
+  const drawState = () => {
+    if (!access) return;
+    const st = [...access.inputs.values()].map((i) => `« ${i.name} » : ${i.state} / ${i.connection} · ${counts.get(i.id) || 0} message(s) reçu(s)`);
+    report.etat = st;
+    const box = el.querySelector('[data-r="state"]');
+    if (box) box.innerHTML = st.map((x) => `<div>${esc(x)}</div>`).join('');
+  };
   const drawPorts = () => {
     const ins = [...access.inputs.values()], outs = [...access.outputs.values()];
     report.midi = [...ins.map((i) => `entrée « ${i.name} » (${i.manufacturer || '?'}) ${i.state}`), ...outs.map((o) => `sortie « ${o.name} » (${o.manufacturer || '?'}) ${o.state}`)];
@@ -55,8 +65,13 @@ export async function diagDialog(app) {
       ? `<ul class="diag-list">${ins.map((i) => `<li>${isSurfaceName(i.name) || isSurfaceName(i.manufacturer) ? '🎚️' : '🎹'} <b>${esc(i.name || 'sans nom')}</b> <small>${esc(i.manufacturer || '')}</small></li>`).join('')}</ul>`
       : '<p class="err">Aucun appareil MIDI vu par le navigateur. Vérifie le câble (un câble de données, pas seulement de charge), puis, sur le R20 : interface audio en <b>Multi Track</b> et <b>DAW Control</b> sur On.</p>';
     $('port').innerHTML = '<option value="">Automatique</option>' + ins.map((i) => `<option ${prefs.r20Port === i.name ? 'selected' : ''}>${esc(i.name || '')}</option>`).join('');
-    listeners.forEach(([i, f]) => i.removeEventListener('midimessage', f)); listeners.length = 0;
-    for (const i of ins) { const f = (e) => log(i.name, e.data); i.addEventListener('midimessage', f); listeners.push([i, f]); i.open?.().catch(() => {}); }
+    listeners.forEach(([i]) => { i.onmidimessage = null; }); listeners.length = 0;
+    for (const i of ins) {
+      const f = (e) => { counts.set(i.id, (counts.get(i.id) || 0) + 1); log(i.name, e.data); drawState(); };
+      i.onmidimessage = f; listeners.push([i, f]);
+      i.open?.().then(drawState, (err) => { report.midi.push(`ouverture refusée : ${err.name}`); drawState(); });
+    }
+    drawState();
     // réveille une surface Mackie Control (le R20 attend parfois que le « logiciel » se présente)
     if (report.sysex === 'oui') for (const o of outs) if (isSurfaceName(o.name) || isSurfaceName(o.manufacturer)) { try { o.open?.(); for (const id of [0x14, 0x15]) o.send([0xf0, 0, 0, 0x66, id, 0, 0xf7]); } catch { /* */ } }
   };
@@ -111,7 +126,7 @@ export async function diagDialog(app) {
       report.sortie = `${ctx.sampleRate} Hz · latence de sortie ${Math.round(((ctx.outputLatency || 0) + (ctx.baseLatency || 0)) * 1000)} ms`;
     }
     if (a === 'copy') {
-      const txt = ['RAPPORT MUSIMIX (v2)', `Navigateur : ${report.navigateur}`, `Sysex : ${report.sysex || '?'}`, 'MIDI :', ...(report.midi.length ? report.midi : ['(aucun)']), 'Derniers messages :', ...(report.messages.slice(0, 20).length ? report.messages.slice(0, 20) : ['(aucun)']), `Micros : ${report.micros.join(' | ') || '(non listés)'}`, `Micro ouvert : ${report.micro || '(aucun)'}`, `Sortie : ${report.sortie || '?'}`].join('\n');
+      const txt = ['RAPPORT MUSIMIX (v3)', `Navigateur : ${report.navigateur}`, `Sysex : ${report.sysex || '?'}`, 'MIDI :', ...(report.midi.length ? report.midi : ['(aucun)']), 'État des ports :', ...(report.etat || ['?']), 'Derniers messages :', ...(report.messages.slice(0, 20).length ? report.messages.slice(0, 20) : ['(aucun)']), `Micros : ${report.micros.join(' | ') || '(non listés)'}`, `Micro ouvert : ${report.micro || '(aucun)'}`, `Sortie : ${report.sortie || '?'}`].join('\n');
       try { await navigator.clipboard.writeText(txt); toast('Rapport copié : colle-le à Claude'); } catch { toast('Copie impossible ici'); }
     }
   });
