@@ -555,6 +555,10 @@ class App extends EventTarget {
           <p class="note">Menu d’un morceau → <b>Partager par lien</b>. Les morceaux partagés vont dans un dossier « MusiMix – partagé » de ton Drive, lisible seulement par qui a le lien ; les autres restent privés.</p>
           <div class="row" style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn" data-act="sharelink">${icon('upload')} Voir mon lien de partage</button></div>
         </div>
+        <div class="group"><h2>Matériel</h2>
+          <p class="note">Zoom R20, clavier MIDI, micro : vérifie ce que l’appareil voit, choisis le micro utilisé par MusiMix et copie un rapport en cas de souci.</p>
+          <div class="row" style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn" data-act="diag">${icon('tuner')} Tester mon matériel</button></div>
+        </div>
         <div class="group"><h2>Stockage</h2>
           <p class="note">${est ? `${fmtBytes(est.usage)} utilisés sur cet appareil.` : ''} Les morceaux restent sur l’appareil, même hors ligne. Sans synchronisation : menu d’un morceau → Télécharger le pack, puis l’ouvrir dans MusiMix sur l’autre appareil.</p>
         </div>
@@ -611,6 +615,7 @@ class App extends EventTarget {
       if (a === 'back') this.go('#/');
       if (a === 'gconnect') { try { await sy.connect(); } catch (err) { toast(err.message, 6000); el.querySelector('[data-r="gid"]').open = true; } }
       if (a === 'gsync') sy.run();
+      if (a === 'diag') import('./diag.js').then((m) => m.diagDialog(this));
       if (a === 'sharelink') { if (!sy.enabled) toast('Connecte d’abord la synchronisation Google Drive', 5000); else this.shareDialog(); }
       if (a === 'gdisconnect' && (await confirmBox('Déconnecter Google Drive ?', 'Les morceaux restent sur cet appareil et dans ton Drive ; ils ne se synchroniseront plus ici.', { ok: 'Déconnecter' }))) sy.disconnect();
       if (a === 'studio') this.studioDialog();

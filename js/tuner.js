@@ -199,7 +199,7 @@ export async function tunerDialog(app) {
   const stop = () => { alive = false; cancelAnimationFrame(raf); stream?.getTracks().forEach((t) => t.stop()); ctx?.close().catch(() => {}); };
   d.done.then(stop);
   try {
-    stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false } });
+    stream = await navigator.mediaDevices.getUserMedia({ audio: { deviceId: prefs.micId ? { ideal: prefs.micId } : undefined, echoCancellation: false, noiseSuppression: false, autoGainControl: false } });
   } catch (err) {
     $('msg').innerHTML = err.name === 'NotAllowedError' || err.name === 'SecurityError'
       ? '<b>Micro refusé.</b> Autorise le micro pour MusiMix (icône à gauche de l’adresse), puis rouvre l’accordeur.'

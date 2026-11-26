@@ -6,16 +6,23 @@
 const WORKLET = `class Rec extends AudioWorkletProcessor {
   constructor() { super(); this.on = true; this.port.onmessage = (e) => { if (e.data === 'stop') this.on = false; }; }
   process(inputs) {
-    const ch = inputs[0] && inputs[0][0];
-    if (ch && this.on) this.port.postMessage({ frame: currentFrame, data: ch.slice(0) });
+    const chs = inputs[0];
+    if (chs && chs.length && this.on) {
+      // toutes les entrées reçues sont mélangées (avec le R20, le micro peut être sur n'importe quel canal)
+      const out = chs[0].slice(0);
+      for (let c = 1; c < chs.length; c++) { const x = chs[c]; for (let i = 0; i < out.length; i++) out[i] += x[i]; }
+      if (chs.length > 1) for (let i = 0; i < out.length; i++) out[i] = Math.max(-1, Math.min(1, out[i]));
+      this.port.postMessage({ frame: currentFrame, data: out });
+    }
     return this.on;
   }
 }
 registerProcessor('mm-rec', Rec);`;
 
 export class TakeRecorder {
-  constructor(engine) {
+  constructor(engine, { micId = null } = {}) {
     this.engine = engine;
+    this.micId = micId;
     this.chunks = [];
     this.pairs = [];
     this.peak = 0;
@@ -23,14 +30,14 @@ export class TakeRecorder {
 
   /** Ouvre le micro (à appeler avant de lancer la lecture). */
   async open() {
-    this.stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false, channelCount: 1 } });
+    this.stream = await navigator.mediaDevices.getUserMedia({ audio: { deviceId: this.micId ? { ideal: this.micId } : undefined, echoCancellation: false, noiseSuppression: false, autoGainControl: false, channelCount: { ideal: 8 } } });
     this.ctx = new AudioContext({ latencyHint: 'interactive' });
     await this.ctx.resume().catch(() => {});
     const url = URL.createObjectURL(new Blob([WORKLET], { type: 'text/javascript' }));
     await this.ctx.audioWorklet.addModule(url);
     URL.revokeObjectURL(url);
     this.src = this.ctx.createMediaStreamSource(this.stream);
-    this.node = new AudioWorkletNode(this.ctx, 'mm-rec', { numberOfInputs: 1, numberOfOutputs: 0 });
+    this.node = new AudioWorkletNode(this.ctx, 'mm-rec', { numberOfInputs: 1, numberOfOutputs: 0, channelCount: 8, channelCountMode: 'max', channelInterpretation: 'discrete' });
     this.node.port.onmessage = (e) => {
       if (!this.armed) return;
       const d = e.data.data;

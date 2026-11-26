@@ -72,7 +72,7 @@ export class Midi extends EventTarget {
   }
   learn() { this.learning = true; }
   // le Zoom R20 (surface de contrôle) n'est pas un clavier : ses boutons ne doivent pas jouer d'accords
-  _bind() { for (const i of this.access.inputs.values()) i.onmidimessage = this.skipSurface && isSurfaceName(i.name) ? null : (e) => this._msg(e.data); }
+  _bind() { for (const i of this.access.inputs.values()) i.onmidimessage = this.skipSurface && (this.surfacePort ? i.name === this.surfacePort : isSurfaceName(i.name)) ? null : (e) => this._msg(e.data); }
   _emit() {
     clearTimeout(this._t);
     // laisse 70 ms pour que toutes les notes d'un accord arrivent

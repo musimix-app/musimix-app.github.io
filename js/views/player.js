@@ -426,7 +426,7 @@ export class PlayerView {
       <div class="opt-row"><span>Décompte avant lecture</span><label class="switch"><input type="checkbox" data-act="countin" ${p.countIn ? 'checked' : ''}><i></i></label></div>
       <div class="opt-row"><span>Métronome</span><label class="switch"><input type="checkbox" data-act="metro-switch"><i></i></label></div>
       <div class="opt-row"><span>Clavier MIDI<br><small class="note" data-r="midi-st"></small></span><label class="switch"><input type="checkbox" data-act="midi" ${this.midiOn ? 'checked' : ''}><i></i></label></div>
-      <div class="opt-row"><span>Zoom R20 en USB<br><small class="note" data-r="r20-st"></small></span><label class="switch"><input type="checkbox" data-act="r20" ${this.r20On ? 'checked' : ''}><i></i></label></div>
+      <div class="opt-row"><span>Zoom R20 en USB<br><small class="note" data-r="r20-st"></small> <button type="button" class="linklike" data-act="diag">Tester</button></span><label class="switch"><input type="checkbox" data-act="r20" ${this.r20On ? 'checked' : ''}><i></i></label></div>
       <div class="midi-opts"${this.midiOn ? '' : ' hidden'}>
         <div class="opt-row"><span>Suivi d’accords<br><small class="note">à l’arrêt, joue l’accord suivant : la lecture avance d’un accord</small></span><label class="switch"><input type="checkbox" data-act="midi-follow" ${this.midiFollow ? 'checked' : ''}><i></i></label></div>
         <div class="opt-row"><span>Avancer d’un accord<br><small class="note" data-r="midi-key"></small></span><button class="btn small ghost" data-act="midi-learn">Choisir une touche</button></div>
@@ -966,7 +966,7 @@ export class PlayerView {
   }
 
   async startTake(opts) {
-    const rec = new TakeRecorder(this.engine);
+    const rec = new TakeRecorder(this.engine, { micId: (await this.app.prefs())?.micId || null });
     try { await rec.open(); } catch (err) {
       rec.cancel();
       toast(err.name === 'NotAllowedError' ? 'Micro refusé : autorise-le pour MusiMix (icône à gauche de l’adresse)' : `Micro inaccessible : ${err.message}`, 6000);
@@ -1048,11 +1048,13 @@ export class PlayerView {
 
   // ---------- Zoom R20 (surface Mackie Control) ----------
   async r20Start(user = false) {
+    surface.port = (await this.app.prefs())?.r20Port || null;
     try { await surface.enable(); } catch (err) {
       if (user) toast(err.message || 'Accès MIDI refusé', 6000);
       this.r20On = false; if (user) this.app.setPref('r20', false); this.updateR20Ui(); return;
     }
     midi.skipSurface = true;
+    midi.surfacePort = surface.port;
     if (midi.access) midi._bind();
     if (!this._r20H) {
       this._r20H = {
@@ -1561,6 +1563,7 @@ export class PlayerView {
         if (midi.advanceNote != null && b.dataset.clear) { midi.advanceNote = null; this.app.setPref('midiKey', null); this.updateMidiUi(); break; }
         midi.learn(); b.textContent = 'Appuie sur une touche…'; toast('Appuie sur la touche du clavier qui servira à avancer', 5000); break;
       case 'impro': this.toggleImpro(); break;
+      case 'diag': import('../diag.js').then((m) => m.diagDialog(this.app)); break;
       case 'rec': if (this.take) this.stopTake(); else this.takeDialog(); break;
       case 'capo+': p.capo = Math.min(11, (p.capo || 0) + 1); this.updateOptionOutputs(); this.refreshChords(); this.saveSong(); break;
       case 'rate-': case 'rate+': {

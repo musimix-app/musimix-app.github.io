@@ -9,7 +9,7 @@ export const MCU = { PLAY: 94, STOP: 93, REC: 95, REW: 91, FF: 92, CYCLE: 86, BA
 export const isSurfaceName = (n) => /zoom|r20|mackie|mcu/i.test(n || '');
 
 export class Surface extends EventTarget {
-  constructor() { super(); this.access = null; this.ins = []; this.outs = []; this._h = (e) => this._msg(e.data); }
+  constructor() { super(); this.access = null; this.ins = []; this.outs = []; this.port = null; this._h = (e) => this._msg(e.data); }
   get supported() { return !!navigator.requestMIDIAccess; }
   get devices() { return this.ins.map((i) => i.name || 'Surface'); }
 
@@ -29,8 +29,10 @@ export class Surface extends EventTarget {
 
   _bind() {
     for (const i of this.ins) i.removeEventListener('midimessage', this._h);
-    this.ins = [...this.access.inputs.values()].filter((i) => isSurfaceName(i.name) || isSurfaceName(i.manufacturer));
-    this.outs = [...this.access.outputs.values()].filter((o) => isSurfaceName(o.name) || isSurfaceName(o.manufacturer));
+    // port choisi à la main (Tester mon matériel) sinon reconnaissance par le nom
+    const pick = (p) => (this.port ? p.name === this.port : isSurfaceName(p.name) || isSurfaceName(p.manufacturer));
+    this.ins = [...this.access.inputs.values()].filter(pick);
+    this.outs = [...this.access.outputs.values()].filter(pick);
     for (const i of this.ins) i.addEventListener('midimessage', this._h);
   }
 
@@ -38,6 +40,9 @@ export class Surface extends EventTarget {
     const cmd = st & 0xf0, ch = st & 0x0f;
     if (cmd === 0xe0) this.dispatchEvent(new CustomEvent('fader', { detail: { ch, v: ((d2 << 7) | d1) / 16383 } }));
     else if (cmd === 0x90 && d2 > 0) this.dispatchEvent(new CustomEvent('button', { detail: { note: d1 } }));
+    // certaines surfaces envoient les faders en contrôleurs : volume (CC 7) par canal, ou CC 0–8 sur le canal 1
+    else if (cmd === 0xb0 && d1 === 7) this.dispatchEvent(new CustomEvent('fader', { detail: { ch, v: d2 / 127 } }));
+    else if (cmd === 0xb0 && ch === 0 && d1 <= 8) this.dispatchEvent(new CustomEvent('fader', { detail: { ch: d1, v: d2 / 127 } }));
   }
 
   /** Voyant d'un bouton (si la surface en a). */

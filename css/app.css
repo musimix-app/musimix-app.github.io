@@ -834,3 +834,13 @@ dialog { max-height: calc(100dvh - 16px); overflow: auto; overscroll-behavior: c
 .lyrics:not(.show-bars):not(.editing) .bar-mk { display: none; }
 .job-acts { display: inline-flex; gap: 6px; align-items: center; }
 .file-line { display: flex; gap: 10px; align-items: center; margin-top: -4px; flex-wrap: wrap; }
+/* ---------- Tester mon matériel ---------- */
+dialog.diag-dlg { width: min(560px, calc(100vw - 20px)); }
+.diag section { display: grid; gap: 8px; border-top: 1px solid var(--line); padding-top: 12px; }
+.diag h3 { margin: 0; font: 600 16px var(--font-display); }
+.diag-list { margin: 0; padding-left: 4px; list-style: none; display: grid; gap: 4px; }
+.diag-list small { color: var(--ink-3); }
+.diag-log { font: 12.5px/1.5 var(--font-mono, ui-monospace, monospace); background: var(--surface-2); border: 1px solid var(--line); border-radius: var(--radius-s); padding: 8px 10px; max-height: 180px; overflow: auto; }
+.diag-meter { height: 8px; border-radius: 4px; background: var(--surface-3); overflow: hidden; }
+.diag-meter i { display: block; height: 100%; width: 0; background: var(--c-harmony); transition: width .06s linear; }
+.diag .err { color: #d1373e; font-weight: 600; }
