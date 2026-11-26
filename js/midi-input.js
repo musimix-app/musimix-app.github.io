@@ -2,6 +2,7 @@
 // Événements : 'notes' (detail: { notes: number[] }), 'advance', 'devices', 'learned' (detail: note).
 
 import { parseChord, chordPcs } from './theory.js';
+import { isSurfaceName } from './surface.js';
 
 const NAMES = ['C', 'C#', 'D', 'Eb', 'E', 'F', 'F#', 'G', 'Ab', 'A', 'Bb', 'B'];
 const QUALITIES = [
@@ -70,7 +71,8 @@ export class Midi extends EventTarget {
     this.held.clear();
   }
   learn() { this.learning = true; }
-  _bind() { for (const i of this.access.inputs.values()) i.onmidimessage = (e) => this._msg(e.data); }
+  // le Zoom R20 (surface de contrôle) n'est pas un clavier : ses boutons ne doivent pas jouer d'accords
+  _bind() { for (const i of this.access.inputs.values()) i.onmidimessage = this.skipSurface && isSurfaceName(i.name) ? null : (e) => this._msg(e.data); }
   _emit() {
     clearTimeout(this._t);
     // laisse 70 ms pour que toutes les notes d'un accord arrivent

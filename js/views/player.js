@@ -18,6 +18,7 @@ import { encodeOpus, opusSupported } from '../opus.js';
 import { encodeWav } from '../wav.js';
 import { levelOf } from '../levels.js';
 import { uid } from '../db.js';
+import { surface, MCU } from '../surface.js';
 import { midi, nameChord, matchesChord, noteName } from '../midi-input.js';
 import { transposeChord } from '../theory.js';
 
@@ -49,6 +50,8 @@ export class PlayerView {
     this.showChords = prefs.showChords !== false;
     this.showBars = prefs.showBars === true; // désactivé par défaut (demande de Gabriel)
     this.midiOn = !!prefs.midi;
+    this.r20On = prefs.r20 === true;
+    this.r20Bank = 0;
     this.midiFollow = prefs.midiFollow !== false;
     midi.advanceNote = prefs.midiKey ?? null;
     song.prefs = { transpose: 0, audioPitch: false, rate: 1, offset: 0, capo: 0, ...(song.prefs || {}) };
@@ -66,6 +69,7 @@ export class PlayerView {
   close() {
     if (this.take) { this.take.rec.cancel(); this.endTakeUi(); this.take = null; }
     this.midiStop(false);
+    this.r20Stop(false);
     this._barRO?.disconnect();
     this.exitFullStage();
     this.editing.on = false;
@@ -190,6 +194,7 @@ export class PlayerView {
     this.setMode(this.mode, false);
     this.setInstrument(this.instrument, false);
     if (this.midiOn) this.midiStart(false);
+    if (this.r20On) this.r20Start(false);
     if (this.fontSize) this.el.style.setProperty('--lyrics-size', this.fontSize + 'px');
     this.railWidth = this.prefsSnap?.railWidth || null;
     if (this.railWidth) this.el.style.setProperty('--rail-w', this.railWidth + 'px');
@@ -421,6 +426,7 @@ export class PlayerView {
       <div class="opt-row"><span>Décompte avant lecture</span><label class="switch"><input type="checkbox" data-act="countin" ${p.countIn ? 'checked' : ''}><i></i></label></div>
       <div class="opt-row"><span>Métronome</span><label class="switch"><input type="checkbox" data-act="metro-switch"><i></i></label></div>
       <div class="opt-row"><span>Clavier MIDI<br><small class="note" data-r="midi-st"></small></span><label class="switch"><input type="checkbox" data-act="midi" ${this.midiOn ? 'checked' : ''}><i></i></label></div>
+      <div class="opt-row"><span>Zoom R20 en USB<br><small class="note" data-r="r20-st"></small></span><label class="switch"><input type="checkbox" data-act="r20" ${this.r20On ? 'checked' : ''}><i></i></label></div>
       <div class="midi-opts"${this.midiOn ? '' : ' hidden'}>
         <div class="opt-row"><span>Suivi d’accords<br><small class="note">à l’arrêt, joue l’accord suivant : la lecture avance d’un accord</small></span><label class="switch"><input type="checkbox" data-act="midi-follow" ${this.midiFollow ? 'checked' : ''}><i></i></label></div>
         <div class="opt-row"><span>Avancer d’un accord<br><small class="note" data-r="midi-key"></small></span><button class="btn small ghost" data-act="midi-learn">Choisir une touche</button></div>
@@ -434,6 +440,7 @@ export class PlayerView {
     this.el.querySelector('[data-r="opts-m"]').innerHTML = html;
     this.syncModeButtons();
     this.updateMidiUi();
+    this.updateR20Ui();
     // interrupteurs : nom lisible par les lecteurs d'écran (texte de la ligne)
     this.el.querySelectorAll('.opt-row .switch input:not([aria-label])').forEach((i) => {
       const t = i.closest('.opt-row')?.querySelector('span')?.firstChild?.textContent?.trim();
@@ -460,6 +467,7 @@ export class PlayerView {
     this.el.querySelectorAll('[data-r="capo"]').forEach((o) => { o.textContent = p.capo ? p.capo : 'aucun'; });
     this.renderCapoSug();
     this.updateMidiUi?.();
+    this.updateR20Ui?.();
     this.el.querySelectorAll('[data-r="rate"]').forEach((o) => { o.textContent = Math.round(p.rate * 100) + ' %'; });
     this.el.querySelectorAll('[data-r="off"]').forEach((o) => { o.textContent = fmtOffset(p.offset); });
     this.el.querySelectorAll('[data-act="audio-pitch"]').forEach((i) => { i.checked = !!p.audioPitch; });
@@ -476,6 +484,7 @@ export class PlayerView {
     // pistes vides (silence) : pas de bouton dans le mixage, sauf si on demande à les voir
     const hidden = this.showEmpty ? [] : all.filter(isEmptyStem);
     const stems = all.filter((st) => !hidden.includes(st));
+    this._mixStems = stems;
     const strips = stems.map((st) => {
       const m = s.mix[st.id] || { vol: 1 };
       const color = STEM_KINDS[st.kind]?.color || 'var(--c-other)';
@@ -558,6 +567,7 @@ export class PlayerView {
     this.song.mix[id] = m;
     this.engine.setTrack(id, { [field]: m[field] });
     this.updateStrips();
+    if (this.r20On) this.r20Leds();
     this.saveSong();
   }
 
@@ -621,6 +631,7 @@ export class PlayerView {
     if (ev === 'loop') { this.renderLoop(); this.progressStart(); }
     if (ev === 'looped') this.progressStep();
     if (ev === 'ended') this.onEnded();
+    if ((ev === 'play' || ev === 'pause') && this.r20On) this.r20Leds();
     if (this.take?.live && (ev === 'pause' || ev === 'ended' || ev === 'seek' || ev === 'loop')) this.stopTake();
   }
 
@@ -1035,6 +1046,86 @@ export class PlayerView {
     toast('Ta prise est dans le mixage. « Sans la voix » pour l’écouter à la place du chant d’origine.', 6000);
   }
 
+  // ---------- Zoom R20 (surface Mackie Control) ----------
+  async r20Start(user = false) {
+    try { await surface.enable(); } catch (err) {
+      if (user) toast(err.message || 'Accès MIDI refusé', 6000);
+      this.r20On = false; if (user) this.app.setPref('r20', false); this.updateR20Ui(); return;
+    }
+    midi.skipSurface = true;
+    if (midi.access) midi._bind();
+    if (!this._r20H) {
+      this._r20H = {
+        fader: (e) => this.r20Fader(e.detail.ch, e.detail.v),
+        button: (e) => this.r20Button(e.detail.note),
+        devices: () => { this.updateR20Ui(); this.r20Leds(); },
+      };
+      for (const [k, f] of Object.entries(this._r20H)) surface.addEventListener(k, f);
+    }
+    this.updateR20Ui();
+    this.r20Leds();
+    if (user) toast(surface.devices.length ? `Zoom R20 relié : faders 1 à 8 = pistes du mixage, dernier = Général` : 'R20 non détecté : branche-le en USB, mode interface audio + Control Surface (Mackie)', 6000);
+  }
+
+  r20Stop(ui = true) {
+    if (this._r20H) for (const [k, f] of Object.entries(this._r20H)) surface.removeEventListener(k, f);
+    this._r20H = null;
+    surface.disable();
+    midi.skipSurface = false;
+    if (midi.access) midi._bind();
+    if (ui) this.updateR20Ui();
+  }
+
+  updateR20Ui() {
+    if (!this.el) return;
+    const st = !surface.supported ? 'pas disponible sur ce navigateur (Chrome ou Edge sur le PC)'
+      : !this.r20On ? 'lecture, arrêt et volumes des pistes depuis le R20'
+      : surface.devices.length ? `🎚️ ${surface.devices.join(', ')}` : 'R20 non détecté : USB + mode Control Surface';
+    this.el.querySelectorAll('[data-r="r20-st"]').forEach((x) => { x.textContent = st; });
+    this.el.querySelectorAll('[data-act="r20"]').forEach((x) => { x.checked = this.r20On; });
+  }
+
+  /** Pistes pilotées par les faders 1–8 (pistes visibles du mixage, par banque de 8). */
+  r20Strips() { return (this._mixStems || this.song.stems).slice(this.r20Bank * 8, this.r20Bank * 8 + 8); }
+
+  r20Fader(ch, x) {
+    let v = Math.max(0, Math.min(1.5, x * 1.5));
+    if (Math.abs(v - 1) < 0.04) v = 1;
+    if (ch === 8) { this.song.master = v; this.engine.setMaster(v); }
+    else {
+      const st = this.r20Strips()[ch];
+      if (!st) return;
+      this.song.mix[st.id] = { ...(this.song.mix[st.id] || {}), vol: v };
+      this.engine.setTrack(st.id, { vol: v });
+    }
+    if (!this._r20Raf) this._r20Raf = requestAnimationFrame(() => { this._r20Raf = 0; this.updateStrips(); });
+    this.saveSong();
+  }
+
+  r20Button(n) {
+    const e = this.engine;
+    if (n === MCU.PLAY) { if (!e.playing) e.play(); }
+    else if (n === MCU.STOP) { if (e.playing) e.pause(); else e.seek(0); }
+    else if (n === MCU.REW) e.seek(Math.max(0, e.currentTime - 5));
+    else if (n === MCU.FF) e.seek(Math.min(e.duration || 1e9, e.currentTime + 5));
+    else if (n === MCU.REC) { if (this.take) this.stopTake(); else this.startTake({ noVoice: true, muteTakes: true, from: 'here' }); }
+    else if (n === MCU.BANK_L || n === MCU.BANK_R) {
+      const max = Math.max(0, Math.ceil((this._mixStems || []).length / 8) - 1);
+      this.r20Bank = Math.max(0, Math.min(max, this.r20Bank + (n === MCU.BANK_R ? 1 : -1)));
+      toast(`R20 : pistes ${this.r20Bank * 8 + 1} à ${this.r20Bank * 8 + 8}`);
+    } else if (n >= MCU.MUTE && n < MCU.MUTE + 8) { const st = this.r20Strips()[n - MCU.MUTE]; if (st) this.toggleMix(st.id, 'mute'); }
+    else if (n >= MCU.SOLO && n < MCU.SOLO + 8) { const st = this.r20Strips()[n - MCU.SOLO]; if (st) this.toggleMix(st.id, 'solo'); }
+    this.r20Leds();
+  }
+
+  r20Leds() {
+    if (!this.r20On || !surface.outs.length) return;
+    surface.led(MCU.PLAY, this.engine.playing);
+    surface.led(MCU.STOP, !this.engine.playing);
+    surface.led(MCU.REC, !!this.take);
+    this.r20Strips().forEach((st, i) => { const m = this.song.mix[st.id] || {}; surface.led(MCU.MUTE + i, !!m.mute); surface.led(MCU.SOLO + i, !!m.solo); });
+  }
+
   // ---------- Clavier MIDI ----------
   async midiStart(user = false) {
     try { await midi.enable(); } catch (err) {
@@ -1361,6 +1452,7 @@ export class PlayerView {
         else this.progressStop();
       }
       if (a === 'midi') { this.midiOn = e.target.checked; this.app.setPref('midi', this.midiOn); if (this.midiOn) this.midiStart(true); else this.midiStop(); }
+      if (a === 'r20') { this.r20On = e.target.checked; this.app.setPref('r20', this.r20On); if (this.r20On) this.r20Start(true); else this.r20Stop(); }
       if (a === 'midi-follow') { this.midiFollow = e.target.checked; this.app.setPref('midiFollow', this.midiFollow); this.updateMidiUi(); }
       if (a === 'countin') { this.song.prefs.countIn = e.target.checked; this.updateOptionOutputs(); this.saveSong(); }
       if (a === 'show-bars') {
