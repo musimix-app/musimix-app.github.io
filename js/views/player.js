@@ -1010,7 +1010,7 @@ export class PlayerView {
 
   /** Écoute la piste Voix et règle le décalage des paroles. */
   async autoLyrics() {
-    if (this._autoBusy) return;
+    if (this._autoBusy) { toast('Un calage est déjà en cours, patiente quelques secondes…'); return; }
     this._autoBusy = true;
     toast('Calage des paroles : écoute de la voix…', 20000);
     try {
@@ -1039,7 +1039,9 @@ export class PlayerView {
 
   /** Minutage mot à mot pris dans les paroles écrites sous les notes de la partition. */
   async autoWords() {
-    if (this._autoBusy || !this.scoreView) return;
+    if (this._autoBusy) { toast('Un calage est déjà en cours, patiente quelques secondes…'); return; }
+    if (!this.scoreView) { toast('Ouvre la vue Partition d’abord'); return; }
+    toast('Mot à mot : lecture des paroles de la partition…', 8000);
     const syl = this.scoreView.scoreLyrics?.() || [];
     if (!syl.length) { toast('Cette partition ne contient pas de paroles (ni sous les notes, ni en texte au-dessus)', 6000); return; }
     this._autoBusy = true;
@@ -1063,7 +1065,8 @@ export class PlayerView {
 
   /** Écoute le début du morceau et y pose la 1re note de la partition. */
   async autoScore() {
-    if (this._autoBusy || !this.scoreView) return;
+    if (this._autoBusy) { toast('Un calage est déjà en cours, patiente quelques secondes…'); return; }
+    if (!this.scoreView) return;
     this._autoBusy = true;
     toast('Calage de la partition : écoute du début du morceau…', 4000);
     try {
