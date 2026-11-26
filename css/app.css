@@ -833,3 +833,4 @@ dialog { max-height: calc(100dvh - 16px); overflow: auto; overscroll-behavior: c
 .drop-mark.snap { width: 4px; box-shadow: 0 0 0 4px color-mix(in srgb, var(--chord) 35%, transparent); }
 .lyrics:not(.show-bars):not(.editing) .bar-mk { display: none; }
 .job-acts { display: inline-flex; gap: 6px; align-items: center; }
+.file-line { display: flex; gap: 10px; align-items: center; margin-top: -4px; flex-wrap: wrap; }

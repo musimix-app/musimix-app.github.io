@@ -8,8 +8,8 @@ import { QUALITIES, modelInfo } from './separate.js';
 import { prepareSong } from './prepare.js';
 import { SharedView } from './views/shared.js';
 import { esc, icon, toast, dialog, pickFiles, confirmBox } from './ui.js';
-import { importFiles, importPack, importSingleAudio, guessTitleArtist, newSong, STEM_KINDS } from './songs.js';
-import { parseSheet, docFromSongJson, fillLineEnds } from './sheet.js';
+import { importFiles, importPack, importSingleAudio, guessTitleArtist, newSong, STEM_KINDS, applyLRC } from './songs.js';
+import { parseSheet, docFromSongJson, fillLineEnds, looksLikeLRC } from './sheet.js';
 import { LibraryView, SetlistsView, askName } from './views/library.js';
 import { PlayerView } from './views/player.js';
 import { EditorView } from './views/editor.js';
@@ -164,9 +164,15 @@ class App extends EventTarget {
   /** Un fichier audio : on propose la préparation automatique par le Studio. */
   async prepareDialog(file, extras = []) {
     const guess = guessTitleArtist(file.name);
-    let sheetText = '';
-    const sheetFile = extras?.find((f) => /\.(cho|chopro|txt|crd)$/i.test(f.name));
-    if (sheetFile) sheetText = await sheetFile.text();
+    // deux fichiers possibles avec l'audio : la grille (même en vrac, copiée d'un site) et un .lrc pour le calage
+    let sheetText = '', lrcText = '', lrcName = '';
+    for (const x of extras || []) {
+      if (!/\.(cho|chopro|chordpro|txt|crd|pro|lrc|html?)$/i.test(x.name)) continue;
+      let t = await x.text();
+      if (/\.html?$/i.test(x.name)) { const dd = new DOMParser().parseFromString(t, 'text/html'); t = dd.body?.innerText || dd.body?.textContent || ''; }
+      if (/\.lrc$/i.test(x.name) || looksLikeLRC(t)) { if (!lrcText) { lrcText = t; lrcName = x.name; } }
+      else if (!sheetText) sheetText = t;
+    }
     await this.studio.check();
     const st = this.studio;
     const online = st.state === 'online' || st.mode === 'bridge';
@@ -181,6 +187,7 @@ class App extends EventTarget {
       </div>
       <label class="field">Paroles ou grille d’accords <span class="hint">facultatif : copiée d’un site, c’est encore plus précis</span>
         <textarea name="sheet" rows="5" placeholder="Laisse vide : les paroles sont cherchées en ligne, sinon transcrites.">${esc(sheetText)}</textarea></label>
+      ${lrcText ? `<p class="note">✓ <b>${esc(lrcName)}</b> : servira à caler les paroles sur l’audio (accords gardés).</p>` : ''}
       <div class="two">
         <label class="field">Langue<select name="lang"><option value="">Détection auto</option><option value="fr">Français</option><option value="en">Anglais</option><option value="pt">Portugais</option><option value="es">Espagnol</option><option value="it">Italien</option><option value="de">Allemand</option></select></label>
         <label class="field">Séparation<select name="quality"><option value="best">6 pistes, qualité max</option><option value="fast">4 pistes, plus rapide</option><option value="voice">Voix + instrumental</option></select></label>
@@ -198,7 +205,8 @@ class App extends EventTarget {
           e.preventDefault();
           const v = vals();
           close();
-          const song = await importSingleAudio(file, { sheetText: v.sheet, title: v.title, artist: v.artist });
+          let song = await importSingleAudio(file, { sheetText: v.sheet, title: v.title, artist: v.artist });
+          if (lrcText) { song = await db.getSong(song.id); applyLRC(song, lrcText); fillLineEnds(song.doc.lines); await db.putSong(song); }
           this.go(`#/play/${song.id}`);
         });
         dlg.querySelector('[data-browser]').addEventListener('click', async (e) => {
@@ -206,7 +214,7 @@ class App extends EventTarget {
           const v = vals();
           close();
           const song = await importSingleAudio(file, { sheetText: v.sheet, title: v.title, artist: v.artist });
-          this.separateDialog(song);
+          this.separateDialog(song, { lrc: lrcText, lrcName });
         });
         dlg.querySelector('[data-studio]')?.addEventListener('click', (e) => {
           e.preventDefault();
@@ -292,7 +300,7 @@ class App extends EventTarget {
   }
 
   /** « Tout préparer » dans le navigateur (sans le Studio) : pistes, paroles synchronisées, accords. */
-  async separateDialog(song) {
+  async separateDialog(song, pre = {}) {
     if ([...this.jobs.values()].some((j) => j.songId === song.id)) { toast('Préparation déjà en cours pour ce morceau'); return; }
     let quality = 'best';
     const already = !!song.separation;
@@ -307,6 +315,10 @@ class App extends EventTarget {
       <p class="note">Titre et artiste exacts = paroles trouvées plus sûrement.</p>
       <label class="field">Ta grille (facultatif) <span class="hint">colle toute la page copiée d’un site de grilles : le tri est fait tout seul</span>
         <textarea name="sheet" rows="4" placeholder="Accords au-dessus des paroles… Laisse vide pour garder la grille actuelle ou détecter les accords."></textarea></label>
+      <div class="file-line"><button type="button" class="btn small ghost" data-pick="sheet">${icon('upload')} Ouvrir un fichier de grille</button><span class="note" data-r="sheet-f"></span></div>
+      <label class="field">Fichier .lrc (facultatif) <span class="hint">s’il est calé sur ta version : il remplace la recherche sur LRCLIB ; tes paroles et tes accords sont gardés</span>
+        <textarea name="lrc" rows="2" placeholder="[00:12.34] première ligne…">${esc(pre.lrc || '')}</textarea></label>
+      <div class="file-line"><button type="button" class="btn small ghost" data-pick="lrc">${icon('upload')} Ouvrir un .lrc</button><span class="note" data-r="lrc-f">${esc(pre.lrcName || '')}</span></div>
       <div class="opt-row"><span>Séparer les pistes<br><small class="note">voix, batterie, basse, guitare, piano, autres${already ? ' · déjà fait : refaire ?' : ''}</small></span><label class="switch"><input type="checkbox" name="separate" ${already ? '' : 'checked'}><i></i></label></div>
       <div class="opt-row" data-r="qrow"><span>Qualité</span><span class="seg"><button type="button" data-q="best">Max</button><button type="button" data-q="fast">Rapide</button></span></div>
       <div class="callout" data-r="info">Vérification de la carte graphique…</div>
@@ -334,9 +346,24 @@ class App extends EventTarget {
     el.addEventListener('click', (e) => {
       const q = e.target.closest('[data-q]');
       if (q) { quality = q.dataset.q; info(); return; }
+      const pk = e.target.closest('[data-pick]');
+      if (pk) {
+        const which = pk.dataset.pick;
+        pickFiles({ accept: which === 'lrc' ? '.lrc,.txt' : '.txt,.cho,.chopro,.chordpro,.crd,.pro,.html,.htm', multiple: false }).then(async ([file]) => {
+          if (!file) return;
+          let t = await file.text();
+          if (/\.html?$/i.test(file.name)) { const dd = new DOMParser().parseFromString(t, 'text/html'); t = dd.body?.innerText || dd.body?.textContent || ''; }
+          f[which].value = t;
+          el.querySelector(`[data-r="${which}-f"]`).textContent = file.name;
+        });
+        return;
+      }
       if (e.target.closest('[data-go]')) {
         e.preventDefault();
-        const opts = { quality, separate: f.separate.checked, lyrics: f.lyrics.checked, chords: f.chords.checked, restart: !!f.restart?.checked, sheet: f.sheet.value, title: f.title.value.trim(), artist: f.artist.value.trim() };
+        let sheet = f.sheet.value, lrc = f.lrc.value;
+        // un LRC collé par erreur dans « Ta grille » est reconnu
+        if (!lrc.trim() && looksLikeLRC(sheet)) { lrc = sheet; sheet = ''; }
+        const opts = { quality, separate: f.separate.checked, lyrics: f.lyrics.checked || !!lrc.trim(), chords: f.chords.checked, restart: !!f.restart?.checked, sheet, lrc, title: f.title.value.trim(), artist: f.artist.value.trim() };
         if (!opts.separate && !opts.lyrics && !opts.chords) { toast('Coche au moins une étape'); return; }
         d.close();
         this.runSeparation(song, opts);
@@ -363,7 +390,7 @@ class App extends EventTarget {
       this.dispatchEvent(new Event('jobs'));
       const bits = [];
       if (report.separated) bits.push('pistes séparées');
-      if (opts.lyrics) bits.push(report.lyrics ? 'paroles synchronisées' : 'paroles introuvables sur LRCLIB');
+      if (opts.lyrics) bits.push(report.lyrics ? (report.lyrics.source === 'fichier' ? 'paroles calées sur ton .lrc' : 'paroles synchronisées') : 'paroles introuvables sur LRCLIB');
       if (opts.chords) bits.push(report.keptChords ? `tempo ${report.bpm}` : `${report.chords} accords · ${report.key} · ${report.bpm} BPM`);
       toast(`Prêt : ${job.title} — ${bits.join(', ')}`, 7000);
       if (this.view instanceof LibraryView) this.route();

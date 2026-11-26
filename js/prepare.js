@@ -18,7 +18,7 @@ function pickLyrics(results, duration) {
   return best || null;
 }
 
-export async function prepareSong(songId, { separate = true, quality = 'best', lyrics = true, chords = true, restart = false, sheet = '', title, artist, onProgress = () => {}, signal } = {}) {
+export async function prepareSong(songId, { separate = true, quality = 'best', lyrics = true, chords = true, restart = false, sheet = '', lrc = '', title, artist, onProgress = () => {}, signal } = {}) {
   const report = { separated: false, lyrics: null, chords: 0, bpm: null, key: null };
   let song = await db.getSong(songId);
   if (!song) throw new Error('Morceau introuvable');
@@ -54,7 +54,8 @@ export async function prepareSong(songId, { separate = true, quality = 'best', l
   let found = null;
   if (lyrics) {
     onProgress({ progress: 0.92, message: 'Recherche des paroles synchronisées…' });
-    try { found = pickLyrics(await lrclibSearch({ title: song.title, artist: song.artist, duration: song.duration }), song.duration); } catch { /* hors ligne */ }
+    if (lrc.trim()) found = { syncedLyrics: lrc, trackName: song.title, artistName: song.artist, fromFile: true };
+    else try { found = pickLyrics(await lrclibSearch({ title: song.title, artist: song.artist, duration: song.duration }), song.duration); } catch { /* hors ligne */ }
   }
 
   // ── 4. assemblage (on relit le morceau : il a pu être modifié pendant ce temps)
@@ -88,7 +89,7 @@ export async function prepareSong(songId, { separate = true, quality = 'best', l
         if (l.s != null) l.words = null;
       });
       fillLineEnds(fresh.doc.lines);
-      report.lyrics = { source: 'lrclib', kept: true, matched: n, total: lyricLines(fresh.doc).length };
+      report.lyrics = { source: found.fromFile ? 'fichier' : 'lrclib', kept: true, matched: n, total: lyricLines(fresh.doc).length };
     } else {
       // on part du texte synchronisé lui-même (et pas des paroles « simples », parfois différentes) :
       // chaque ligne a ainsi son temps ; un blanc entre deux couplets crée un saut de strophe
@@ -99,7 +100,7 @@ export async function prepareSong(songId, { separate = true, quality = 'best', l
       attachTimings(doc.lines, sung);
       fillLineEnds(doc.lines);
       fresh.doc = { meta: fresh.doc.meta || {}, lines: doc.lines };
-      report.lyrics = { source: 'lrclib', kept: false, title: found.trackName, artist: found.artistName };
+      report.lyrics = { source: found.fromFile ? 'fichier' : 'lrclib', kept: false, title: found.trackName, artist: found.artistName };
     }
   }
   if (ana) {

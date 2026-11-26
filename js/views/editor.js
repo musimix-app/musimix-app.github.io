@@ -2,7 +2,7 @@
 
 import { db } from '../db.js';
 import { esc, icon, fmtTime, toast, confirmBox, dialog, debounce, pickFiles } from '../ui.js';
-import { parseSheet, toChordPro, carryTimings, looksLikeChordPro, fillLineEnds, toLRC, parseLRC, attachTimings } from '../sheet.js';
+import { parseSheet, toChordPro, carryTimings, looksLikeChordPro, fillLineEnds, toLRC, parseLRC, attachTimings, looksLikeLRC } from '../sheet.js';
 import { renderSheet } from '../render.js';
 import { transposeChord, parseKey, transposeKey } from '../theory.js';
 import { STEM_KINDS, sortStems, lrclibSearch, download, stemKind, audioDuration } from '../songs.js';
@@ -90,6 +90,13 @@ export class EditorView {
     this.textarea = body.querySelector('textarea');
     const upd = debounce(() => this.updatePreview(), 200);
     this.textarea.addEventListener('input', () => { this.dirty = true; this.pendingText = this.textarea.value; upd(); });
+    // coller un LRC dans le texte : on ajoute seulement le minutage, la grille et ses accords restent
+    this.textarea.addEventListener('paste', (e) => {
+      const t = e.clipboardData?.getData('text/plain') || '';
+      if (!looksLikeLRC(t) || !this.textarea.value.trim()) return;
+      e.preventDefault();
+      this.mergeLRC(t);
+    });
     this.updatePreview();
   }
 
@@ -98,6 +105,24 @@ export class EditorView {
     const doc = parseSheet(txt);
     this.el.querySelector('.preview').innerHTML = doc.lines.length ? renderSheet(doc) : '<p class="note">L’aperçu apparaîtra ici.</p>';
     this.el.querySelector('[data-r="grid-hint"]').hidden = looksLikeChordPro(txt) || !doc.lines.some((l) => l.chords?.length);
+  }
+
+  /** Minutage d'un LRC posé sur les paroles existantes (accords gardés). */
+  mergeLRC(txt) {
+    const s = this.song;
+    this.applyText();
+    const lrc = parseLRC(txt);
+    if (!s.doc.lines.some((l) => l.type === 'lyric')) s.doc = parseSheet(lrc.lines.map((l) => l.text).join('\n'));
+    attachTimings(s.doc.lines, lrc.lines.map((l) => ({ text: l.text, s: l.s, words: l.words })));
+    fillLineEnds(s.doc.lines);
+    this.dirty = true;
+    const cp = toChordPro({ ...s.doc, meta: { ...s.doc.meta, title: s.title, artist: s.artist } });
+    if (this.textarea) this.textarea.value = cp;
+    this.pendingText = cp;
+    const n = s.doc.lines.filter((l) => l.type === 'lyric' && l.s != null).length;
+    toast(`Minutage ajouté sur ${n} lignes · accords gardés`, 5000);
+    this.showTab?.('text');
+    if (this.textarea) this.updatePreview?.();
   }
 
   applyText() {
@@ -372,8 +397,9 @@ export class EditorView {
       const [f] = await pickFiles({ accept: '.cho,.chopro,.chordpro,.txt,.lrc,.crd,.pro', multiple: false });
       if (!f) return;
       const txt = await f.text();
-      if (/\.lrc$/i.test(f.name)) {
-        this.applyText();
+      if (/\.lrc$/i.test(f.name) || looksLikeLRC(txt)) {
+        this.mergeLRC(txt);
+      } else if (false) {
         const lrc = parseLRC(txt);
         if (!s.doc.lines.some((l) => l.type === 'lyric')) s.doc = parseSheet(lrc.lines.map((l) => l.text).join('\n'));
         attachTimings(s.doc.lines, lrc.lines.map((l) => ({ text: l.text, s: l.s, words: l.words })));

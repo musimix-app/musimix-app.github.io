@@ -132,8 +132,17 @@ export function cleanPastedSheet(input) {
 }
 
 /** Lit du ChordPro, une grille « accords au-dessus des paroles » ou des paroles simples. */
+/** Texte au format LRC (lignes « [mm:ss.xx] … ») ? */
+export function looksLikeLRC(text) {
+  const ls = String(text || '').split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
+  const n = ls.filter((l) => /^\[\d{1,2}:\d{2}(?:[.:]\d{1,3})?\]/.test(l)).length;
+  return n >= 2 && n >= ls.length * 0.5;
+}
+
 export function parseSheet(text) {
   text = String(text || '').replace(/\r\n?/g, '\n').replace(/\t/g, '    ').replace(/ /g, ' ');
+  // horodatages LRC : jamais affichés comme des paroles
+  if (looksLikeLRC(text)) text = parseLRC(text).lines.map((l) => l.text).join('\n');
   if (looksLikeChordPro(text)) { const d = parseChordPro(text); markChorus(d.lines); return d; }
   const c = cleanPastedSheet(text);
   const doc = parseGrid(c.text);

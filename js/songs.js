@@ -2,7 +2,7 @@
 
 import { db, uid } from './db.js';
 import { readZip, writeZip } from './zip.js';
-import { parseSheet, parseLRC, attachTimings, docFromSongJson, docToSongJson, toChordPro, toLRC, fillLineEnds, placeChords } from './sheet.js';
+import { parseSheet, parseLRC, attachTimings, docFromSongJson, docToSongJson, toChordPro, toLRC, fillLineEnds, placeChords, looksLikeLRC } from './sheet.js';
 import { parseMidi, familyOf, karaokeLines, chordsFromNotes, keyNameOf } from './midi.js';
 import { renderFamily, SYNTH_RATE } from './synth.js';
 import { encodeWav } from './wav.js';
@@ -158,12 +158,16 @@ export async function importFiles(fileList, onProgress) {
 async function songFromLooseFiles(files) {
   const song = newSong({ source: 'fichiers' });
   const json = files.find((f) => /song\.json$/i.test(f.name) || /\.musimix\.json$/i.test(f.name));
-  const cho = files.find((f) => SHEET_EXT.test(f.name));
-  const lrc = files.find((f) => /\.lrc$/i.test(f.name));
-  const choText = cho ? await cho.text() : null;
+  // la grille et le .lrc se reconnaissent aussi à leur contenu (un .lrc enregistré en .txt, par exemple)
+  let cho = null, lrc = null, choText = null, lrcText = null;
+  for (const f of files.filter((x) => SHEET_EXT.test(x.name) || /\.lrc$/i.test(x.name))) {
+    const t = await f.text();
+    if (/\.lrc$/i.test(f.name) || looksLikeLRC(t)) { if (!lrc) { lrc = f; lrcText = t; } }
+    else if (!cho) { cho = f; choText = t; }
+  }
   if (json) applySongJson(song, JSON.parse(await json.text()), choText);
   else if (choText) applySheetText(song, choText);
-  if (lrc && !json) applyLRC(song, await lrc.text());
+  if (lrc && !json) applyLRC(song, lrcText);
   for (const f of files.filter((x) => AUDIO_EXT.test(x.name))) await addStem(song, f, f.name);
   if (!song.stems.length && !song.doc.lines.length) return null;
   const first = files.find((f) => AUDIO_EXT.test(f.name)) || cho || lrc;
