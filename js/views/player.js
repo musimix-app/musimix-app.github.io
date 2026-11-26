@@ -135,10 +135,12 @@ export class PlayerView {
             <span class="stepper" title="Taille"><button data-sc="zoom:-">−</button><output>A</output><button data-sc="zoom:+">+</button></span>
             <span class="sc-sync"><span class="note">Calage</span>
               <span class="stepper" title="Mesure de l’audio où commence la partition"><button data-sc="bar:-1">−</button><output data-r="sc-bar">mes. 1</output><button data-sc="bar:1">+</button></span>
-              <span class="stepper" title="Décalage fin"><button data-sc="off:-0.05">−</button><output data-r="sc-off">0,00 s</output><button data-sc="off:0.05">+</button></span></span>
+              <span class="stepper" title="Décalage fin"><button data-sc="off:-0.05">−</button><output data-r="sc-off">0,00 s</output><button data-sc="off:0.05">+</button></span>
+              <button class="btn small ghost" data-sc="auto:score" title="Écoute l’audio et pose la 1re note de la partition sur le début de la musique">Auto</button></span>
             <button class="btn small sc-lyr-btn" data-sc="lyrics:1" aria-pressed="false" title="Afficher les paroles au-dessus de la partition">Paroles</button>
             <span class="sc-loff" hidden><span class="note">Décalage paroles</span>
-              <span class="stepper" title="+ : les paroles s'allument plus tôt"><button data-sc="loff:-0.5" title="−0,5 s">«</button><button data-sc="loff:-0.05">−</button><output data-r="sc-loff">0 s</output><button data-sc="loff:0.05">+</button><button data-sc="loff:0.5" title="+0,5 s">»</button></span></span>
+              <span class="stepper" title="+ : les paroles s'allument plus tôt"><button data-sc="loff:-0.5" title="−0,5 s">«</button><button data-sc="loff:-0.05">−</button><output data-r="sc-loff">0 s</output><button data-sc="loff:0.05">+</button><button data-sc="loff:0.5" title="+0,5 s">»</button></span>
+              <button class="btn small ghost" data-sc="auto:lyr" title="Écoute la voix et cale les paroles dessus">Auto</button></span>
             <span class="note sc-status" data-r="sc-status"></span>
           </div>
           <div class="sc-lyrics" hidden aria-live="off"></div>
@@ -453,7 +455,7 @@ export class PlayerView {
       </div>
       <div class="opt-row"><span>Afficher les accords</span><label class="switch"><input type="checkbox" data-act="show-chords" ${this.showChords ? 'checked' : ''}><i></i></label></div>
       <div class="opt-row"><span>Afficher les mesures<br><small class="note">petits traits au début de chaque mesure</small></span><label class="switch"><input type="checkbox" data-act="show-bars" ${this.showBars ? 'checked' : ''}><i></i></label></div>
-      <div class="opt-row"><span>Décalage paroles</span><span class="stepper"><button data-act="off-">−</button><output data-r="off">${fmtOffset(p.offset)}</output><button data-act="off+">+</button></span></div>
+      <div class="opt-row"><span>Décalage paroles<br><small class="note">+ : plus tôt · « Auto » écoute la voix</small></span><span class="row-r"><span class="stepper"><button data-act="off-">−</button><output data-r="off">${fmtOffset(p.offset)}</output><button data-act="off+">+</button></span> <button class="btn small ghost" data-act="off-auto">Auto</button></span></div>
       <div class="opt-row only-m"><span>Affichage</span><span class="seg"><button data-mode="lyrics">Paroles</button><button data-mode="stage">Scène</button><button data-mode="grid">Grille</button><button data-mode="score"${this.song.score ? '' : ' hidden'}>Partition</button></span></div>
       <div class="opt-row only-m"><span>Diagrammes</span><span class="seg"><button data-inst="guitar">Guitare</button><button data-inst="ukulele">Ukulélé</button><button data-inst="piano">Piano</button></span></div>`;
     this.el.querySelector('[data-r="opts-sec"]').innerHTML = html;
@@ -955,6 +957,7 @@ export class PlayerView {
         if (k === 'zoom') this.scoreView.setScale((this.song.score.scale || 1) + (v === '+' ? 0.1 : -0.1));
         if (k === 'bar') this.scoreView.nudge({ firstBar: +v });
         if (k === 'off') this.scoreView.nudge({ offset: +v });
+        if (k === 'auto') { v === 'lyr' ? this.autoLyrics() : this.autoScore(); return; }
         if (k === 'loff') {
           const p = this.song.prefs;
           p.offset = Math.round((p.offset || 0) + +v * 1000);
@@ -986,6 +989,38 @@ export class PlayerView {
       this.scoreView = null;
       host.innerHTML = `<p class="note" style="padding:20px">Partition impossible à afficher : ${esc(err.message || String(err))}</p>`;
     }
+  }
+
+  /** Écoute la piste Voix et règle le décalage des paroles. */
+  async autoLyrics() {
+    if (this._autoBusy) return;
+    this._autoBusy = true;
+    toast('Calage des paroles : écoute de la voix…', 20000);
+    try {
+      const { alignLyrics } = await import('../autoalign.js');
+      const r = await alignLyrics(this.song);
+      if (r.conf < 0.12) { toast('Calage automatique pas assez sûr : règle le décalage à l’oreille (le .lrc correspond-il bien à cette version ?)', 7000); return; }
+      const p = this.song.prefs, before = p.offset || 0;
+      p.offset = Math.round(-r.shift * 1000);
+      this.updateOptionOutputs(); this.renderBarMarks(); this.saveSong(); this.curLine = -2; this.frame(true); this.renderScoreLyrics(true); this.updateScoreBar?.();
+      toast(`Paroles calées sur la ${r.src} : décalage ${fmtOffset(p.offset)}${before && before !== p.offset ? ` (avant : ${fmtOffset(before)})` : ''}${r.conf < 0.3 ? ' · à vérifier' : ''}`, 7000);
+    } catch (err) { console.error(err); toast(err.message || 'Calage impossible', 6000); }
+    finally { this._autoBusy = false; }
+  }
+
+  /** Écoute le début du morceau et y pose la 1re note de la partition. */
+  async autoScore() {
+    if (this._autoBusy || !this.scoreView) return;
+    this._autoBusy = true;
+    toast('Calage de la partition : écoute du début du morceau…', 4000);
+    try {
+      const { musicStart } = await import('../autoalign.js');
+      const onset = await musicStart(this.song);
+      const r = this.scoreView.autoStart(onset);
+      if (!r) toast('Pas de note trouvée dans la partition', 5000);
+      else { this.updateScoreBar(); toast(`Partition calée : la musique démarre à ${onset.toFixed(1).replace('.', ',')} s → mes. ${r.firstBar + 1}, ${fmtOffset(r.offset * 1000)}. Ajuste à l’oreille si besoin.`, 8000); }
+    } catch (err) { console.error(err); toast(err.message || 'Calage impossible', 6000); }
+    finally { this._autoBusy = false; }
   }
 
   /** Bandeau de paroles (ligne en cours + suivante, avec accords) au-dessus de la partition. */
@@ -1749,6 +1784,7 @@ export class PlayerView {
         p.rate = Math.round(Math.max(0.5, Math.min(1.5, p.rate + (a === 'rate+' ? 0.05 : -0.05))) * 100) / 100;
         this.engine.setRate(p.rate); this.updateOptionOutputs(); this.saveSong(); break;
       }
+      case 'off-auto': this.autoLyrics(); break;
       case 'off-': case 'off+': p.offset = (p.offset || 0) + (a === 'off+' ? 50 : -50); this.updateOptionOutputs(); this.frame(true); this.renderBarMarks(); this.saveSong(); break;
       case 'rate':
         openMenu(b, [0.5, 0.6, 0.7, 0.75, 0.8, 0.85, 0.9, 1, 1.1, 1.25].map((r) => ({

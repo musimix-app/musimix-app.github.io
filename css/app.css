@@ -873,3 +873,4 @@ dialog.diag-dlg { width: min(560px, calc(100vw - 20px)); }
 .sc-lyrics .scl-next .c { opacity: .8; }
 .sc-lyr-btn.on { background: var(--chord); color: #fff; border-color: var(--chord); }
 @media (max-width: 600px) { .sc-lyrics { font-size: 16px; padding: 4px 10px 6px; } }
+.row-r { display: inline-flex; align-items: center; gap: 6px; }

@@ -130,6 +130,40 @@ export class ScoreView {
     this.o.onStatus?.(placed ? `Calage : ${placed} mesures posées sur l’audio${fix}. Si le curseur est en avance ou en retard d’une demi-mesure, touche « mes. » + ou −.` : 'Calage sur le tempo de la partition (prépare le morceau pour un calage mesure par mesure)');
   }
 
+  /**
+   * Calage automatique du départ : la 1re note de la partition (toutes pistes) doit tomber sur le
+   * début de la musique dans l'audio. Choisit « mes. » puis le décalage fin. Renvoie le résultat ou null.
+   */
+  autoStart(onset) {
+    const score = this.score, tl = this.api?.tickCache?.masterBars;
+    if (!score || !tl?.length) return null;
+    let first = Infinity;
+    for (const tr of score.tracks) for (const st of tr.staves) for (const bar of st.bars) {
+      if (score.masterBars[bar.index].start > first) break;
+      for (const v of bar.voices) for (const b of v.beats) if (!b.isRest && b.notes?.length) { first = Math.min(first, score.masterBars[bar.index].start + b.playbackStart); break; }
+    }
+    if (!Number.isFinite(first)) return null;
+    const k0 = tl.findIndex((lk) => lk.start <= first && first < lk.end);
+    if (k0 < 0) return null;
+    const frac = (first - tl[k0].start) / (tl[k0].end - tl[k0].start);
+    const all = this.o.getDownbeats?.() || [];
+    let best = null;
+    if (all.length >= 4) {
+      for (let fb = 0; fb < Math.min(all.length - 4, 64); fb++) {
+        const d = this.fitBars(all.slice(fb), tl);
+        const a = d[k0], b = d[k0 + 1] ?? (a + (d[1] - d[0]));
+        if (a == null) continue;
+        const pred = a + frac * (b - a), cost = Math.abs(pred - onset);
+        if (!best || cost < best.cost) best = { firstBar: fb, cost, pred };
+      }
+    }
+    const s = this.cfg.sync;
+    if (best) { s.firstBar = best.firstBar; s.offset = Math.round(Math.max(-1, Math.min(1, onset - best.pred)) * 100) / 100; }
+    else { s.firstBar = 0; s.offset = Math.round((onset - (first / 960) * (60 / (score.tempo || 120))) * 100) / 100; } // sans mesures détectées : simple départ
+    this.applySync(); this.update(this.o.engine.currentTime, true); this.o.save?.();
+    return { firstBar: s.firstBar, offset: s.offset };
+  }
+
   clicked() { return performance.now() - (this._ptr || 0) < 1500; }
 
   log(...a) { (window.__mmScoreLog ||= []).push([Math.round(performance.now()), ...a]); if (window.__mmScoreLog.length > 60) window.__mmScoreLog.shift(); }

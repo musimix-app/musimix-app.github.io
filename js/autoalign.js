@@ -1,0 +1,99 @@
+// Calage automatique : écoute l'audio pour trouver
+//  - le décalage des paroles (où la voix chante vraiment, comparé aux temps du .lrc),
+//  - le début de la musique (pour poser la 1re note de la partition).
+import { db } from './db.js';
+import { isEmptyStem } from './levels.js';
+
+const HOP = 0.02; // 50 images par seconde
+
+async function decodeMono(blob) {
+  const buf = await blob.arrayBuffer();
+  const ctx = new OfflineAudioContext(1, 1, 22050);
+  const ab = await ctx.decodeAudioData(buf);
+  const n = ab.length, out = new Float32Array(n);
+  for (let c = 0; c < ab.numberOfChannels; c++) { const d = ab.getChannelData(c); for (let i = 0; i < n; i++) out[i] += d[i] / ab.numberOfChannels; }
+  return { data: out, sr: ab.sampleRate };
+}
+
+/** Enveloppe d'énergie (dB) à 50 images/s. */
+function envelope({ data, sr }) {
+  const hop = Math.round(sr * HOP), n = Math.floor(data.length / hop), env = new Float32Array(n);
+  for (let f = 0; f < n; f++) {
+    let s = 0; const o = f * hop;
+    for (let i = 0; i < hop; i++) { const v = data[o + i]; s += v * v; }
+    env[f] = 10 * Math.log10(s / hop + 1e-12);
+  }
+  return env;
+}
+
+const pct = (arr, p) => { const a = Float32Array.from(arr).sort(); return a[Math.min(a.length - 1, Math.floor(p * a.length))]; };
+
+async function stemEnv(song, kinds) {
+  const stems = (song.stems || []).filter((s) => s.blobId && kinds.includes(s.kind) && !isEmptyStem(s));
+  let sum = null;
+  for (const st of stems) {
+    const blob = await db.getBlob(st.blobId);
+    if (!blob) continue;
+    const e = envelope(await decodeMono(blob));
+    if (!sum) sum = Float32Array.from(e, (v) => 10 ** (v / 10));
+    else for (let i = 0; i < Math.min(sum.length, e.length); i++) sum[i] += 10 ** (e[i] / 10);
+  }
+  return sum ? sum.map((v) => 10 * Math.log10(v + 1e-12)) : null;
+}
+
+/**
+ * Décalage des paroles : compare « la voix chante » (piste Voix) à « une ligne est en cours » (temps du LRC).
+ * Renvoie { shift, conf } : shift > 0 = la voix arrive après les temps du .lrc (les paroles sont en avance).
+ */
+export async function alignLyrics(song, onStep) {
+  onStep?.('Écoute de la voix…');
+  let env = await stemEnv(song, ['vocals']);
+  let src = 'voix';
+  if (!env) { env = await stemEnv(song, ['mix', 'instrumental', 'other', 'guitar', 'piano']); src = 'morceau'; }
+  if (!env) throw new Error('Pas d’audio exploitable pour ce morceau');
+  const hi = pct(env, 0.97), lo = Math.max(pct(env, 0.2), hi - 40);
+  const act = Float32Array.from(env, (v) => Math.min(1, Math.max(0, (v - lo) / (hi - lo + 1e-6))));
+  const n = act.length;
+  // activité attendue d'après les paroles
+  const lines = (song.doc?.lines || []).filter((l) => l.type === 'lyric' && l.s != null);
+  if (lines.length < 3) throw new Error('Il faut des paroles déjà calées (au moins 3 lignes)');
+  const L = new Float32Array(n);
+  lines.forEach((l, i) => {
+    const segs = l.words?.length ? l.words.map((w) => [w.s, w.e ?? w.s + 0.3]) : [[l.s, Math.min(l.e ?? lines[i + 1]?.s ?? l.s + 4, l.s + 8)]];
+    for (const [a, b] of segs) for (let f = Math.max(0, Math.floor(a / HOP)); f < Math.min(n, Math.ceil(b / HOP)); f++) L[f] = 1;
+  });
+  const mean = act.reduce((s, v) => s + v, 0) / n;
+  const ac = act.map((v) => v - mean);
+  onStep?.('Comparaison avec les paroles…');
+  const K = Math.round(12 / HOP), score = new Float32Array(2 * K + 1);
+  for (let k = -K; k <= K; k++) {
+    let s = 0;
+    for (let f = Math.max(0, k); f < Math.min(n, n + k); f++) if (L[f - k]) s += ac[f];
+    score[k + K] = s;
+  }
+  let best = 0;
+  for (let i = 1; i < score.length; i++) if (score[i] > score[best]) best = i;
+  // fiabilité : pic net par rapport au meilleur score à plus de 0,6 s
+  let second = -Infinity;
+  for (let i = 0; i < score.length; i++) if (Math.abs(i - best) * HOP > 0.6 && score[i] > second) second = score[i];
+  const conf = score[best] > 0 ? Math.max(0, Math.min(1, 1 - Math.max(0, second) / score[best])) : 0;
+  return { shift: Math.round((best - K) * HOP * 100) / 100, conf, src };
+}
+
+/** Début de la musique (s) : premier moment où l'ensemble des pistes devient vraiment audible. */
+export async function musicStart(song, onStep) {
+  onStep?.('Écoute du début du morceau…');
+  const env = await stemEnv(song, ['mix', 'instrumental', 'vocals', 'backing', 'drums', 'bass', 'guitar', 'piano', 'other']);
+  if (!env) throw new Error('Pas d’audio exploitable pour ce morceau');
+  const thr = pct(env, 0.95) - 30, need = Math.round(0.25 / HOP);
+  let run = 0;
+  for (let f = 0; f < env.length; f++) {
+    run = env[f] > thr ? run + 1 : 0;
+    if (run >= need) { // recule jusqu'à l'attaque
+      let g = f - need + 1;
+      while (g > 0 && env[g - 1] > thr - 12) g--;
+      return g * HOP;
+    }
+  }
+  return 0;
+}
