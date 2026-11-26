@@ -51,7 +51,7 @@ export class ScoreView {
     const api = new AT.AlphaTabApi(el, {
       core: { fontDirectory: AT_BASE + 'font/', useWorkers: false, includeNoteBounds: false },
       display: { staveProfile: AT.StaveProfile[PROFILES[c.layout] || 'Default'], scale: c.scale || (innerWidth < 700 ? 0.8 : 1), layoutMode: AT.LayoutMode.Page },
-      player: { playerMode: AT.PlayerMode.EnabledExternalMedia, enableCursor: true, enableAnimatedBeatCursor: true, enableUserInteraction: true, scrollElement: this.host, scrollOffsetY: -40 },
+      player: { playerMode: AT.PlayerMode.EnabledExternalMedia, enableCursor: true, enableAnimatedBeatCursor: true, enableUserInteraction: true, scrollElement: this.host, scrollMode: AT.ScrollMode?.Off ?? 0 },
     });
     this.api = api;
     this.AT = AT;
@@ -163,6 +163,27 @@ export class ScoreView {
     if (!force && Math.abs(ms - (this._last || -1e9)) < 15) return;
     this._last = ms;
     try { this.out.updatePosition(ms); } catch { /* */ }
+    this.follow();
+  }
+
+  /** Défilement automatique : garde la ligne en cours dans le premier tiers de la vue. */
+  follow() {
+    const h = this.host;
+    if (!this._userHook) {
+      this._userHook = true;
+      const hold = () => { this._userScroll = performance.now(); };
+      ['wheel', 'touchstart', 'pointerdown', 'keydown'].forEach((e) => h.addEventListener(e, hold, { passive: true }));
+    }
+    if (performance.now() - (this._userScroll || 0) < 4000) return;
+    const cur = h.querySelector('.at-cursor-bar');
+    if (!cur || !cur.offsetHeight) return;
+    const hr = h.getBoundingClientRect(), cr = cur.getBoundingClientRect();
+    const top = cr.top - hr.top, bottom = cr.bottom - hr.top, H = h.clientHeight;
+    if (top >= 8 && bottom <= H - 24) return; // déjà bien visible
+    const target = Math.max(0, h.scrollTop + top - Math.min(H * 0.2, 120));
+    if (Math.abs(target - (this._scrollTo ?? -1)) < 4) return;
+    this._scrollTo = target;
+    h.scrollTo({ top: target, behavior: 'smooth' });
   }
 
   setTrack(i) { this.cfg.track = i; if (this.score) this.api.renderTracks([this.score.tracks[i]]); this.o.save?.(); }
