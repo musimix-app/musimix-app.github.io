@@ -192,7 +192,7 @@ export class ScoreView {
           const ly = bt.lyrics?.length ? bt.lyrics[Math.min(occ, bt.lyrics.length - 1)] : (bt.text || null);
           if (!ly || !ly.trim() || /^\s*(intro|verse|couplet|chorus|refrain|bridge|pont|outro|solo|interlude)\b/i.test(ly)) continue;
           out.push({ w: ly.trim(), t: a + (bt.playbackStart / len) * (b - a) + (this._off || 0) });
-          if (bt.lyrics.length > 1 && occ === 0) window.__mmLyrMulti = true;
+
         }
       }
     });
