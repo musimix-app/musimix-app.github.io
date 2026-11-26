@@ -434,6 +434,11 @@ export class PlayerView {
     this.el.querySelector('[data-r="opts-m"]').innerHTML = html;
     this.syncModeButtons();
     this.updateMidiUi();
+    // interrupteurs : nom lisible par les lecteurs d'écran (texte de la ligne)
+    this.el.querySelectorAll('.opt-row .switch input:not([aria-label])').forEach((i) => {
+      const t = i.closest('.opt-row')?.querySelector('span')?.firstChild?.textContent?.trim();
+      if (t) i.setAttribute('aria-label', t);
+    });
   }
 
   renderCapoSug() {
