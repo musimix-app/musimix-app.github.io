@@ -252,6 +252,18 @@ export class PlayerView {
   renderLyrics() {
     const s = this.song;
     this.timeline = chordTimeline(s.doc, s.duration || this.engine.duration, s.detectedChords);
+    // accords écrits dans la partition (calée) : prioritaires pour le temps ; on les relie aux accords du texte
+    if (s.score?.chords?.length && s.score.useChords !== false) {
+      const txt = this.timeline.filter((c) => c.t != null && c.li >= 0);
+      const used = new Set();
+      this.timeline = s.score.chords.map((c) => {
+        let m = null;
+        for (const x of txt) if (!used.has(x) && Math.abs(x.t - c.t) < 2.5 && sameChord(x.name, c.name) && (!m || Math.abs(x.t - c.t) < Math.abs(m.t - c.t))) m = x;
+        if (m) used.add(m);
+        return { name: m ? m.name : c.name, t: c.t, li: m ? m.li : -1, ci: m ? m.ci : -1 };
+      });
+      this.timeline.forEach((c, i) => { c.e = this.timeline[i + 1]?.t ?? (s.duration || c.t + 4); });
+    }
     this.timedLines = [];
     const tl0 = [];
     s.doc.lines.forEach((l, li) => { if (l.type === 'lyric' && l.s != null) tl0.push({ li, s: l.s, e: l.e }); });
@@ -456,6 +468,7 @@ export class PlayerView {
         <div class="opt-row"><span>Suivi d’accords<br><small class="note">à l’arrêt, joue l’accord suivant : la lecture avance d’un accord</small></span><label class="switch"><input type="checkbox" data-act="midi-follow" ${this.midiFollow ? 'checked' : ''}><i></i></label></div>
         <div class="opt-row"><span>Avancer d’un accord<br><small class="note" data-r="midi-key"></small></span><button class="btn small ghost" data-act="midi-learn">Choisir une touche</button></div>
       </div>
+      <div class="opt-row"${this.song.score ? '' : ' hidden'}><span>Accords de la partition<br><small class="note">leur moment suit la tablature calée</small></span><label class="switch"><input type="checkbox" data-act="sc-chords" ${this.song.score?.useChords !== false ? 'checked' : ''}><i></i></label></div>
       <div class="opt-row"><span>Afficher les accords</span><label class="switch"><input type="checkbox" data-act="show-chords" ${this.showChords ? 'checked' : ''}><i></i></label></div>
       <div class="opt-row"><span>Afficher les mesures<br><small class="note">petits traits au début de chaque mesure</small></span><label class="switch"><input type="checkbox" data-act="show-bars" ${this.showBars ? 'checked' : ''}><i></i></label></div>
       <div class="opt-row"><span>Décalage paroles<br><small class="note">+ : plus tôt · « Auto » écoute la voix</small></span><span class="row-r"><span class="stepper"><button data-act="off-">−</button><output data-r="off">${fmtOffset(p.offset)}</output><button data-act="off+">+</button></span> <button class="btn small ghost" data-act="off-auto">Auto</button></span></div>
@@ -981,6 +994,7 @@ export class PlayerView {
         onStatus: status,
         getDownbeats: () => this.song.downbeats?.length ? this.song.downbeats : (this.barTimes?.() || []),
         save: () => this.saveSong(),
+        onSynced: () => this.takeScoreChords(),
         onTracks: (tracks, cur) => {
           const sel = view.querySelector('[data-r="sc-track"]');
           sel.innerHTML = tracks.map((t) => `<option value="${t.i}" ${t.i === cur ? 'selected' : ''}>${esc(t.name)}</option>`).join('');
@@ -1000,7 +1014,7 @@ export class PlayerView {
     this._autoBusy = true;
     toast('Calage des paroles : écoute de la voix…', 20000);
     try {
-      const { alignLyrics, alignFromScore } = await import('../autoalign.js?v=4.27.0');
+      const { alignLyrics, alignFromScore } = await import('../autoalign.js?v=4.28.0');
       // 1) la partition contient les paroles et elle est calée : c'est la référence la plus sûre
       let r = null;
       if (this.song.score) {
@@ -1030,7 +1044,7 @@ export class PlayerView {
     if (!syl.length) { toast('Cette partition ne contient pas de paroles sous les notes', 6000); return; }
     this._autoBusy = true;
     try {
-      const { wordsFromScore } = await import('../autoalign.js?v=4.27.0');
+      const { wordsFromScore } = await import('../autoalign.js?v=4.28.0');
       const s = this.song, p = s.prefs;
       const backup = JSON.stringify(s.doc.lines), offBefore = p.offset || 0;
       // le décalage actuel est intégré aux temps (les lignes absentes de la partition restent en place)
@@ -1053,13 +1067,26 @@ export class PlayerView {
     this._autoBusy = true;
     toast('Calage de la partition : écoute du début du morceau…', 4000);
     try {
-      const { musicStart } = await import('../autoalign.js?v=4.27.0');
+      const { musicStart } = await import('../autoalign.js?v=4.28.0');
       const onset = await musicStart(this.song);
       const r = this.scoreView.autoStart(onset);
       if (!r) toast('Pas de note trouvée dans la partition', 5000);
       else { this.updateScoreBar(); toast(`Partition calée : la musique démarre à ${onset.toFixed(1).replace('.', ',')} s → mes. ${r.firstBar + 1}, ${fmtOffset(r.offset * 1000)}. Ajuste à l’oreille si besoin.`, 8000); }
     } catch (err) { console.error(err); toast(err.message || 'Calage impossible', 6000); }
     finally { this._autoBusy = false; }
+  }
+
+  /** Relève les accords de la partition (après chaque calage) et les garde avec le morceau. */
+  takeScoreChords() {
+    const sc = this.song.score;
+    if (!sc || !this.scoreView) return;
+    const ch = this.scoreView.scoreChords?.() || [];
+    const sig = JSON.stringify(ch);
+    if (sig === JSON.stringify(sc.chords || [])) return;
+    sc.chords = ch;
+    this.saveSong();
+    if (sc.useChords !== false) { this.renderLyrics(); this.lastChordIdx = -2; this.frame(true); }
+    if (ch.length && !this._scChordToast) { this._scChordToast = true; toast(`Accords pris dans la partition (${ch.length} changements) : leur moment suit la tablature`, 5000); }
   }
 
   /** Bandeau de paroles (ligne en cours + suivante, avec accords) au-dessus de la partition. */
@@ -1717,6 +1744,11 @@ export class PlayerView {
         this.renderBarMarks();
         if (this.showBars && !this.barTimes().length) toast('Pas de tempo pour ce morceau : lance « Tout préparer » (étape Tempo et accords)', 6000);
       }
+      if (a === 'sc-chords' && this.song.score) {
+        this.song.score.useChords = e.target.checked;
+        this.saveSong(); this.renderLyrics(); this.lastChordIdx = -2; this.frame(true);
+        if (e.target.checked && !this.song.score.chords?.length) toast('Ouvre la vue Partition une fois pour relever ses accords', 5000);
+      }
       if (a === 'show-chords') {
         this.showChords = e.target.checked;
         this.$lyrics.classList.toggle('hide-chords', !this.showChords);
@@ -2015,6 +2047,11 @@ function increasing(a) {
   const out = [];
   for (let i = best; i >= 0; i = prev[i]) out.push(a[i]);
   return out.reverse();
+}
+
+function sameChord(a, b) {
+  const r = (x) => (x || '').replace(/^([A-G][#b]?).*$/, '$1').replace('Db', 'C#').replace('Eb', 'D#').replace('Gb', 'F#').replace('Ab', 'G#').replace('Bb', 'A#');
+  return r(a) === r(b);
 }
 
 function fmtOffset(ms) { return ms ? `${ms > 0 ? '+' : '−'}${Math.abs(ms / 1000).toFixed(2).replace('.', ',')} s` : '0 s'; }

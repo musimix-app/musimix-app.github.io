@@ -128,6 +128,7 @@ export class ScoreView {
     if (!placed) add(tl[0].masterBar, 0, Math.max(0, ((raw[0] ?? 0) + offset) * 1000)); // seul le départ : la partition suit son propre tempo
     api.updateSyncPoints?.();
     this.placed = placed;
+    try { this.o.onSynced?.(); } catch (e) { console.error(e); }
     const fix = this.ratio > 1.5 ? ' (tempo détecté doublé : corrigé)' : this.ratio < 0.67 ? ' (tempo détecté réduit de moitié : corrigé)' : '';
     this.o.onStatus?.(placed ? `Calage : ${placed} mesures posées sur l’audio${fix}. Si le curseur est en avance ou en retard d’une demi-mesure, touche « mes. » + ou −.` : 'Calage sur le tempo de la partition (prépare le morceau pour un calage mesure par mesure)');
   }
@@ -195,6 +196,37 @@ export class ScoreView {
       }
     });
     return out.sort((x, y) => x.t - y.t);
+  }
+
+  /** Changements d'accords écrits dans la partition, avec leur temps dans l'audio : [{ t, name }]. */
+  scoreChords() {
+    const score = this.score, tl = this.api?.tickCache?.masterBars, downs = this._downs || [];
+    if (!score || !tl?.length) return [];
+    const t0 = downs.length >= 2 ? null : (this._start || 0);
+    const sec = (tick) => (tick / 960) * (60 / (score.tempo || 120));
+    // piste qui porte des accords (celle affichée d'abord)
+    const order = [this.cfg.track || 0, ...score.tracks.map((_, i) => i)];
+    const hasChords = (tr) => tr.staves.some((st) => st.bars.some((b) => b.voices.some((v) => v.beats.some((bt) => bt.chord?.name))));
+    const tr = order.map((i) => score.tracks[i]).find((x) => x && hasChords(x));
+    if (!tr) return [];
+    const out = [];
+    tl.forEach((lk, k) => {
+      const mb = lk.masterBar;
+      const a = t0 != null ? t0 + sec(lk.start) : downs[k];
+      const b = t0 != null ? t0 + sec(lk.end) : downs[k + 1] ?? (a != null ? a + (a - (downs[k - 1] ?? a - 2)) : null);
+      if (a == null || b == null) return;
+      const len = lk.end - lk.start;
+      const st = tr.staves.find((x) => x.bars[mb.index]?.voices.some((v) => v.beats.some((bt) => bt.chord?.name)));
+      for (const v of st?.bars[mb.index]?.voices.slice(0, 1) || []) for (const bt of v.beats) {
+        const n = bt.chord?.name?.trim();
+        if (!n) continue;
+        const name = n.replace(/\((.*?)\)/g, '$1').replace(/7M\b/, 'maj7').replace(/\s+/g, '');
+        const t = a + (bt.playbackStart / len) * (b - a) + (this._off || 0);
+        if (out.length && out[out.length - 1].name === name) continue;
+        out.push({ t: Math.round(t * 100) / 100, name });
+      }
+    });
+    return out;
   }
 
   clicked() { return performance.now() - (this._ptr || 0) < 1500; }
