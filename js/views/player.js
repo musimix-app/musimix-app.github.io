@@ -999,13 +999,21 @@ export class PlayerView {
     this._autoBusy = true;
     toast('Calage des paroles : écoute de la voix…', 20000);
     try {
-      const { alignLyrics } = await import('../autoalign.js');
-      const r = await alignLyrics(this.song);
-      if (r.conf < 0.12) { toast('Calage automatique pas assez sûr : règle le décalage à l’oreille (le .lrc correspond-il bien à cette version ?)', 7000); return; }
+      const { alignLyrics, alignFromScore } = await import('../autoalign.js');
+      // 1) la partition contient les paroles et elle est calée : c'est la référence la plus sûre
+      let r = null;
+      if (this.song.score) {
+        if (!this.scoreView) { const m = this.mode; this.setMode('score', false); await new Promise((ok) => setTimeout(ok, 2500)); if (m !== 'score') this.setMode(m, false); }
+        const fs = alignFromScore(this.song, this.scoreView?.scoreLyrics?.());
+        if (fs && fs.conf >= 0.5) r = { ...fs, src: 'partition' };
+      }
+      // 2) sinon, on écoute la piste Voix
+      if (!r) r = await alignLyrics(this.song);
+      if (r.src !== 'partition' && r.conf < 0.12) { toast('Calage automatique pas assez sûr : règle le décalage à l’oreille (le .lrc correspond-il bien à cette version ?)', 7000); return; }
       const p = this.song.prefs, before = p.offset || 0;
       p.offset = Math.round(-r.shift * 1000);
       this.updateOptionOutputs(); this.renderBarMarks(); this.saveSong(); this.curLine = -2; this.frame(true); this.renderScoreLyrics(true); this.updateScoreBar?.();
-      toast(`Paroles calées sur la ${r.src} : décalage ${fmtOffset(p.offset)}${before && before !== p.offset ? ` (avant : ${fmtOffset(before)})` : ''}${r.conf < 0.3 ? ' · à vérifier' : ''}`, 7000);
+      toast(`Paroles calées sur la ${r.src}${r.n ? ` (${r.n} lignes reconnues)` : ''} : décalage ${fmtOffset(p.offset)}${before && before !== p.offset ? ` (avant : ${fmtOffset(before)})` : ''}${r.conf < 0.3 ? ' · à vérifier' : ''}`, 7000);
     } catch (err) { console.error(err); toast(err.message || 'Calage impossible', 6000); }
     finally { this._autoBusy = false; }
   }

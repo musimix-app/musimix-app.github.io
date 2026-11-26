@@ -97,3 +97,49 @@ export async function musicStart(song, onStep) {
   }
   return 0;
 }
+
+const norm = (w) => w.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^a-z0-9]/g, '');
+
+/**
+ * Décalage des paroles d'après les paroles écrites dans la partition (déjà calée sur l'audio) :
+ * pour chaque ligne, on cherche dans la partition une suite de syllabes qui commence comme elle.
+ * Renvoie { shift, conf, n } ou null.
+ */
+export function alignFromScore(song, syl) {
+  if (!syl?.length) return null;
+  // flux de mots de la partition (les syllabes « some- » « day » se recollent)
+  const words = [];
+  for (const s of syl) {
+    const raw = s.w.replace(/\s+/g, ' ');
+    for (const part of raw.split(' ')) {
+      const p = norm(part);
+      if (!p) continue;
+      const prev = words[words.length - 1];
+      if (prev?.open) { prev.w += p; prev.open = /-$/.test(part); }
+      else words.push({ w: p, t: s.t, open: /-$/.test(part) });
+    }
+  }
+  const lines = (song.doc?.lines || []).filter((l) => l.type === 'lyric' && l.s != null && l.text);
+  const diffs = [];
+  for (const l of lines) {
+    const lw = l.text.split(/\s+/).map(norm).filter(Boolean).slice(0, 3);
+    if (lw.length < 2) continue;
+    let best = null;
+    for (let i = 0; i + lw.length <= words.length; i++) {
+      if (Math.abs(words[i].t - l.s) > 20) continue;
+      let ok = 0;
+      for (let k = 0; k < lw.length; k++) if (words[i + k].w === lw[k] || (lw[k].length > 3 && words[i + k].w.startsWith(lw[k].slice(0, 4)))) ok++;
+      if (ok >= lw.length - (lw.length > 2 ? 1 : 0) && (!best || Math.abs(words[i].t - l.s) < Math.abs(best - l.s))) best = words[i].t;
+    }
+    if (best != null) diffs.push(best - l.s);
+  }
+  if (diffs.length < 3) return null;
+  // valeur la plus partagée (à 0,4 s près)
+  let top = null;
+  for (const d of diffs) {
+    const near = diffs.filter((x) => Math.abs(x - d) < 0.4);
+    if (!top || near.length > top.length) top = near;
+  }
+  const med = top.slice().sort((a, b) => a - b)[top.length >> 1];
+  return { shift: Math.round(med * 100) / 100, conf: top.length / diffs.length, n: top.length, of: lines.length };
+}

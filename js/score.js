@@ -102,6 +102,7 @@ export class ScoreView {
     for (const mb of score.masterBars) mb.syncPoints = undefined;
     const raw = this.cfg.sync.auto === false ? [] : (this.o.getDownbeats?.() || []).slice(firstBar);
     const downs = this.fitBars(raw, tl);
+    this._downs = downs; this._off = offset;
     const seen = new Map();
     const add = (mb, occ, ms) => {
       const a = new AT.model.Automation();
@@ -162,6 +163,32 @@ export class ScoreView {
     else { s.firstBar = 0; s.offset = Math.round((onset - (first / 960) * (60 / (score.tempo || 120))) * 100) / 100; } // sans mesures détectées : simple départ
     this.applySync(); this.update(this.o.engine.currentTime, true); this.o.save?.();
     return { firstBar: s.firstBar, offset: s.offset };
+  }
+
+  /**
+   * Syllabes chantées écrites dans la partition (Guitar Pro), avec leur temps dans l'audio d'après le calage.
+   * Renvoie [{ w, t }] dans l'ordre joué, ou [] s'il n'y en a pas.
+   */
+  scoreLyrics() {
+    const score = this.score, tl = this.api?.tickCache?.masterBars, downs = this._downs || [];
+    if (!score || !tl?.length || downs.length < 2) return [];
+    const out = [], seen = new Map();
+    tl.forEach((lk, k) => {
+      const mb = lk.masterBar, occ = seen.get(mb.index) || 0;
+      seen.set(mb.index, occ + 1);
+      const a = downs[k], b = downs[k + 1] ?? (a != null ? a + (a - (downs[k - 1] ?? a - 2)) : null);
+      if (a == null || b == null) return;
+      const len = lk.end - lk.start;
+      for (const tr of score.tracks) {
+        const bar = tr.staves[0]?.bars[mb.index];
+        for (const v of bar?.voices || []) for (const bt of v.beats) {
+          const ly = bt.lyrics?.length ? bt.lyrics[Math.min(occ, bt.lyrics.length - 1)] : null;
+          if (!ly || !ly.trim()) continue;
+          out.push({ w: ly.trim(), t: a + (bt.playbackStart / len) * (b - a) + (this._off || 0) });
+        }
+      }
+    });
+    return out.sort((x, y) => x.t - y.t);
   }
 
   clicked() { return performance.now() - (this._ptr || 0) < 1500; }
