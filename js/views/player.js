@@ -1014,7 +1014,7 @@ export class PlayerView {
     this._autoBusy = true;
     toast('Calage des paroles : écoute de la voix…', 20000);
     try {
-      const { alignLyrics, alignFromScore } = await import('../autoalign.js?v=4.28.0');
+      const { alignLyrics, alignFromScore } = await import('../autoalign.js?v=4.28.1');
       // 1) la partition contient les paroles et elle est calée : c'est la référence la plus sûre
       let r = null;
       if (this.song.score) {
@@ -1041,10 +1041,10 @@ export class PlayerView {
   async autoWords() {
     if (this._autoBusy || !this.scoreView) return;
     const syl = this.scoreView.scoreLyrics?.() || [];
-    if (!syl.length) { toast('Cette partition ne contient pas de paroles sous les notes', 6000); return; }
+    if (!syl.length) { toast('Cette partition ne contient pas de paroles (ni sous les notes, ni en texte au-dessus)', 6000); return; }
     this._autoBusy = true;
     try {
-      const { wordsFromScore } = await import('../autoalign.js?v=4.28.0');
+      const { wordsFromScore } = await import('../autoalign.js?v=4.28.1');
       const s = this.song, p = s.prefs;
       const backup = JSON.stringify(s.doc.lines), offBefore = p.offset || 0;
       // le décalage actuel est intégré aux temps (les lignes absentes de la partition restent en place)
@@ -1067,7 +1067,7 @@ export class PlayerView {
     this._autoBusy = true;
     toast('Calage de la partition : écoute du début du morceau…', 4000);
     try {
-      const { musicStart } = await import('../autoalign.js?v=4.28.0');
+      const { musicStart } = await import('../autoalign.js?v=4.28.1');
       const onset = await musicStart(this.song);
       const r = this.scoreView.autoStart(onset);
       if (!r) toast('Pas de note trouvée dans la partition', 5000);

@@ -188,8 +188,9 @@ export class ScoreView {
       for (const tr of score.tracks) {
         const bar = tr.staves[0]?.bars[mb.index];
         for (const v of bar?.voices || []) for (const bt of v.beats) {
-          const ly = bt.lyrics?.length ? bt.lyrics[Math.min(occ, bt.lyrics.length - 1)] : null;
-          if (!ly || !ly.trim()) continue;
+          // paroles sous les notes, ou à défaut texte écrit au-dessus du temps (beaucoup de tablatures font ainsi)
+          const ly = bt.lyrics?.length ? bt.lyrics[Math.min(occ, bt.lyrics.length - 1)] : (bt.text || null);
+          if (!ly || !ly.trim() || /^\s*(intro|verse|couplet|chorus|refrain|bridge|pont|outro|solo|interlude)\b/i.test(ly)) continue;
           out.push({ w: ly.trim(), t: a + (bt.playbackStart / len) * (b - a) + (this._off || 0) });
           if (bt.lyrics.length > 1 && occ === 0) window.__mmLyrMulti = true;
         }

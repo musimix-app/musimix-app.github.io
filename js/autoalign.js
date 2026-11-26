@@ -153,13 +153,18 @@ export async function wordsFromScore(song, syl) {
   const { tokenize, alignSequences, interpolateWords, fillLineEnds } = await import('./sheet.js');
   if (!syl?.length) return null;
   const sw = [];
-  for (const s of syl) for (const part of s.w.split(/\s+/)) {
-    const p = norm(part);
-    if (!p) continue;
-    const prev = sw[sw.length - 1];
-    if (prev?.open) { prev.w += p; prev.open = /-$/.test(part); prev.e = s.t; }
-    else sw.push({ w: p, t: s.t, open: /-$/.test(part) });
-  }
+  syl.forEach((s, si) => {
+    const parts = s.w.split(/\s+/).filter((x) => norm(x));
+    // un texte de plusieurs mots posé sur un seul temps : les mots s'étalent jusqu'au texte suivant
+    const next = syl[si + 1]?.t ?? s.t + parts.length * 0.35;
+    const step = parts.length > 1 ? Math.min(0.4, Math.max(0.12, (next - s.t) / parts.length)) : 0;
+    parts.forEach((part, k) => {
+      const p = norm(part);
+      const prev = sw[sw.length - 1];
+      if (prev?.open) { prev.w += p; prev.open = /-$/.test(part); }
+      else sw.push({ w: p, t: s.t + k * step, open: /-$/.test(part) });
+    });
+  });
   sw.forEach((x, i) => { x.e = sw[i + 1] ? Math.min(sw[i + 1].t, x.t + 1.2) : x.t + 0.6; });
   const lines = (song.doc?.lines || []).filter((l) => l.type === 'lyric' && l.text?.trim());
   const dw = [];
