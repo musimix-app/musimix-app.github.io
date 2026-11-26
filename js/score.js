@@ -95,7 +95,8 @@ export class ScoreView {
     if (!AT || !score || !tl?.length) return;
     const { firstBar = 0, offset = 0 } = this.cfg.sync;
     for (const mb of score.masterBars) mb.syncPoints = undefined;
-    const downs = this.cfg.sync.auto === false ? [] : (this.o.getDownbeats?.() || []);
+    const raw = this.cfg.sync.auto === false ? [] : (this.o.getDownbeats?.() || []).slice(firstBar);
+    const downs = this.fitBars(raw, tl);
     const seen = new Map();
     const add = (mb, occ, ms) => {
       const a = new AT.model.Automation();
@@ -112,21 +113,49 @@ export class ScoreView {
       const mb = lk.masterBar;
       const occ = seen.get(mb.index) || 0;
       seen.set(mb.index, occ + 1);
-      const t = downs[firstBar + k];
+      const t = downs[k];
       if (t == null) return;
       add(mb, occ, (t + offset) * 1000);
       placed++;
     });
-    if (!placed) add(tl[0].masterBar, 0, Math.max(0, ((downs[firstBar] ?? 0) + offset) * 1000)); // seul le départ : la partition suit son propre tempo
+    if (!placed) add(tl[0].masterBar, 0, Math.max(0, ((raw[0] ?? 0) + offset) * 1000)); // seul le départ : la partition suit son propre tempo
     api.updateSyncPoints?.();
     this.placed = placed;
-    this.o.onStatus?.(placed ? `Calage : ${placed} mesures posées sur l’audio` : 'Calage sur le tempo de la partition (prépare le morceau pour un calage mesure par mesure)');
+    const fix = this.ratio > 1.5 ? ' (tempo détecté doublé : corrigé)' : this.ratio < 0.67 ? ' (tempo détecté réduit de moitié : corrigé)' : '';
+    this.o.onStatus?.(placed ? `Calage : ${placed} mesures posées sur l’audio${fix}. Si le curseur est en avance ou en retard d’une demi-mesure, touche « mes. » + ou −.` : 'Calage sur le tempo de la partition (prépare le morceau pour un calage mesure par mesure)');
   }
 
   log(...a) { (window.__mmScoreLog ||= []).push([Math.round(performance.now()), ...a]); if (window.__mmScoreLog.length > 60) window.__mmScoreLog.shift(); }
 
   /** Lecture lancée par MusiMix : alphaTab ne doit pas la couper dans la foulée. */
   userPlay() { this._userPlay = performance.now(); }
+
+  /**
+   * Met les mesures détectées à l'échelle de la partition : l'analyse trouve souvent le tempo double
+   * (ou moitié). On compare la durée d'une mesure de la partition (son tempo) à l'écart entre deux
+   * débuts de mesure détectés, puis on en garde une sur deux (ou on en ajoute au milieu).
+   */
+  fitBars(raw, tl) {
+    if (raw.length < 4) return raw;
+    const gaps = raw.slice(1).map((t, i) => t - raw[i]).sort((a, b) => a - b);
+    const audioBar = gaps[gaps.length >> 1];
+    const msOf = (lk) => {
+      const tempo = lk.tempoChanges?.[0]?.tempo || lk.tempo || this.score.tempo || 120;
+      return ((lk.end - lk.start) / 960) * (60 / tempo);
+    };
+    const durs = tl.slice(0, Math.min(8, tl.length)).map(msOf).sort((a, b) => a - b);
+    const scoreBar = durs[durs.length >> 1];
+    if (!audioBar || !scoreBar) return raw;
+    const r = scoreBar / audioBar;
+    this.ratio = r;
+    if (r > 1.5) { const step = Math.round(r); return raw.filter((_, i) => i % step === 0); }
+    if (r < 0.67) {
+      const n = Math.round(1 / r), out = [];
+      raw.forEach((t, i) => { const nx = raw[i + 1]; for (let k = 0; k < n; k++) out.push(nx == null ? t + k * audioBar / n : t + (k * (nx - t)) / n); });
+      return out;
+    }
+    return raw;
+  }
 
   update(t, force = false) {
     if (!this.ready || !this.out) return;
