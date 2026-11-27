@@ -4,7 +4,7 @@ import { db, uid } from '../db.js';
 import { esc, icon, toast, confirmBox, openMenu, debounce } from '../ui.js';
 import { parseChord, FLAT, SHARP } from '../theory.js';
 import { diagramSVG, allVoicings, voicings as vList } from '../diagrams.js';
-import { STYLES, nextChords, transitions, variations, chainVoicings, voicingOptions, voicingOf, playChord, GridPlayer, guessKey, roman, degree, pianoOptions, nameChord, chordMidi, PATTERNS, DRUM_STYLES } from '../compose.js';
+import { STYLES, nextChords, transitions, variations, chainVoicings, voicingOptions, voicingOf, playChord, GridPlayer, guessKey, roman, degree, pianoOptions, nameChord, chordMidi, PATTERNS, DRUM_STYLES, SOUNDS, setSounds, prepareSounds } from '../compose.js';
 import { newSong } from '../songs.js';
 import { parseSheet } from '../sheet.js';
 
@@ -13,6 +13,11 @@ const QUAL = [['', 'maj'], ['m', 'm'], ['7', '7'], ['maj7', 'maj7'], ['m7', 'm7'
 const KEYS = [];
 for (let pc = 0; pc < 12; pc++) { KEYS.push({ pc, minor: false }); KEYS.push({ pc, minor: true }); }
 const keyLabel = (k) => (k ? (k.minor ? (k.pc === 3 || k.pc === 10 ? FLAT : SHARP)[k.pc] + 'm' : ([1, 3, 8, 10].includes(k.pc) ? FLAT : SHARP)[k.pc]) : 'Auto');
+
+// presse-papiers de mesures (partagé entre compositions, gardé pendant la session)
+let CLIP = null;
+try { CLIP = JSON.parse(sessionStorage.getItem('mm-compo-clip') || 'null'); } catch { /* */ }
+const setClip = (bars) => { CLIP = bars; try { sessionStorage.setItem('mm-compo-clip', JSON.stringify(bars)); } catch { /* */ } };
 
 function blank(name = 'Ma composition') {
   return {
@@ -43,6 +48,7 @@ export class ComposeView {
     document.addEventListener('keydown', this.keyH);
     this.save = debounce(() => this.persist(), 400);
     this.render();
+    this.bindDrag();
   }
 
   close() { this.player.stop(); document.removeEventListener('keydown', this.keyH); this.el?.remove(); }
@@ -75,6 +81,68 @@ export class ComposeView {
     return map;
   }
 
+  // ───────────────────────────────────────── sélection de plusieurs mesures ──
+  order(x) { let n = 0; for (let i = 0; i < x.si; i++) n += this.c.sections[i].bars.length; return n + x.bi; }
+
+  rangeBars() {
+    if (!this.range) return [];
+    let [a, b] = [this.range.a, this.range.b];
+    if (this.order(a) > this.order(b)) [a, b] = [b, a];
+    const out = [];
+    this.c.sections.forEach((s, si) => s.bars.forEach((_, bi) => { const o = this.order({ si, bi }); if (o >= this.order(a) && o <= this.order(b)) out.push({ si, bi }); }));
+    return out;
+  }
+
+  inRange(si, bi) {
+    if (!this.range) return false;
+    const o = this.order({ si, bi }), x = this.order(this.range.a), y = this.order(this.range.b);
+    return o >= Math.min(x, y) && o <= Math.max(x, y);
+  }
+
+  copyRange(cut = false) {
+    const rb = this.rangeBars().length ? this.rangeBars() : this.sel ? [{ si: this.sel.si, bi: this.sel.bi }] : [];
+    if (!rb.length) return;
+    setClip(rb.map(({ si, bi }) => JSON.parse(JSON.stringify(this.c.sections[si].bars[bi]))));
+    if (cut) { this.snap(); rb.forEach(({ si, bi }) => { this.c.sections[si].bars[bi] = { c: [] }; }); this.save(); }
+    toast(`${rb.length} mesure${rb.length > 1 ? 's' : ''} ${cut ? 'coupée' : 'copiée'}${rb.length > 1 ? 's' : ''}`);
+    this.render();
+  }
+
+  paste(insert = false) {
+    if (!CLIP?.length || !this.sel) { toast('Rien à coller : sélectionne des mesures puis « Copier »'); return; }
+    const s = this.c.sections[this.sel.si], at = this.sel.bi, bars = CLIP.map((b) => JSON.parse(JSON.stringify(b)));
+    this.snap();
+    if (insert) s.bars.splice(at, 0, ...bars);
+    else bars.forEach((b, i) => { if (at + i < s.bars.length) s.bars[at + i] = b; else s.bars.push(b); });
+    this.range = bars.length > 1 ? { a: { si: this.sel.si, bi: at }, b: { si: this.sel.si, bi: at + bars.length - 1 } } : null;
+    this.save(); this.render();
+    toast(`${bars.length} mesure${bars.length > 1 ? 's' : ''} ${insert ? 'insérée' : 'collée'}${bars.length > 1 ? 's' : ''}`);
+  }
+
+  /** Glisser sur plusieurs cases (souris) pour les sélectionner. */
+  bindDrag() {
+    if (this._dragBound) return;
+    this._dragBound = true;
+    this.el.addEventListener('pointerdown', (e) => {
+      const bar = e.target.closest('.cp-bar');
+      if (!bar || e.pointerType !== 'mouse' || e.button !== 0 || e.shiftKey) return;
+      this._dragFrom = { si: +bar.dataset.si, bi: +bar.dataset.bi };
+    });
+    this.el.addEventListener('pointerover', (e) => {
+      if (!this._dragFrom || !(e.buttons & 1)) return;
+      const bar = e.target.closest('.cp-bar');
+      if (!bar) return;
+      const to = { si: +bar.dataset.si, bi: +bar.dataset.bi };
+      if (to.si === this._dragFrom.si && to.bi === this._dragFrom.bi) return;
+      this.sel = { ...this._dragFrom, h: 0 };
+      this.range = { a: this._dragFrom, b: to };
+      this._dragged = true;
+      document.getSelection()?.removeAllRanges();
+      this.el.querySelectorAll('.cp-bar').forEach((x) => x.classList.toggle('cp-rng', this.inRange(+x.dataset.si, +x.dataset.bi)));
+    });
+    document.addEventListener('pointerup', () => { if (this._dragFrom && this._dragged) { this._noClickUntil = performance.now() + 120; this.render(); } this._dragFrom = null; this._dragged = false; });
+  }
+
   /** Forme imposée pour une case (dessinée ou position choisie) : { frets } guitare, { notes } piano. */
   own(si, bi, h) {
     const b = this.c.sections[si]?.bars[bi];
@@ -101,8 +169,15 @@ export class ComposeView {
   }
 
   // ─────────────────────────────────────────────────────────── rendu ──
+  applySound() {
+    const c = this.c, inst = c.instrument === 'piano' ? 'piano' : 'guitar';
+    const ok = SOUNDS[inst].some(([k]) => k === c.sound);
+    setSounds({ real: c.sound !== 'synth', [inst]: ok ? c.sound : SOUNDS[inst][0][0] });
+  }
+
   render() {
     if (!this.c) return this.renderList();
+    this.applySound();
     const c = this.c, key = this.key();
     this.voicingsAuto();
     const sel = this.sel;
@@ -120,6 +195,7 @@ export class ComposeView {
       <label>Tempo <input type="number" min="40" max="240" data-f="bpm" value="${c.bpm}"> bpm</label>
       <span class="seg">${[['guitar', 'Guitare'], ['piano', 'Piano']].map(([k, l]) => `<button data-a="inst" data-v="${k}" class="${c.instrument === k ? 'on' : ''}">${l}</button>`).join('')}</span>
       ${inst === 'guitar' ? `<label>Manche <select data-f="zone"><option value="">Libre</option><option value="low" ${c.zone === 'low' ? 'selected' : ''}>En bas (cordes à vide)</option><option value="mid" ${c.zone === 'mid' ? 'selected' : ''}>Au milieu</option><option value="high" ${c.zone === 'high' ? 'selected' : ''}>En haut</option></select></label>` : ''}
+      <label>Son <select data-f="sound"><option value="synth" ${c.sound === 'synth' ? 'selected' : ''}>Synthé (léger)</option>${SOUNDS[inst].map(([k, l]) => `<option value="${k}" ${(c.sound || SOUNDS[inst][0][0]) === k && c.sound !== 'synth' ? 'selected' : ''}>${l}</option>`).join('')}</select></label>
       <label>Jeu <select data-f="pattern">${PATTERNS.map(([k, l]) => `<option value="${k}" ${(c.pattern || '') === k ? 'selected' : ''}>${l}</option>`).join('')}</select></label>
       <label>Batterie <select data-f="drumStyle">${DRUM_STYLES.map(([k, l]) => `<option value="${k}" ${(c.drumStyle ?? (c.drums === false ? 'off' : '')) === k ? 'selected' : ''}>${l}</option>`).join('')}</select></label>
       <button class="btn primary cp-play" data-a="play">${this.player.on ? `${icon('pause')} Stop` : `${icon('play')} Écouter la grille`}</button>
@@ -135,7 +211,7 @@ export class ComposeView {
         else inner = `<span class="cp-split"><b class="c1${sel && isSel && sel.h === 0 ? ' hsel' : ''}">${esc(b.c[0] || '·')}</b><b class="c2${sel && isSel && sel.h === 1 ? ' hsel' : ''}">${esc(b.c[1] || '·')}</b></span>`;
         const dg = cs.length ? `<span class="cp-dg">${b.c.map((nm, h) => (nm ? diagramSVG(nm, inst, { index: this.vAt(si, bi, h), ...this.own(si, bi, h) }) : '')).join('')}</span>` : '';
         const rm = cs.length && b.c.length === 1 ? `<i class="cp-rn">${esc(roman(b.c[0], key))}</i>` : '';
-        return `<div class="cp-bar${isSel ? ' cp-sel' : ''}${this.playing === `${si}.${bi}` ? ' cp-now' : ''}" data-si="${si}" data-bi="${bi}">${inner}${rm}${dg}<span class="n">${bi + 1}</span></div>`;
+        return `<div class="cp-bar${isSel ? ' cp-sel' : ''}${this.inRange(si, bi) ? ' cp-rng' : ''}${this.playing === `${si}.${bi}` ? ' cp-now' : ''}" data-si="${si}" data-bi="${bi}">${inner}${rm}${dg}<span class="n">${bi + 1}</span></div>`;
       }).join('');
       return `<section class="cp-sec k-${s.kind}" data-si="${si}">
         <div class="cp-sec-h">
@@ -155,7 +231,7 @@ export class ComposeView {
     }).join('');
     const addSec = `<div class="cp-add">${KINDS.map(([k, l]) => `<button class="btn small" data-a="add-sec" data-v="${k}">${icon('plus')} ${l}</button>`).join('')}</div>`;
     this.el.innerHTML = `${head}<div class="cp-wrap"><main class="cp-main">${opts}<div class="cp-grid">${secs}</div>${addSec}
-      <p class="note cp-help">Touche une case pour y mettre un accord · deux accords par case : « Couper la mesure » · les doigtés s’enchaînent tout seuls (le moins de déplacements possible).</p></main>
+      <p class="note cp-help">Touche une case pour y mettre un accord · deux accords par case : « Couper la mesure » · les doigtés s’enchaînent tout seuls (le moins de déplacements possible). · Sons réalistes : banque FluidR3 GM (Frank Wen, licence CC BY 3.0).</p></main>
       ${this.panel(key)}</div>`;
     if (sel && this._scrollSel !== `${sel.si}.${sel.bi}`) {
       this._scrollSel = `${sel.si}.${sel.bi}`;
@@ -174,6 +250,14 @@ export class ComposeView {
       <ul class="note"><li><b>Suite</b> : les accords qui vont bien après le précédent</li><li><b>Transitions</b> : des accords de passage vers le suivant</li><li><b>Variantes</b> : couleurs, renversements, substitutions</li><li><b>Doigtés</b> : les formes les plus proches sur le manche</li></ul>
       <p class="note">Le style (${esc(STYLES[c.style].label)}) oriente les propositions et le rythme d’écoute.</p></aside>`;
     const s = c.sections[sel.si], b = s.bars[sel.bi], cur = b.c[sel.h] || '';
+    const rb = this.rangeBars();
+    if (rb.length > 1) {
+      const names = rb.map(({ si, bi }) => c.sections[si].bars[bi].c.filter(Boolean).join(' ') || '–');
+      return `<aside class="cp-panel"><div class="cp-p-head"><b>${rb.length} mesures sélectionnées</b><button class="icon-btn sm" data-a="unsel" aria-label="Fermer">${icon('close')}</button></div>
+        <p class="cp-rng-list">${names.map((x) => `<span>${esc(x)}</span>`).join('')}</p>
+        <div class="cp-row"><button class="btn primary small" data-a="copy">Copier</button><button class="btn small" data-a="cut">Couper</button><button class="btn small" data-a="clear-rng">Effacer</button><button class="btn small" data-a="dup-rng">Dupliquer à la suite</button><button class="btn small ghost" data-a="hear-rng">${icon('play')} Écouter</button></div>
+        <p class="note">Ensuite, touche la case où coller, puis « Coller ». Raccourcis : Ctrl+C, Ctrl+X, Ctrl+V. Maj+clic ou glisser pour sélectionner.</p></aside>`;
+    }
     const { prev, next } = this.neighbors(sel.si, sel.bi, sel.h);
     const inst = c.instrument === 'piano' ? 'piano' : 'guitar';
     const chip = (nm, why, extra = '') => `<span class="cp-chip"><button class="cp-use" data-a="use" data-v="${esc(nm)}" ${extra} title="${esc(why || '')}"><b>${esc(nm)}</b>${why ? `<small>${esc(why)}</small>` : ''}</button><button class="cp-hear" data-a="hear" data-v="${esc(nm)}" aria-label="Écouter ${esc(nm)}">${icon('play')}</button></span>`;
@@ -220,6 +304,11 @@ export class ComposeView {
         ${b.c.length > 1 ? `<span class="seg"><button data-a="half" data-v="0" class="${sel.h === 0 ? 'on' : ''}">1re moitié</button><button data-a="half" data-v="1" class="${sel.h === 1 ? 'on' : ''}">2e moitié</button></span>` : ''}
         <button class="btn small ghost" data-a="clear">Effacer</button>
         <button class="btn small ghost" data-a="copy-prev" title="Reprendre l’accord de la mesure d’avant">= précédent</button>
+      </div>
+      <div class="cp-row cp-clip">
+        <button class="btn small ghost${this.multi ? ' on' : ''}" data-a="multi" title="Puis touche la dernière case à prendre">Sélectionner plusieurs</button>
+        <button class="btn small ghost" data-a="copy">Copier</button>
+        ${CLIP?.length ? `<button class="btn small" data-a="paste">Coller (${CLIP.length} mes.)</button><button class="btn small ghost" data-a="paste-ins" title="Insère les mesures copiées ici, sans rien écraser">Insérer</button>` : ''}
       </div>
       <div class="seg cp-tabs">${[['next', 'Suite'], ['trans', 'Transitions'], ['var', 'Variantes'], ['vo', inst === 'piano' ? 'Position' : 'Doigtés'], ['draw', 'Dessiner']].map(([k, l]) => `<button data-a="tab" data-v="${k}" class="${this.tab === k ? 'on' : ''}">${l}</button>`).join('')}</div>
       <div class="cp-tab">${body}</div>
@@ -335,9 +424,14 @@ export class ComposeView {
     return ev.filter((e) => e.name || e.rest).map((e) => (e.rest ? { ...e, name: 'C', silent: true } : e)).filter((e) => !e.silent);
   }
 
-  play(onlySi = null) {
+  async play(onlySi = null) {
     if (this.player.on) { this.player.stop(); this.playing = null; this.render(); return; }
     this._only = onlySi;
+    if (this.c.sound !== 'synth' && !this._soundReady) {
+      const btn = this.el.querySelector('.cp-play'); if (btn) btn.textContent = 'Chargement des sons…';
+      this._soundReady = await Promise.race([prepareSounds(this.c.instrument), new Promise((r) => setTimeout(() => r(false), 8000))]);
+      if (!this._soundReady) toast('Sons réalistes indisponibles pour l’instant : synthé utilisé');
+    }
     const ev = this.events(onlySi);
     if (!ev.length) { toast('Mets au moins un accord dans la grille'); return; }
     this.player.start(ev, {
@@ -377,6 +471,13 @@ export class ComposeView {
     if (t.dataset.open && !e.target.closest('[data-a]')) { this.app.go(`#/compo/${t.dataset.open}`); return; }
     if (t.classList.contains('cp-bar') && !t.dataset.a) {
       const si = +t.dataset.si, bi = +t.dataset.bi, b = this.c.sections[si].bars[bi];
+      if (performance.now() < (this._noClickUntil || 0)) return;
+      if ((e.shiftKey || this.multi) && this.sel) {
+        this.range = { a: { si: this.sel.si, bi: this.sel.bi }, b: { si, bi } };
+        if (this.rangeBars().length < 2) this.range = null;
+        this.render(); return;
+      }
+      this.range = null;
       let h = 0;
       if (b.c.length > 1) { const r = t.getBoundingClientRect(); h = (e.clientX - r.left) / r.width + (e.clientY - r.top) / r.height > 1 ? 1 : 0; }
       this.sel = { si, bi, h };
@@ -408,7 +509,7 @@ export class ComposeView {
         { icon: 'plus', label: 'Créer un morceau avec cette grille', action: () => this.toSong() },
         { icon: 'edit', label: 'Dupliquer la composition', action: async () => { const x = JSON.parse(JSON.stringify(c)); x.id = uid(); x.name += ' (copie)'; this.list.unshift(x); await db.set('compos', this.list); this.app.go(`#/compo/${x.id}`); } },
       ]); break;
-      case 'inst': c.instrument = v; this.changed(); break;
+      case 'inst': this._soundReady = false; c.instrument = v; if (c.sound !== 'synth') c.sound = undefined; this.changed(); break;
       case 'play': this.play(); break;
       case 'play-sec': case 'sec-play': this.player.stop(); this.play(a === 'sec-play' ? +t.dataset.si : this.sel.si); break;
       case 'rep': { const s = c.sections[+t.dataset.si]; s.repeat = Math.max(1, Math.min(8, s.repeat + +v)); this.changed(); break; }
@@ -429,7 +530,32 @@ export class ComposeView {
         break;
       }
       case 'add-sec': { const [k, l] = KINDS.find((x) => x[0] === v); this.snap(); c.sections.push({ id: uid(), kind: k, label: l, repeat: 1, bars: Array.from({ length: k === 'intro' || k === 'outro' ? 4 : 8 }, () => ({ c: [] })) }); this.changed({ snap: false }); break; }
-      case 'unsel': this.sel = null; this.render(); break;
+      case 'unsel': this.sel = null; this.range = null; this.multi = false; this.render(); break;
+      case 'multi': this.multi = !this.multi; if (this.multi) toast('Touche la dernière case à sélectionner'); this.render(); break;
+      case 'copy': this.copyRange(false); this.multi = false; break;
+      case 'cut': this.copyRange(true); this.multi = false; break;
+      case 'paste': this.paste(false); break;
+      case 'paste-ins': this.paste(true); break;
+      case 'clear-rng': this.snap(); this.rangeBars().forEach(({ si, bi }) => { c.sections[si].bars[bi] = { c: [] }; }); this.save(); this.render(); break;
+      case 'dup-rng': {
+        const rb = this.rangeBars(), last = rb[rb.length - 1];
+        this.snap();
+        const copy = rb.map(({ si, bi }) => JSON.parse(JSON.stringify(c.sections[si].bars[bi])));
+        c.sections[last.si].bars.splice(last.bi + 1, 0, ...copy);
+        this.range = { a: { si: last.si, bi: last.bi + 1 }, b: { si: last.si, bi: last.bi + copy.length } };
+        this.sel = { si: last.si, bi: last.bi + 1, h: 0 };
+        this.save(); this.render(); break;
+      }
+      case 'hear-rng': {
+        if (this.player.on) this.player.stop();
+        const keys = new Set(this.rangeBars().map(({ si, bi }) => `${si}.${bi}`));
+        const ev = this.events().filter((x) => keys.has(x.key));
+        if (!ev.length) break;
+        const off = ev[0].barBeat0;
+        const evs = ev.map((x) => ({ ...x, beat0: x.beat0 - off, barBeat0: x.barBeat0 - off }));
+        this.player.start(evs, { bpm: c.bpm, style: c.style, instrument: c.instrument, drums: true, pattern: c.pattern || '', drumStyle: c.drumStyle ?? '', loop: false, onPos: (i) => { this.el.querySelectorAll('.cp-bar.cp-now').forEach((x) => x.classList.remove('cp-now')); if (i >= 0) { const [si, bi] = evs[i].key.split('.'); this.el.querySelector(`.cp-bar[data-si="${si}"][data-bi="${bi}"]`)?.classList.add('cp-now'); } } });
+        break;
+      }
       case 'root': this.root = v; this.render(); break;
       case 'qual': { const r = this.root || parseChord(this.c.sections[this.sel.si].bars[this.sel.bi].c[this.sel.h])?.rootName || 'C'; this.setChord(r + v); break; }
       case 'use': this.setChord(v); break;
@@ -485,6 +611,7 @@ export class ComposeView {
     else if (f === 'key') { const v = e.target.value; c.key = v ? { pc: parseInt(v, 10), minor: v.endsWith('m') } : null; this.changed(); }
     else if (f === 'bpm') { c.bpm = Math.max(40, Math.min(240, +e.target.value || 100)); this._bpmTouched = true; this.save(); this.restartIfPlaying(); }
     else if (f === 'zone') { c.zone = e.target.value || null; this.changed(); }
+    else if (f === 'sound') { this._soundReady = false; c.sound = e.target.value; this.applySound(); this.save(); if (c.sound !== 'synth') { toast('Chargement du son…'); prepareSounds(c.instrument).then((ok) => { if (!ok) toast('Son réaliste indisponible (pas de connexion ?) : synthé utilisé'); else playChord('C', c.instrument); this.restartIfPlaying(); }); } else this.restartIfPlaying(); }
     else if (f === 'pattern' || f === 'drumStyle') { c[f] = e.target.value; this.save(); this.restartIfPlaying(); }
     else if (f === 'sec-pattern' || f === 'sec-drums') { const sct = c.sections[+e.target.dataset.si]; sct[f === 'sec-pattern' ? 'pattern' : 'drumStyle'] = e.target.value || undefined; this.save(); this.restartIfPlaying(); }
     else if (f === 'label') { const s = c.sections[+e.target.dataset.si]; s.label = e.target.value.trim() || s.label; this.save(); }
@@ -518,11 +645,19 @@ export class ComposeView {
       return;
     }
     if (inInput) return;
+    if (e.ctrlKey || e.metaKey) {
+      const k = e.key.toLowerCase();
+      if (k === 'c') { e.preventDefault(); this.copyRange(false); return; }
+      if (k === 'x') { e.preventDefault(); this.copyRange(true); return; }
+      if (k === 'v') { e.preventDefault(); this.paste(e.shiftKey); return; }
+    }
+    if (e.key === 'Escape' && this.range) { this.range = null; this.render(); return; }
     if (e.key === ' ') { e.preventDefault(); this.play(); }
     if (!this.sel) return;
     if (e.key === 'ArrowRight') { this.advance(); this.render(); }
     if (e.key === 'ArrowLeft') { const s = this.sel; if (s.h === 1) s.h = 0; else if (s.bi > 0) { s.bi--; s.h = 0; } else if (s.si > 0) { s.si--; s.bi = this.c.sections[s.si].bars.length - 1; s.h = 0; } this.render(); }
-    if (e.key === 'Delete' || e.key === 'Backspace') this.el.querySelector('[data-a="clear"]')?.click();
+    if (e.key === 'Delete' || e.key === 'Backspace') this.el.querySelector(this.range ? '[data-a="clear-rng"]' : '[data-a="clear"]')?.click();
+    if (e.shiftKey && (e.key === 'ArrowRight' || e.key === 'ArrowLeft')) return;
   }
 
   async toSong() {

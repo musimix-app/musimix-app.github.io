@@ -1,6 +1,6 @@
 // MusiMix — service worker : l'appli fonctionne hors ligne une fois ouverte.
 // Les morceaux sont stockés dans l'appareil (IndexedDB), pas dans ce cache.
-const VERSION = 'musimix-4.35.0';
+const VERSION = 'musimix-4.36.0';
 const SHELL = [
   './',
   'assets/fonts/Atkinson.ttf',
@@ -66,6 +66,7 @@ const SHELL = [
   'js/views/player.js',
   'js/views/compose.js',
   'js/compose.js',
+  'js/midi-input.js',
   'js/autoalign.js',
   'js/views/chord-edit.js',
   'js/views/shared.js',
@@ -78,7 +79,7 @@ self.addEventListener('install', (e) => {
 });
 
 self.addEventListener('activate', (e) => {
-  e.waitUntil(caches.keys().then((keys) => Promise.all(keys.filter((k) => k !== VERSION && k !== 'alphatab').map((k) => caches.delete(k)))).then(() => self.clients.claim()));
+  e.waitUntil(caches.keys().then((keys) => Promise.all(keys.filter((k) => k !== VERSION && k !== 'alphatab' && k !== 'sounds').map((k) => caches.delete(k)))).then(() => self.clients.claim()));
 });
 
 self.addEventListener('fetch', (e) => {
@@ -86,6 +87,10 @@ self.addEventListener('fetch', (e) => {
   if (req.method !== 'GET') return;
   const url = new URL(req.url);
   // lecteur de partitions alphaTab (CDN) : gardé après le premier usage, pour marcher hors ligne
+  if (url.hostname === 'gleitz.github.io' && url.pathname.includes('/midi-js-soundfonts/')) {
+    e.respondWith(caches.open('sounds').then((c) => c.match(req).then((hit) => hit || fetch(req).then((res) => { if (res.ok) c.put(req, res.clone()); return res; }))));
+    return;
+  }
   if (url.hostname === 'cdn.jsdelivr.net' && url.pathname.includes('/@coderline/alphatab@')) {
     e.respondWith(caches.open('alphatab').then((c) => c.match(req).then((hit) => hit || fetch(req).then((res) => { if (res.ok) c.put(req, res.clone()); return res; }))));
     return;

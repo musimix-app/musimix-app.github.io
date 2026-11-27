@@ -270,8 +270,75 @@ export function chordMidi(nm, instrument = 'guitar', vIdx = 0, { frets = null, n
 
 const hz = (m) => 440 * Math.pow(2, (m - 69) / 12);
 
+// ─────────────────────────────── sons réalistes (échantillons FluidR3 GM, CC BY 3.0) ──
+const SF_URL = 'https://gleitz.github.io/midi-js-soundfonts/FluidR3_GM/';
+export const SOUNDS = {
+  guitar: [['acoustic_guitar_steel', 'Guitare folk (cordes acier)'], ['acoustic_guitar_nylon', 'Guitare classique (nylon)'], ['electric_guitar_clean', 'Guitare électrique (clean)'], ['electric_guitar_jazz', 'Guitare jazz'], ['overdriven_guitar', 'Guitare saturée']],
+  piano: [['acoustic_grand_piano', 'Piano à queue'], ['bright_acoustic_piano', 'Piano brillant'], ['electric_piano_1', 'Piano électrique (Rhodes)'], ['electric_piano_2', 'Piano électrique (FM)'], ['rock_organ', 'Orgue']],
+};
+const SOUND = { real: true, guitar: 'acoustic_guitar_steel', piano: 'acoustic_grand_piano', bass: 'acoustic_bass' };
+const BANKS = new Map(); // nom → { buf: Map(midi → AudioBuffer), ready: Promise }
+const NOTE_NAMES = ['C', 'Db', 'D', 'Eb', 'E', 'F', 'Gb', 'G', 'Ab', 'A', 'Bb', 'B'];
+const RANGE = { guitar: [38, 90], piano: [33, 86], bass: [26, 62] };
+
+export function setSounds(o) { Object.assign(SOUND, o); }
+export function soundsReal() { return SOUND.real; }
+
+function bankFor(tone) { return tone === 'piano' ? SOUND.piano : tone === 'bass' ? SOUND.bass : SOUND.guitar; }
+
+/** Charge (une fois) et décode les notes utiles d'un instrument échantillonné. */
+export function loadBank(name, kind) {
+  if (BANKS.has(name)) return BANKS.get(name).ready;
+  const bank = { buf: new Map() };
+  bank.ready = (async () => {
+    const txt = await (await fetch(`${SF_URL}${name}-mp3.js`)).text();
+    const i = txt.indexOf('{'), j = txt.lastIndexOf('}');
+    const data = JSON.parse(txt.slice(i, j + 1).replace(/,\s*}$/, '}'));
+    const c = audio(), [lo, hi] = RANGE[kind] || [30, 90];
+    const jobs = [];
+    for (let m = lo; m <= hi; m++) {
+      const uri = data[NOTE_NAMES[m % 12] + (Math.floor(m / 12) - 1)];
+      if (!uri) continue;
+      const b64 = uri.slice(uri.indexOf(',') + 1), bin = atob(b64), u8 = new Uint8Array(bin.length);
+      for (let k = 0; k < bin.length; k++) u8[k] = bin.charCodeAt(k);
+      jobs.push(c.decodeAudioData(u8.buffer).then((ab) => bank.buf.set(m, ab)).catch(() => {}));
+    }
+    await Promise.all(jobs);
+    return bank;
+  })().catch((e) => { BANKS.delete(name); throw e; });
+  BANKS.set(name, bank);
+  return bank.ready;
+}
+
+/** Prépare les sons réalistes de l'instrument (et de la basse) avant de jouer. Renvoie false si indisponibles. */
+export async function prepareSounds(instrument) {
+  if (!SOUND.real) return false;
+  try {
+    await Promise.all([loadBank(bankFor(instrument === 'piano' ? 'piano' : 'guitar'), instrument === 'piano' ? 'piano' : 'guitar'), loadBank(SOUND.bass, 'bass')]);
+    return true;
+  } catch { return false; }
+}
+
+function sample(t, midi, { dur, vel, tone, out }) {
+  if (!SOUND.real) return false;
+  const bank = BANKS.get(bankFor(tone));
+  const ab = bank?.buf.get(midi);
+  if (!ab) return false;
+  const c = audio(), src = c.createBufferSource(), g = c.createGain();
+  src.buffer = ab;
+  const v = Math.min(1, vel * (tone === 'bass' ? 1.6 : tone === 'piano' ? 1.5 : 1.7));
+  g.gain.setValueAtTime(v, t);
+  const end = t + Math.min(dur, ab.duration);
+  g.gain.setValueAtTime(v, Math.max(t, end - 0.02));
+  g.gain.exponentialRampToValueAtTime(0.0001, end + 0.18);
+  src.connect(g).connect(out);
+  src.start(t); src.stop(end + 0.25);
+  return true;
+}
+
 function pluck(t, midi, { dur = 1.6, vel = 0.5, tone = 'guitar', out = master }) {
   const c = audio();
+  if (sample(t, midi, { dur, vel, tone, out: out || master })) return;
   const g = c.createGain(), f = c.createBiquadFilter();
   f.type = 'lowpass';
   const o1 = c.createOscillator(), o2 = c.createOscillator();
@@ -313,7 +380,9 @@ function drum(t, kind, vel = 0.6) {
 }
 
 /** Joue un accord tout de suite (gratté). */
-export function playChord(nm, instrument = 'guitar', vIdx = 0, { dur = 1.8, frets = null, notes: own = null } = {}) {
+export async function playChord(nm, instrument = 'guitar', vIdx = 0, { dur = 1.8, frets = null, notes: own = null } = {}) {
+  audio();
+  if (SOUND.real) await Promise.race([prepareSounds(instrument), new Promise((r) => setTimeout(r, 6000))]);
   const c = audio(), notes = chordMidi(nm, instrument, vIdx, { frets, notes: own }), t = c.currentTime + 0.02;
   const tone = instrument === 'piano' ? 'piano' : 'guitar';
   notes.forEach((m, i) => pluck(t + (tone === 'piano' ? 0 : i * 0.018), m, { dur, vel: 0.55, tone }));
