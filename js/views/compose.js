@@ -9,6 +9,7 @@ import { newSong } from '../songs.js';
 import { autofill, slotAlternatives } from '../autofill.js';
 import { improLayers, neckSvg, keysSvg, SCALES } from '../impro.js';
 import { midi } from '../midi-input.js';
+import { ChordListener, recognize, judge, CHROMA_NAMES } from '../chordlisten.js';
 import { parseChord as pc2 } from '../theory.js';
 import { parseSheet } from '../sheet.js';
 
@@ -56,7 +57,7 @@ export class ComposeView {
     if (this.c && localStorage.getItem('mm-compo-midi') === '1') this.midiOnStart(false);
   }
 
-  close() { this.player.stop(); document.removeEventListener('keydown', this.keyH); this.midiOff(true); this.el?.remove(); }
+  close() { this.player.stop(); document.removeEventListener('keydown', this.keyH); this.midiOff(true); this.listener?.stop(); this.el?.remove(); }
 
   async persist() {
     if (this.c) { this.c.updatedAt = Date.now(); const i = this.list.findIndex((x) => x.id === this.c.id); if (i >= 0) this.list[i] = this.c; else this.list.unshift(this.c); }
@@ -212,6 +213,7 @@ export class ComposeView {
       <label>Batterie <select data-f="drumStyle">${DRUM_STYLES.map(([k, l]) => `<option value="${k}" ${(c.drumStyle ?? (c.drums === false ? 'off' : '')) === k ? 'selected' : ''}>${l}</option>`).join('')}</select></label>
       <button class="btn${c.impro?.on ? ' on' : ''} cp-impro-btn" data-a="impro" title="Impro : les notes qui sonnent juste, sur le manche ou le clavier">${icon('impro')} Impro</button>
       <button class="btn${this.midiActive ? ' on' : ''} cp-midi-btn" data-a="midi" title="Brancher un clavier MIDI : tes notes s’affichent et sont comparées à l’accord demandé">${icon('piano')} Clavier MIDI</button>
+      <button class="btn${this.micActive ? ' on' : ''} cp-midi-btn" data-a="mic" title="Le micro écoute ta guitare ou ton piano et compare à l’accord demandé">${icon('rec')} Micro</button>
       <button class="btn cp-fill-btn" data-a="fill" title="Compléter les cases vides selon tes accords, la tonalité et le style">${icon('sparkle')} Remplir les cases vides</button>
       <button class="btn primary cp-play" data-a="play">${this.player.on ? `${icon('pause')} Stop` : `${icon('play')} Écouter la grille`}</button>
       ${sel ? `<button class="btn small" data-a="play-sec" title="Écouter seulement cette partie en boucle">${icon('loop')} Cette partie</button>` : ''}
@@ -248,7 +250,7 @@ export class ComposeView {
       </section>`;
     }).join('');
     const addSec = `<div class="cp-add">${KINDS.map(([k, l]) => `<button class="btn small" data-a="add-sec" data-v="${k}">${icon('plus')} ${l}</button>`).join('')}</div>`;
-    this.el.innerHTML = `${head}<div class="cp-wrap"><main class="cp-main">${opts}${this.fillBar()}${this.midiPanel()}${this.improPanel()}<div class="cp-grid">${secs}</div>${addSec}
+    this.el.innerHTML = `${head}<div class="cp-wrap"><main class="cp-main">${opts}${this.fillBar()}${this.micPanel()}${this.midiPanel()}${this.improPanel()}<div class="cp-grid">${secs}</div>${addSec}
       <p class="note cp-help">Touche une case pour y mettre un accord · deux accords par case : « Couper la mesure » · les doigtés s’enchaînent tout seuls (le moins de déplacements possible). · Sons réalistes : banque FluidR3 GM (Frank Wen, licence CC BY 3.0).</p></main>
       ${this.panel(key)}</div>`;
     if (sel && this._scrollSel !== `${sel.si}.${sel.bi}`) {
@@ -260,6 +262,63 @@ export class ComposeView {
         if (r.bottom > limit || r.top < 60) bar.scrollIntoView({ block: 'start', behavior: 'smooth' });
       });
     }
+  }
+
+  // ──────────────────────────────────────────────── écoute au micro ──
+  async micStart() {
+    try {
+      const prefs = (await this.app.prefs?.()) || {};
+      this.listener ||= new ChordListener();
+      await this.listener.start(prefs.micId);
+      this.listener.onFrame = () => { const now = performance.now(); if (now - (this._micT || 0) > 140) { this._micT = now; this.updateMic(); } };
+      this.micActive = true;
+      toast('Micro ouvert : joue l’accord demandé' + (this.player.on ? ' (mets un casque pour que le micro n’entende pas MusiMix)' : ''), 4000);
+    } catch (err) {
+      this.micActive = false;
+      toast(err?.name === 'NotAllowedError' ? 'Accès au micro refusé : autorise-le dans le navigateur' : err?.name === 'NotFoundError' ? 'Aucun micro trouvé' : 'Micro indisponible', 6000);
+    }
+    this.render();
+  }
+
+  micStop() { this.listener?.stop(); this.micActive = false; }
+
+  micPanel() {
+    if (!this.micActive) return '';
+    const L = this.listener, target = this.improChord();
+    const chroma = L?.chroma || new Array(12).fill(0), active = L?.active && Math.max(...chroma) > 0.05;
+    const j = judge(chroma, target);
+    const rec = active ? recognize(chroma) : null;
+    const lvl = !active ? 'idle' : j.level;
+    const fr = (p) => CHROMA_NAMES[p];
+    let st;
+    if (!active) st = target ? `<span class="mk-target">Accord demandé : <b>${esc(target)}</b></span> <span class="note">· joue-le, j’écoute…</span>` : '<span class="note">Choisis une case (ou lance l’écoute) puis joue l’accord. J’écoute…</span>';
+    else if (!target) st = `J’entends <b>${esc(rec?.name || '…')}</b> <span class="note">· choisis une case pour comparer</span>`;
+    else st = `<span class="mk-target">Accord demandé : <b>${esc(target)}</b></span> · J’entends <b>${esc(rec?.name || '…')}</b> · ${{
+      ok: '<b class="mk-ok">✓ Juste !</b>',
+      partial: `<b class="mk-warn">Il manque ${j.missing.map(fr).join(', ')}</b>`,
+      bad: j.wrong.length ? `<b class="mk-bad">${j.wrong.map(fr).join(', ')} ${j.wrong.length > 1 ? 'ne sont pas' : 'n’est pas'} dans l’accord</b>` : '<b class="mk-bad">Ce n’est pas cet accord</b>',
+    }[j.level] || ''}`;
+    const bars = CHROMA_NAMES.map((n, p) => {
+      const v = active ? j.heard[p] : 0, inT = j.set?.has(p);
+      const cls = v > 0.35 ? (j.set ? (inT ? 'ok' : 'bad') : 'on') : inT ? 'tgt' : '';
+      return `<div class="ch-col ${cls}"><div class="ch-bar"><i style="height:${Math.round(Math.min(1, v) * 100)}%"></i></div><span>${n}</span></div>`;
+    }).join('');
+    const meter = Math.min(100, Math.round((L?.rms || 0) * 900));
+    return `<div class="cp-midi cp-mic lv-${lvl}">
+      <div class="im-head"><b>Micro</b><span class="mk-st">${st}</span><span class="im-sp"></span>
+        <span class="mic-meter" title="Niveau du micro"><i style="width:${meter}%"></i></span>
+        ${rec && active && this.sel && !this.player.on && rec.score > 0.82 ? `<button class="btn small" data-a="mic-put" data-v="${esc(rec.name)}">Mettre ${esc(rec.name)} dans la case</button>` : ''}
+        <button type="button" class="icon-btn im-x" data-a="mic" aria-label="Fermer">✕</button></div>
+      <div class="ch-cols">${bars}</div>
+      <div class="mk-leg"><span><i class="sw tgt"></i>notes de l’accord demandé</span><span><i class="sw ok"></i>entendue, juste</span><span><i class="sw bad"></i>entendue, hors accord</span><span class="note">· le micro entend les notes, pas l’octave</span></div></div>`;
+  }
+
+  updateMic() {
+    const el = this.el?.querySelector('.cp-mic');
+    if (!el) return;
+    const tmp = document.createElement('div');
+    tmp.innerHTML = this.micPanel();
+    el.replaceWith(tmp.firstElementChild);
   }
 
   // ─────────────────────────────────────────────────── clavier MIDI ──
@@ -757,6 +816,8 @@ export class ComposeView {
         break;
       }
       case 'add-sec': { const [k, l] = KINDS.find((x) => x[0] === v); this.snap(); c.sections.push({ id: uid(), kind: k, label: l, repeat: 1, bars: Array.from({ length: k === 'intro' || k === 'outro' ? 4 : 8 }, () => ({ c: [] })) }); this.changed({ snap: false }); break; }
+      case 'mic': if (this.micActive) { this.micStop(); this.render(); } else this.micStart(); break;
+      case 'mic-put': this.setChord(v, { play: false }); toast(`${v} mis dans la case`); break;
       case 'midi': if (this.midiActive) { this.midiOff(); this.render(); } else this.midiOnStart(true); break;
       case 'midi-put': { const notes = [...(this.midiNotes || [])].sort((x, y) => x - y), nm = nameChord(notes); if (nm) { this.setChord(nm, { play: false, keep: { notes } }); toast(`${nm} mis dans la case`); } break; }
       case 'impro': { c.impro = { mode: 'chord', ...(c.impro || {}), on: !c.impro?.on }; this.save(); this.render(); break; }

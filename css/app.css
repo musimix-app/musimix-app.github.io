@@ -1195,3 +1195,16 @@ body.noselect, body.noselect * { user-select: none !important; -webkit-user-sele
 .mk-leg .sw.tgt { background: color-mix(in srgb, var(--chord) 35%, #fff); border: 1px solid var(--line-2); }
 .mk-leg .sw.ok { background: #16a34a; } .mk-leg .sw.bad { background: #dc2626; }
 .cp-midi-btn.on { background: var(--ink); color: var(--bg); border-color: var(--ink); }
+/* atelier : écoute au micro */
+.ch-cols { display: grid; grid-template-columns: repeat(12, minmax(0, 1fr)); gap: 6px; align-items: end; }
+.ch-col { display: grid; gap: 4px; justify-items: center; }
+.ch-col span { font: 700 12px var(--font-ui); color: var(--ink-3); }
+.ch-bar { width: 100%; height: 70px; border-radius: 6px; background: var(--bg); border: 1px solid var(--line); position: relative; overflow: hidden; }
+.ch-bar i { position: absolute; left: 0; right: 0; bottom: 0; background: var(--ink-3); transition: height .12s; }
+.ch-col.tgt .ch-bar { border-color: var(--chord); background: color-mix(in srgb, var(--chord) 18%, var(--bg)); }
+.ch-col.tgt span { color: var(--chord); }
+.ch-col.ok .ch-bar i { background: #16a34a; } .ch-col.ok span { color: #16a34a; }
+.ch-col.bad .ch-bar i { background: #dc2626; } .ch-col.bad span { color: #dc2626; }
+.ch-col.on .ch-bar i { background: var(--chord); }
+.mic-meter { width: 70px; height: 6px; border-radius: 3px; background: var(--line); overflow: hidden; }
+.mic-meter i { display: block; height: 100%; background: #16a34a; }
