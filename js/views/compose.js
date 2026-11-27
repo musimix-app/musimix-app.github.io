@@ -244,7 +244,7 @@ export class ComposeView {
       ${card(inst === 'piano' ? 'piano' : 'guitar', 'Instrument', esc(lbl(soundList, curSound).replace(/\s*\(.*\)$/, '')), `<select data-f="instsound" aria-label="Instrument et son"><optgroup label="Guitare">${[['synth', 'Synthé (léger)'], ...SOUNDS.guitar].map(([k, l]) => `<option value="guitar|${k}" ${inst === 'guitar' && curSound === k ? 'selected' : ''}>${l}</option>`).join('')}</optgroup><optgroup label="Piano">${[['synth', 'Synthé (léger)'], ...SOUNDS.piano].map(([k, l]) => `<option value="piano|${k}" ${inst === 'piano' && curSound === k ? 'selected' : ''}>${l}</option>`).join('')}</optgroup></select>`)}
       ${card('grid', 'Jeu', esc(lbl(PATTERNS, c.pattern || '')), optSel('pattern', PATTERNS, c.pattern || ''))}
       ${card('tap', 'Batterie', esc(lbl(DRUM_STYLES, drumCur)), optSel('drumStyle', DRUM_STYLES, drumCur))}
-      ${inst === 'guitar' ? card('guitar', 'Manche', esc({ '': 'Libre', low: 'En bas', mid: 'Au milieu', high: 'En haut' }[c.zone || '']), optSel('zone', [['', 'Libre'], ['low', 'En bas (cordes à vide)'], ['mid', 'Au milieu'], ['high', 'En haut']], c.zone || ''), 'sm') : ''}
+      ${inst === 'guitar' ? card('neck', 'Manche', esc({ '': 'Libre', low: 'En bas', mid: 'Au milieu', high: 'En haut' }[c.zone || '']), optSel('zone', [['', 'Libre'], ['low', 'En bas (cordes à vide)'], ['mid', 'Au milieu'], ['high', 'En haut']], c.zone || ''), 'sm') : ''}
       ${card('list', 'Grille', `${c.cols || 4} col.`, optSel('cols', [2, 3, 4, 5, 6, 8].map((n) => [n, `${n} colonnes`]), c.cols || 4), 'sm')}
     </div>`;
     // onglets de travail
