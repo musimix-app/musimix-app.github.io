@@ -1594,3 +1594,5 @@ body.noselect, body.noselect * { user-select: none !important; -webkit-user-sele
 .cp-pvolet { margin-top: 6px; padding: 10px; border: 1px solid var(--line); border-radius: 12px; background: var(--surface); }
 .compose .cp-sugbox { margin-bottom: 6px; }
 @media (min-width: 961px) { .compose .cp-panel { min-height: calc(100vh - 62px - var(--tp-h)); } }
+.mk-snd { display: inline-flex; align-items: center; gap: 4px; font-size: 14px; }
+.mk-snd select { font: 600 13px var(--font-ui); padding: 4px 6px; border-radius: 8px; border: 1px solid var(--line); background: var(--surface); color: var(--ink); }

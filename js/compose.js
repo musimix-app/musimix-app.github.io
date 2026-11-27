@@ -281,7 +281,7 @@ export const SOUNDS = {
 const SOUND = { real: true, guitar: 'acoustic_guitar_steel', piano: 'acoustic_grand_piano', bass: 'acoustic_bass' };
 const BANKS = new Map(); // nom → { buf: Map(midi → AudioBuffer), ready: Promise }
 const NOTE_NAMES = ['C', 'Db', 'D', 'Eb', 'E', 'F', 'Gb', 'G', 'Ab', 'A', 'Bb', 'B'];
-const RANGE = { guitar: [38, 90], piano: [33, 86], bass: [26, 62] };
+const RANGE = { guitar: [36, 90], piano: [21, 108], bass: [26, 62] };
 
 export function setSounds(o) { Object.assign(SOUND, o); }
 export function soundsReal() { return SOUND.real; }
@@ -380,6 +380,59 @@ function drum(t, kind, vel = 0.6) {
   const d = P[2];
   g.gain.setValueAtTime(vel * P[3], t); g.gain.exponentialRampToValueAtTime(0.0001, t + d);
   s.connect(f).connect(g).connect(master); s.start(t); s.stop(t + d + 0.02);
+}
+
+// ─── jeu en direct (clavier MIDI) : notes tenues tant que la touche (ou la pédale) est enfoncée ───
+const LIVE = new Map(); // note → voix
+let liveSustain = false;
+const liveHeldBySustain = new Set();
+function nearestSample(bank, m) {
+  if (!bank) return null;
+  if (bank.buf.has(m)) return [bank.buf.get(m), 1];
+  for (let d = 1; d <= 12; d++) for (const n of [m - d, m + d]) if (bank.buf.has(n)) return [bank.buf.get(n), 2 ** ((m - n) / 12)];
+  return null;
+}
+/** Enfonce une note (tone : 'piano' ou 'guitar'). */
+export function noteOn(m, vel = 0.7, tone = 'piano') {
+  const c = audio();
+  noteRelease(m, true);
+  liveHeldBySustain.delete(m);
+  const t = c.currentTime, g = c.createGain(), v = Math.max(0.05, Math.min(1, vel)) ** 1.3;
+  const smp = SOUND.real ? nearestSample(BANKS.get(bankFor(tone)), m) : null;
+  let srcs;
+  if (smp) {
+    const src = c.createBufferSource(); src.buffer = smp[0]; src.playbackRate.value = smp[1];
+    g.gain.setValueAtTime(v * (tone === 'piano' ? 1.4 : 1.6), t);
+    src.connect(g).connect(master); src.start(t);
+    srcs = [src];
+  } else {
+    const f = c.createBiquadFilter(), o1 = c.createOscillator(), o2 = c.createOscillator();
+    f.type = 'lowpass'; f.frequency.setValueAtTime(hz(m) * 8, t); f.frequency.exponentialRampToValueAtTime(Math.max(400, hz(m) * 2.5), t + 1.2);
+    o1.type = 'triangle'; o2.type = 'sine'; o1.frequency.value = hz(m); o2.frequency.value = hz(m) * 2;
+    g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(v * 0.45, t + 0.006); g.gain.exponentialRampToValueAtTime(v * 0.16, t + 0.6);
+    o1.connect(f); o2.connect(f); f.connect(g).connect(master); o1.start(t); o2.start(t);
+    srcs = [o1, o2];
+  }
+  LIVE.set(m, { g, srcs });
+}
+function noteRelease(m, fast = false) {
+  const v = LIVE.get(m); if (!v) return;
+  LIVE.delete(m);
+  const c = audio(), t = c.currentTime, r = fast ? 0.03 : 0.28;
+  v.g.gain.cancelScheduledValues(t); v.g.gain.setValueAtTime(Math.max(0.0001, v.g.gain.value), t); v.g.gain.exponentialRampToValueAtTime(0.0001, t + r);
+  v.srcs.forEach((s) => { try { s.stop(t + r + 0.02); } catch { /* déjà arrêtée */ } });
+}
+/** Relâche une note (tenue si la pédale est enfoncée). */
+export function noteOff(m) { if (liveSustain) liveHeldBySustain.add(m); else noteRelease(m); }
+export function sustainPedal(down) {
+  liveSustain = down;
+  if (!down) { liveHeldBySustain.forEach((m) => noteRelease(m)); liveHeldBySustain.clear(); }
+}
+export function allNotesOff() { [...LIVE.keys()].forEach((m) => noteRelease(m, true)); liveHeldBySustain.clear(); liveSustain = false; }
+/** Prépare un son pour le jeu en direct. */
+export async function prepareLive(tone) {
+  if (!SOUND.real) return false;
+  try { await loadBank(bankFor(tone), tone); return true; } catch { return false; }
 }
 
 /** Joue un accord tout de suite (gratté). */
@@ -517,3 +570,4 @@ export function pianoOptions(nm) {
 
 /** Nom d'accord pour un ensemble de notes MIDI. */
 export { nameChord } from './midi-input.js';
+export const liveCount = () => LIVE.size;

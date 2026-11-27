@@ -84,11 +84,14 @@ export class Midi extends EventTarget {
       if (this.learning) { this.learning = false; this.advanceNote = d1; this.dispatchEvent(new CustomEvent('learned', { detail: d1 })); return; }
       if (d1 === this.advanceNote) { this.dispatchEvent(new Event('advance')); return; }
       this.held.add(d1); this._emit();
+      this.dispatchEvent(new CustomEvent('noteon', { detail: { note: d1, vel: d2 / 127 } }));
     } else if (cmd === 0x80 || (cmd === 0x90 && d2 === 0)) {
       if (d1 === this.advanceNote) return;
+      this.dispatchEvent(new CustomEvent('noteoff', { detail: { note: d1 } }));
       if (this.held.delete(d1)) this._emit();
     } else if (cmd === 0xb0 && d1 === 64) {
       const down = d2 >= 64;
+      if (down !== this.sustain) this.dispatchEvent(new CustomEvent('sustain', { detail: { down } }));
       if (down && !this.sustain) this.dispatchEvent(new Event('advance'));
       this.sustain = down;
     }

@@ -4,7 +4,7 @@ import { db, uid } from '../db.js';
 import { esc, icon, toast, confirmBox, openMenu, debounce } from '../ui.js';
 import { parseChord, FLAT, SHARP } from '../theory.js';
 import { diagramSVG, allVoicings, voicings as vList } from '../diagrams.js';
-import { STYLES, nextChords, transitions, variations, chainVoicings, voicingOptions, voicingOf, playChord, GridPlayer, guessKey, roman, degree, pianoOptions, nameChord, chordMidi, PATTERNS, DRUM_STYLES, SOUNDS, setSounds, prepareSounds, setVolume, getVolume } from '../compose.js';
+import { STYLES, nextChords, transitions, variations, chainVoicings, voicingOptions, voicingOf, playChord, GridPlayer, guessKey, roman, degree, pianoOptions, nameChord, chordMidi, PATTERNS, DRUM_STYLES, SOUNDS, setSounds, prepareSounds, setVolume, noteOn, noteOff, sustainPedal, allNotesOff, prepareLive, getVolume } from '../compose.js';
 import { newSong } from '../songs.js';
 import { autofill, slotAlternatives } from '../autofill.js';
 import { improLayers, neckSvg, keysSvg, SCALES } from '../impro.js';
@@ -373,7 +373,14 @@ export class ComposeView {
         this._midiD = () => this.updateMidi(true);
         midi.addEventListener('notes', this._midiH);
         midi.addEventListener('devices', this._midiD);
+        this._midiOn = (e) => { const tone = this.liveTone(); if (tone) noteOn(e.detail.note, e.detail.vel, tone); };
+        this._midiOffH = (e) => noteOff(e.detail.note);
+        this._midiSus = (e) => sustainPedal(e.detail.down);
+        midi.addEventListener('noteon', this._midiOn);
+        midi.addEventListener('noteoff', this._midiOffH);
+        midi.addEventListener('sustain', this._midiSus);
       }
+      const lt = this.liveTone(); if (lt) prepareLive(lt);
       this.midiActive = true; this.midiNotes = [...midi.held]; this.view2 = 'midi';
       localStorage.setItem('mm-compo-midi', '1');
       if (user) toast(midi.devices.length ? `Clavier connecté : ${midi.devices[0]}` : 'Aucun clavier MIDI détecté : branche-le (USB), il apparaîtra tout seul');
@@ -382,7 +389,11 @@ export class ComposeView {
   }
 
   midiOff(keepPref = false) {
-    if (this._midiH) { midi.removeEventListener('notes', this._midiH); midi.removeEventListener('devices', this._midiD); this._midiH = null; }
+    if (this._midiH) {
+      midi.removeEventListener('notes', this._midiH); midi.removeEventListener('devices', this._midiD);
+      midi.removeEventListener('noteon', this._midiOn); midi.removeEventListener('noteoff', this._midiOffH); midi.removeEventListener('sustain', this._midiSus);
+      this._midiH = null; allNotesOff();
+    }
     this.midiActive = false;
     if (!keepPref) localStorage.setItem('mm-compo-midi', '0');
   }
@@ -433,8 +444,13 @@ export class ComposeView {
     return `${t} · Tu joues <b>${esc(played || '…')}</b> · ${msg}`;
   }
 
+  /** Son des touches du clavier MIDI : 'piano', 'inst' (instrument de la compo) ou 'off'. */
+  liveSound() { try { return localStorage.getItem('mm-midi-sound') || 'piano'; } catch { return 'piano'; } }
+  liveTone() { const v = this.liveSound(); return v === 'off' ? null : v === 'inst' ? (this.c?.instrument === 'piano' ? 'piano' : 'guitar') : 'piano'; }
+
   midiPanel() {
     if (!this.midiActive) return '';
+    const ls = this.liveSound();
     const target = this.improChord(), notes = this.midiNotes || [];
     const chk = this.midiCheck(notes, target);
     const sel = this.sel, b = sel && this.c.sections[sel.si].bars[sel.bi];
@@ -442,6 +458,7 @@ export class ComposeView {
     return `<div class="cp-tool cp-midi lv-${chk.level}">
       <div class="im-head"><b>Clavier MIDI</b><span class="mk-st">${this.midiStatus(notes, target, chk)}</span><span class="im-sp"></span>
         ${canPut ? `<button class="btn small" data-a="midi-put" title="Mettre l’accord joué dans la case choisie">Mettre ${esc(nameChord(notes))} dans la case</button>` : ''}
+        <label class="mk-snd" title="Son des touches de ton clavier">🔊 <select data-f="midisound"><option value="piano" ${ls === 'piano' ? 'selected' : ''}>Piano</option><option value="inst" ${ls === 'inst' ? 'selected' : ''}>Instrument de la compo</option><option value="off" ${ls === 'off' ? 'selected' : ''}>Sans son</option></select></label>
         <button type="button" class="icon-btn im-x" data-a="view" data-v="compose" aria-label="Fermer">✕</button></div>
       <div class="mk-wrap">${this.midiKeys(notes, chk.want)}</div>
       <div class="mk-leg"><span><i class="sw tgt"></i>notes de l’accord demandé</span><span><i class="sw ok"></i>juste</span><span><i class="sw bad"></i>hors accord</span></div></div>`;
@@ -1069,6 +1086,7 @@ export class ComposeView {
     else if (f === 'instsound') { const [ins, snd] = e.target.value.split('|'); this._soundReady = false; c.instrument = ins; c.sound = snd; this.applySound(); this.save(); this.render(); if (snd !== 'synth') prepareSounds(ins).then((ok) => { if (ok) playChord('C', ins); this.restartIfPlaying(); }); else this.restartIfPlaying(); }
     else if (f === 'rep') { const sct = c.sections[+e.target.dataset.si]; this.snap(); sct.repeat = +e.target.value; this.save(); this.render(); }
     else if (f === 'scope') { this.scopeSi = e.target.value === '' ? null : +e.target.value; this.render(); if (this.player.on) { this.player.stop(); this.play(this.scopeSi); } }
+    else if (f === 'midisound') { try { localStorage.setItem('mm-midi-sound', e.target.value); } catch { /* */ } allNotesOff(); const lt = this.liveTone(); if (lt) prepareLive(lt); }
     else if (f === 'vol') { setVolume(+e.target.value); try { localStorage.setItem('mm-compo-vol', e.target.value); } catch { /* */ } }
     else if (f === 'cols') { c.cols = +e.target.value; this.save(); this.render(); }
     else if (f === 'pattern' || f === 'drumStyle') { c[f] = e.target.value; this.save(); this.restartIfPlaying(); }
