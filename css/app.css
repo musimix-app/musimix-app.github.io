@@ -1208,3 +1208,179 @@ body.noselect, body.noselect * { user-select: none !important; -webkit-user-sele
 .ch-col.on .ch-bar i { background: var(--chord); }
 .mic-meter { width: 70px; height: 6px; border-radius: 3px; background: var(--line); overflow: hidden; }
 .mic-meter i { display: block; height: 100%; background: #16a34a; }
+
+/* ═══════════════ Atelier de composition — mise en page harmonisée ═══════════════ */
+.compose { --k: var(--ink-3); --tile: var(--surface); --r: 12px; }
+.compose .topbar { border-bottom: 1px solid var(--line); }
+@media (min-width: 961px) { .compose .cp-wrap { grid-template-columns: minmax(0, 1fr) 372px; } }
+.compose .cp-main { padding: 14px 28px 80px; }
+/* réglages : champs uniformes (étiquette au-dessus), groupés */
+.cp-set { display: flex; flex-wrap: wrap; gap: 10px; padding: 0 0 12px; }
+.cp-grp { display: flex; flex-wrap: wrap; gap: 4px; padding: 4px; border: 1px solid var(--line); border-radius: var(--r); background: var(--surface); }
+.cp-f { display: grid; gap: 1px; padding: 4px 8px 5px; border-radius: 8px; min-width: 118px; cursor: pointer; }
+.cp-f:hover { background: var(--surface-2); }
+.cp-f.narrow { min-width: 74px; }
+.cp-f > span:first-child { font: 600 10.5px var(--font-ui); letter-spacing: .06em; text-transform: uppercase; color: var(--ink-3); }
+.cp-f select, .cp-f input { font: 600 14px var(--font-ui); color: var(--ink); background: none; border: 0; padding: 0; margin: 0; outline: none; cursor: pointer; max-width: 210px; }
+.cp-num { display: inline-flex; align-items: baseline; gap: 4px; }
+.cp-num input { width: 42px; }
+.cp-num i { font-style: normal; font-size: 12px; color: var(--ink-3); }
+.cp-seg { display: inline-flex; gap: 2px; }
+.cp-seg button { border: 0; background: none; font: 600 14px var(--font-ui); color: var(--ink-3); padding: 0 6px 0 0; cursor: pointer; }
+.cp-seg button + button { padding-left: 6px; border-left: 1px solid var(--line-2); }
+.cp-seg button.on { color: var(--ink); }
+/* barre d'actions */
+.cp-actbar { position: sticky; top: 0; z-index: 6; display: flex; align-items: center; flex-wrap: wrap; gap: 10px 14px; padding: 10px 12px; margin: 0 -12px 6px; background: color-mix(in srgb, var(--bg) 92%, transparent); backdrop-filter: blur(6px); border-bottom: 1px solid var(--line); }
+.cp-playbig { width: 46px; height: 46px; border-radius: 50%; border: 0; background: var(--ink); color: var(--bg); display: grid; place-items: center; cursor: pointer; flex: none; box-shadow: 0 2px 8px rgba(0,0,0,.12); }
+.cp-playbig .i { width: 20px; height: 20px; }
+.cp-playbig.on { background: var(--c-voice); color: #fff; }
+.cp-act-l { display: grid; line-height: 1.25; margin-right: auto; }
+.cp-act-l b { font: 600 15px var(--font-ui); }
+.cp-act-l .note { font-size: 12px; }
+.cp-link { border: 0; background: none; padding: 0; color: var(--ink-3); font: 500 12px var(--font-ui); cursor: pointer; display: inline-flex; align-items: center; gap: 4px; text-align: left; }
+.cp-link .i { width: 13px; height: 13px; }
+.cp-link:hover { color: var(--ink); }
+.cp-tools { display: inline-flex; padding: 3px; gap: 2px; border: 1px solid var(--line); border-radius: 999px; background: var(--surface); }
+.cp-tools button { display: inline-flex; align-items: center; gap: 6px; height: 34px; padding: 0 13px; border: 0; border-radius: 999px; background: none; color: var(--ink-2); font: 600 13px var(--font-ui); cursor: pointer; }
+.cp-tools button .i { width: 17px; height: 17px; }
+.cp-tools button:hover { background: var(--surface-2); }
+.cp-tools button.on { background: var(--ink); color: var(--bg); }
+.compose .cp-fill-btn { display: inline-flex; align-items: center; gap: 7px; height: 40px; padding: 0 16px; border-radius: 999px; border: 1.5px solid var(--sug); background: color-mix(in srgb, var(--sug) 8%, transparent); color: var(--sug); font: 600 13.5px var(--font-ui); cursor: pointer; }
+.compose .cp-fill-btn:hover { background: var(--sug); color: #fff; }
+.compose .cp-fill-btn:hover .i { color: #fff; }
+.compose .cp-fill-btn .i { width: 17px; height: 17px; }
+/* panneaux d'outils : même carte pour Impro, MIDI, Micro */
+.cp-tool { margin: 10px 0 4px; padding: 12px 14px; border: 1px solid var(--line); border-radius: var(--r); background: var(--surface); box-shadow: 0 1px 0 rgba(0,0,0,.02); }
+.cp-tool .im-head > b { font: 600 17px var(--font-display); }
+.cp-tool .im-x { width: 30px; height: 30px; }
+.compose .cp-midi { border-width: 1px; background: var(--surface); }
+.compose .cp-midi.lv-ok { border-color: #16a34a; box-shadow: inset 4px 0 0 #16a34a; background: var(--surface); }
+.compose .cp-midi.lv-partial, .compose .cp-midi.lv-bass { border-color: #d97706; box-shadow: inset 4px 0 0 #d97706; }
+.compose .cp-midi.lv-bad { border-color: #dc2626; box-shadow: inset 4px 0 0 #dc2626; background: var(--surface); }
+.compose .cp-fillbar { border-radius: var(--r); margin: 10px 0 4px; }
+/* parties : couleur par type */
+.cp-sec.k-intro, .cp-addk.k-intro { --k: #8b8f98; }
+.cp-sec.k-verse, .cp-addk.k-verse { --k: #2f6fd1; }
+.cp-sec.k-prechorus, .cp-addk.k-prechorus { --k: #c98a12; }
+.cp-sec.k-chorus, .cp-addk.k-chorus { --k: var(--c-voice); }
+.cp-sec.k-bridge, .cp-addk.k-bridge { --k: var(--c-harmony); }
+.cp-sec.k-solo, .cp-addk.k-solo { --k: #c2410c; }
+.cp-sec.k-outro, .cp-addk.k-outro { --k: #6b7280; }
+.compose .cp-sec { margin: 22px 0 6px; }
+.compose .cp-sec-h { gap: 10px; margin-bottom: 8px; }
+.cp-dot { width: 10px; height: 10px; border-radius: 3px; background: var(--k); flex: none; display: inline-block; }
+.compose .cp-sec-name { font: 700 14px var(--font-ui); letter-spacing: .07em; text-transform: uppercase; color: var(--k); width: auto; padding: 3px 4px; }
+.compose .cp-sec.k-chorus .cp-sec-name { color: var(--k); }
+.cp-rep { display: inline-flex; align-items: center; border: 1px solid var(--line); border-radius: 999px; height: 26px; }
+.cp-rep button { width: 24px; height: 24px; border: 0; background: none; color: var(--ink-3); cursor: pointer; font-size: 15px; }
+.cp-rep button:hover { color: var(--ink); }
+.cp-rep output { font: 600 12px var(--font-ui); min-width: 22px; text-align: center; }
+.cp-sec-acc { display: inline-flex; gap: 2px; }
+.cp-sec-acc select { font: 500 12.5px var(--font-ui); color: var(--ink-3); background: none; border: 0; border-radius: 6px; padding: 3px 4px; cursor: pointer; max-width: 170px; }
+.cp-sec-acc select:hover { background: var(--surface-2); color: var(--ink); }
+.cp-sec-acc select.set { color: var(--ink); font-weight: 600; background: var(--surface-2); }
+.cp-sec-tools { margin-left: auto; display: inline-flex; align-items: center; gap: 1px; }
+.cp-sec-tools button { width: 30px; height: 30px; border: 0; border-radius: 8px; background: none; color: var(--ink-3); cursor: pointer; display: grid; place-items: center; font-size: 17px; }
+.cp-sec-tools button .i { width: 16px; height: 16px; }
+.cp-sec-tools button:hover { background: var(--surface-2); color: var(--ink); }
+.cp-nb { font: 500 12px var(--font-ui); color: var(--ink-3); min-width: 44px; text-align: center; }
+.compose .cp-sec-acts, .compose .cp-sec-sel { display: none; }
+/* mesures : tuiles */
+.compose .cp-bars { gap: 6px; border-left: 0; padding-left: 14px; position: relative; }
+.compose .cp-bars::before { content: ''; position: absolute; left: 3px; top: 2px; bottom: 2px; width: 3px; border-radius: 2px; background: var(--k); opacity: .55; }
+.compose .cp-bar { min-height: 96px; border: 1px solid var(--line); border-radius: 10px; background: var(--tile); padding: 8px 10px 16px; box-shadow: 0 1px 0 rgba(0,0,0,.02); }
+.compose .cp-bar:hover { border-color: var(--line-2); background: var(--tile); }
+.compose .cp-bar.cp-sel { box-shadow: 0 0 0 2px var(--chord); border-color: var(--chord); background: color-mix(in srgb, var(--chord) 7%, var(--tile)); }
+.compose .cp-bar.cp-now { background: color-mix(in srgb, var(--c-voice) 10%, var(--tile)); border-color: color-mix(in srgb, var(--c-voice) 45%, var(--line)); }
+.compose .cp-bar.cp-rng { background: color-mix(in srgb, var(--chord) 12%, var(--tile)); border-color: color-mix(in srgb, var(--chord) 60%, var(--line)); box-shadow: none; }
+.compose .cp-bar.has-sug { background: color-mix(in srgb, var(--sug) 6%, var(--tile)); border-style: dashed; border-color: color-mix(in srgb, var(--sug) 50%, var(--line)); }
+.compose .cp-empty { opacity: .28; font-size: 20px; }
+.compose .cp-bar:hover .cp-empty { opacity: .6; }
+.compose .cp-rn { font-size: 11px; top: 8px; right: 9px; }
+.compose .cp-dg { justify-content: center; gap: 8px; margin-top: auto; padding-top: 4px; }
+.compose .cp-dg svg { width: 44px; }
+.compose .cp-dg svg.piano { width: min(100%, 96px); }
+.compose .cp-bar .n { bottom: 4px; right: 8px; }
+.compose .cp-ok { width: 24px; height: 24px; }
+/* ajouter une partie */
+.compose .cp-add { align-items: center; gap: 6px; margin-top: 22px; padding-top: 14px; border-top: 1px dashed var(--line-2); }
+.compose .cp-add .note { margin-right: 4px; font-size: 12.5px; }
+.cp-addk { display: inline-flex; align-items: center; gap: 6px; height: 30px; padding: 0 11px; border: 1px solid var(--line); border-radius: 999px; background: var(--surface); color: var(--ink-2); font: 600 12.5px var(--font-ui); cursor: pointer; }
+.cp-addk:hover { border-color: var(--k); color: var(--ink); }
+.cp-addk .cp-dot { width: 8px; height: 8px; border-radius: 50%; }
+/* panneau de droite */
+.compose .cp-panel { background: var(--bg-2); padding: 12px 16px 40px; }
+.compose .cp-p-head { margin-bottom: 8px; }
+.compose .cp-p-head b { font: 600 13px var(--font-ui); color: var(--ink-2); }
+.cp-lbl { font: 600 10.5px var(--font-ui); letter-spacing: .07em; text-transform: uppercase; color: var(--ink-3); margin: 12px 0 5px; }
+.compose .cp-in { border-radius: 10px; background: var(--surface); }
+.compose .cp-draw { background: var(--surface); border-radius: 10px; }
+.compose .cp-roots button, .compose .cp-quals button { background: var(--surface); border-color: var(--line); }
+.compose .cp-roots button:hover, .compose .cp-quals button:hover { border-color: var(--ink-3); }
+.compose .cp-roots { margin-top: 0; }
+.cp-acts2 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.cp-btns { display: flex; flex-wrap: wrap; gap: 3px; }
+.cp-btns button { height: 28px; padding: 0 9px; border: 1px solid var(--line); border-radius: 7px; background: var(--surface); color: var(--ink-2); font: 600 12px var(--font-ui); cursor: pointer; }
+.cp-btns button:hover { border-color: var(--ink-3); color: var(--ink); }
+.cp-btns button.on { background: var(--ink); color: var(--bg); border-color: var(--ink); }
+.cp-tabs2 { display: grid; grid-template-columns: repeat(4, 1fr); gap: 2px; padding: 3px; border-radius: 10px; background: var(--surface-2); margin-bottom: 10px; }
+.cp-tabs2 button { height: 30px; border: 0; border-radius: 8px; background: none; color: var(--ink-3); font: 600 12.5px var(--font-ui); cursor: pointer; white-space: nowrap; }
+.cp-tabs2 button.on { background: var(--surface); color: var(--ink); box-shadow: 0 1px 2px rgba(0,0,0,.08); }
+.compose .cp-chip { border-color: var(--line); background: var(--surface); }
+.compose .cp-sugbox { margin-bottom: 4px; }
+@media (max-width: 960px) {
+  .compose .cp-main { padding: 10px 12px 56vh; }
+  .cp-f { min-width: 0; }
+  .cp-tools span, .compose .cp-fill-btn span { display: none; }
+  .cp-tools button { padding: 0 10px; }
+  .compose .cp-fill-btn { padding: 0 12px; }
+  .cp-sec-acc { order: 9; width: 100%; }
+  .compose .cp-bars { padding-left: 10px; gap: 4px; }
+  .compose .cp-bar { min-height: 80px; padding: 6px 6px 14px; }
+  .cp-acts2 { grid-template-columns: 1fr; gap: 0; }
+}
+
+.cp-sec-acc select, .cp-f select { field-sizing: content; }
+.compose .cp-dg svg { width: 50px; }
+.cp-acts2 { grid-template-columns: auto auto; justify-content: start; gap: 18px; }
+@media (max-width: 960px) {
+  .cp-set { gap: 6px; }
+  .cp-grp { flex: 1 1 100%; }
+  .cp-f { flex: 1 1 30%; }
+  .cp-actbar { margin: 0 -12px 6px; padding: 8px 12px; }
+  .cp-act-l .note, .cp-link { font-size: 11.5px; }
+  .compose .cp-dg svg { width: 36px; }
+}
+.cp-setd > summary { display: none; }
+@media (max-width: 960px) {
+  .cp-setd { margin-bottom: 6px; }
+  .cp-setd > summary { display: flex; align-items: baseline; gap: 8px; list-style: none; cursor: pointer; padding: 9px 12px; border: 1px solid var(--line); border-radius: 12px; background: var(--surface); font-size: 13px; }
+  .cp-setd > summary::-webkit-details-marker { display: none; }
+  .cp-setd > summary::after { content: '▾'; margin-left: auto; color: var(--ink-3); }
+  .cp-setd[open] > summary { margin-bottom: 6px; }
+  .cp-setd > summary span { color: var(--ink-3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .cp-f { flex: 1 1 44%; }
+  .cp-f select, .cp-f input { max-width: 100%; }
+  .cp-f select { field-sizing: fixed; width: 100%; }
+  .cp-actbar { flex-wrap: nowrap; gap: 8px; }
+  .cp-act-l { min-width: 0; flex: 1; }
+  .cp-act-l .note, .cp-link { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .compose .cp-fill-btn { height: 38px; width: 38px; padding: 0; justify-content: center; }
+}
+.cp-acts2 { grid-template-columns: 1fr; gap: 0; }
+.cp-fill-btn em { font-style: normal; }
+/* tablette paysage et écrans d'ordinateur portables */
+@media (min-width: 961px) and (max-width: 1280px) { .compose .cp-wrap { grid-template-columns: minmax(0, 1fr) 330px; } }
+@media (min-width: 961px) and (max-width: 1440px) {
+  .compose .cp-main { padding: 12px 18px 80px; }
+  .cp-setd > summary { display: flex; align-items: baseline; gap: 8px; list-style: none; cursor: pointer; padding: 9px 12px; border: 1px solid var(--line); border-radius: 12px; background: var(--surface); font-size: 13px; margin-bottom: 8px; }
+  .cp-setd > summary::-webkit-details-marker { display: none; }
+  .cp-setd > summary::after { content: '▾'; margin-left: auto; color: var(--ink-3); }
+  .cp-setd > summary span { color: var(--ink-3); }
+  .cp-tools span { display: none; }
+  .cp-tools button { padding: 0 11px; }
+  .cp-fill-btn em { display: none; }
+  .compose .cp-panel { padding: 12px 12px 40px; }
+  .cp-roots button, .cp-quals button { font-size: 11.5px; }
+}
+@media (max-width: 1400px) { .cp-tools button { padding: 0 11px; } }

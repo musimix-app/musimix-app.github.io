@@ -201,22 +201,37 @@ export class ComposeView {
       <button class="icon-btn" data-a="undo" aria-label="Annuler" title="Annuler (Ctrl+Z)" ${this.undo.length ? '' : 'disabled'}>${icon('undo')}</button>
       <button class="icon-btn" data-a="more" aria-label="Plus">${icon('more')}</button>
     </header>`;
-    const opts = `<div class="cp-opts">
-      <label>Style <select data-f="style">${Object.entries(STYLES).map(([k, v]) => `<option value="${k}" ${c.style === k ? 'selected' : ''}>${v.label}</option>`).join('')}</select></label>
-      <label>Tonalité <select data-f="key"><option value="">Auto${c.key ? '' : ` (${esc(keyLabel(key))})`}</option>${KEYS.map((k) => `<option value="${k.pc}${k.minor ? 'm' : ''}" ${c.key && c.key.pc === k.pc && c.key.minor === k.minor ? 'selected' : ''}>${keyLabel(k)}</option>`).join('')}</select></label>
-      <label>Tempo <input type="number" min="40" max="240" data-f="bpm" value="${c.bpm}"> bpm</label>
-      <span class="seg">${[['guitar', 'Guitare'], ['piano', 'Piano']].map(([k, l]) => `<button data-a="inst" data-v="${k}" class="${c.instrument === k ? 'on' : ''}">${l}</button>`).join('')}</span>
-      ${inst === 'guitar' ? `<label>Manche <select data-f="zone"><option value="">Libre</option><option value="low" ${c.zone === 'low' ? 'selected' : ''}>En bas (cordes à vide)</option><option value="mid" ${c.zone === 'mid' ? 'selected' : ''}>Au milieu</option><option value="high" ${c.zone === 'high' ? 'selected' : ''}>En haut</option></select></label>` : ''}
-      <label>Son <select data-f="sound"><option value="synth" ${c.sound === 'synth' ? 'selected' : ''}>Synthé (léger)</option>${SOUNDS[inst].map(([k, l]) => `<option value="${k}" ${(c.sound || SOUNDS[inst][0][0]) === k && c.sound !== 'synth' ? 'selected' : ''}>${l}</option>`).join('')}</select></label>
-      <label>Colonnes <select data-f="cols">${[2, 3, 4, 5, 6, 8].map((n) => `<option value="${n}" ${(c.cols || 4) === n ? 'selected' : ''}>${n}</option>`).join('')}</select></label>
-      <label>Jeu <select data-f="pattern">${PATTERNS.map(([k, l]) => `<option value="${k}" ${(c.pattern || '') === k ? 'selected' : ''}>${l}</option>`).join('')}</select></label>
-      <label>Batterie <select data-f="drumStyle">${DRUM_STYLES.map(([k, l]) => `<option value="${k}" ${(c.drumStyle ?? (c.drums === false ? 'off' : '')) === k ? 'selected' : ''}>${l}</option>`).join('')}</select></label>
-      <button class="btn${c.impro?.on ? ' on' : ''} cp-impro-btn" data-a="impro" title="Impro : les notes qui sonnent juste, sur le manche ou le clavier">${icon('impro')} Impro</button>
-      <button class="btn${this.midiActive ? ' on' : ''} cp-midi-btn" data-a="midi" title="Brancher un clavier MIDI : tes notes s’affichent et sont comparées à l’accord demandé">${icon('piano')} Clavier MIDI</button>
-      <button class="btn${this.micActive ? ' on' : ''} cp-midi-btn" data-a="mic" title="Le micro écoute ta guitare ou ton piano et compare à l’accord demandé">${icon('rec')} Micro</button>
-      <button class="btn cp-fill-btn" data-a="fill" title="Compléter les cases vides selon tes accords, la tonalité et le style">${icon('sparkle')} Remplir les cases vides</button>
-      <button class="btn primary cp-play" data-a="play">${this.player.on ? `${icon('pause')} Stop` : `${icon('play')} Écouter la grille`}</button>
-      ${sel ? `<button class="btn small" data-a="play-sec" title="Écouter seulement cette partie en boucle">${icon('loop')} Cette partie</button>` : ''}
+    const fld = (label, ctrl, cls = '') => `<label class="cp-f ${cls}"><span>${label}</span>${ctrl}</label>`;
+    const setOpen = this._setOpen ?? (window.innerWidth > 1440);
+    const summary = `${esc(STYLES[c.style]?.label || '')} · ${esc(keyLabel(key))} · ${c.bpm} bpm · ${c.instrument === 'piano' ? 'Piano' : 'Guitare'}`;
+    const opts = `<details class="cp-setd"${setOpen ? ' open' : ''}><summary><b>Réglages</b><span>${summary}</span></summary><div class="cp-set">
+      <div class="cp-grp">
+        ${fld('Style', `<select data-f="style">${Object.entries(STYLES).map(([k, v]) => `<option value="${k}" ${c.style === k ? 'selected' : ''}>${v.label}</option>`).join('')}</select>`)}
+        ${fld('Tonalité', `<select data-f="key"><option value="">Auto${c.key ? '' : ` · ${esc(keyLabel(key))}`}</option>${KEYS.map((k) => `<option value="${k.pc}${k.minor ? 'm' : ''}" ${c.key && c.key.pc === k.pc && c.key.minor === k.minor ? 'selected' : ''}>${keyLabel(k)}</option>`).join('')}</select>`)}
+        ${fld('Tempo', `<span class="cp-num"><input type="number" min="40" max="240" data-f="bpm" value="${c.bpm}"><i>bpm</i></span>`, 'narrow')}
+      </div>
+      <div class="cp-grp">
+        ${fld('Instrument', `<span class="cp-seg">${[['guitar', 'Guitare'], ['piano', 'Piano']].map(([k, l]) => `<button type="button" data-a="inst" data-v="${k}" class="${c.instrument === k ? 'on' : ''}">${l}</button>`).join('')}</span>`)}
+        ${fld('Son', `<select data-f="sound"><option value="synth" ${c.sound === 'synth' ? 'selected' : ''}>Synthé (léger)</option>${SOUNDS[inst].map(([k, l]) => `<option value="${k}" ${(c.sound || SOUNDS[inst][0][0]) === k && c.sound !== 'synth' ? 'selected' : ''}>${l}</option>`).join('')}</select>`)}
+        ${inst === 'guitar' ? fld('Position', `<select data-f="zone"><option value="">Libre</option><option value="low" ${c.zone === 'low' ? 'selected' : ''}>En bas du manche</option><option value="mid" ${c.zone === 'mid' ? 'selected' : ''}>Au milieu</option><option value="high" ${c.zone === 'high' ? 'selected' : ''}>En haut</option></select>`) : ''}
+      </div>
+      <div class="cp-grp">
+        ${fld('Jeu', `<select data-f="pattern">${PATTERNS.map(([k, l]) => `<option value="${k}" ${(c.pattern || '') === k ? 'selected' : ''}>${l}</option>`).join('')}</select>`)}
+        ${fld('Batterie', `<select data-f="drumStyle">${DRUM_STYLES.map(([k, l]) => `<option value="${k}" ${(c.drumStyle ?? (c.drums === false ? 'off' : '')) === k ? 'selected' : ''}>${l}</option>`).join('')}</select>`)}
+      </div>
+      <div class="cp-grp">
+        ${fld('Colonnes', `<select data-f="cols">${[2, 3, 4, 5, 6, 8].map((n) => `<option value="${n}" ${(c.cols || 4) === n ? 'selected' : ''}>${n}</option>`).join('')}</select>`, 'narrow')}
+      </div>
+    </div></details>
+    <div class="cp-actbar">
+      <button class="cp-playbig${this.player.on ? ' on' : ''}" data-a="play" aria-label="${this.player.on ? 'Arrêter' : 'Écouter la grille'}" title="${this.player.on ? 'Arrêter' : 'Écouter la grille (Espace)'}">${icon(this.player.on ? 'pause' : 'play')}</button>
+      <span class="cp-act-l"><b>${this.player.on ? 'Lecture…' : 'Écouter'}</b>${sel ? `<button class="cp-link" data-a="play-sec" title="Écouter seulement cette partie, en boucle">${icon('loop')} seulement « ${esc(c.sections[sel.si]?.label || '')} »</button>` : '<span class="note">toute la grille, en boucle</span>'}</span>
+      <span class="cp-tools">
+        <button class="${c.impro?.on ? 'on' : ''}" data-a="impro" title="Impro : les notes qui sonnent juste">${icon('impro')}<span>Impro</span></button>
+        <button class="${this.midiActive ? 'on' : ''}" data-a="midi" title="Clavier MIDI : tes notes comparées à l’accord demandé">${icon('piano')}<span>Clavier MIDI</span></button>
+        <button class="${this.micActive ? 'on' : ''}" data-a="mic" title="Micro : ta guitare ou ton piano comparés à l’accord demandé">${icon('rec')}<span>Micro</span></button>
+      </span>
+      <button class="cp-fill-btn" data-a="fill" title="Compléter les cases vides selon tes accords, la tonalité et le style">${icon('sparkle')}<span>Remplir<em> les cases vides</em></span></button>
     </div>`;
     const secs = c.sections.map((s, si) => {
       const bars = s.bars.map((b, bi) => {
@@ -233,23 +248,28 @@ export class ComposeView {
         const rm = cs.length && b.c.length === 1 ? `<i class="cp-rn">${esc(roman(b.c[0], key))}</i>` : '';
         return `<div class="cp-bar${hasSug ? ' has-sug' : ''}${isSel ? ' cp-sel' : ''}${this.inRange(si, bi) ? ' cp-rng' : ''}${this.playing === `${si}.${bi}` ? ' cp-now' : ''}" data-si="${si}" data-bi="${bi}">${inner}${rm}${dg}<span class="n">${bi + 1}</span></div>`;
       }).join('');
+      const ovr = [s.pattern && PATTERNS.find((x) => x[0] === s.pattern)?.[1], s.drumStyle && DRUM_STYLES.find((x) => x[0] === s.drumStyle)?.[1]].filter(Boolean);
       return `<section class="cp-sec k-${s.kind}" data-si="${si}">
         <div class="cp-sec-h">
-          <input class="cp-sec-name" data-f="label" data-si="${si}" value="${esc(s.label)}" aria-label="Nom de la partie">
-          <span class="stepper sm" title="Nombre de fois"><button data-a="rep" data-si="${si}" data-v="-1">−</button><output>×${s.repeat}</output><button data-a="rep" data-si="${si}" data-v="1">+</button></span>
-          <select class="cp-sec-sel" data-f="sec-pattern" data-si="${si}" title="Jeu pour cette partie"><option value="">Jeu : comme la compo</option>${PATTERNS.slice(1).map(([k, l]) => `<option value="${k}" ${s.pattern === k ? 'selected' : ''}>${l}</option>`).join('')}</select>
-          <select class="cp-sec-sel" data-f="sec-drums" data-si="${si}" title="Batterie pour cette partie"><option value="">Batterie : comme la compo</option>${DRUM_STYLES.slice(1).map(([k, l]) => `<option value="${k}" ${s.drumStyle === k ? 'selected' : ''}>${l}</option>`).join('')}</select>
-          <span class="cp-sec-acts">
-            <button class="btn small ghost" data-a="sec-play" data-si="${si}" title="Écouter cette partie">${icon('play')}</button>
-            <button class="btn small ghost" data-a="bars" data-si="${si}" data-v="-1" title="Retirer une mesure">− mes.</button>
-            <button class="btn small ghost" data-a="bars" data-si="${si}" data-v="1" title="Ajouter une mesure">+ mes.</button>
-            <button class="btn small ghost" data-a="sec-menu" data-si="${si}" aria-label="Plus">${icon('more')}</button>
+          <i class="cp-dot"></i>
+          <input class="cp-sec-name" data-f="label" data-si="${si}" value="${esc(s.label)}" aria-label="Nom de la partie" size="${Math.max(4, s.label.length + 1)}">
+          <span class="cp-rep" title="Nombre de fois que la partie est jouée"><button data-a="rep" data-si="${si}" data-v="-1" aria-label="Moins">−</button><output>×${s.repeat}</output><button data-a="rep" data-si="${si}" data-v="1" aria-label="Plus">+</button></span>
+          <span class="cp-sec-acc" title="Jeu et batterie de cette partie">
+            <select data-f="sec-pattern" data-si="${si}" class="${s.pattern ? 'set' : ''}"><option value="">Jeu général</option>${PATTERNS.slice(1).map(([k, l]) => `<option value="${k}" ${s.pattern === k ? 'selected' : ''}>${l}</option>`).join('')}</select>
+            <select data-f="sec-drums" data-si="${si}" class="${s.drumStyle ? 'set' : ''}"><option value="">Batterie générale</option>${DRUM_STYLES.slice(1).map(([k, l]) => `<option value="${k}" ${s.drumStyle === k ? 'selected' : ''}>${l}</option>`).join('')}</select>
+          </span>
+          <span class="cp-sec-tools">
+            <button data-a="sec-play" data-si="${si}" title="Écouter cette partie" aria-label="Écouter cette partie">${icon('play')}</button>
+            <button data-a="bars" data-si="${si}" data-v="-1" title="Retirer une mesure" aria-label="Retirer une mesure">−</button>
+            <span class="cp-nb">${s.bars.length} mes.</span>
+            <button data-a="bars" data-si="${si}" data-v="1" title="Ajouter une mesure" aria-label="Ajouter une mesure">+</button>
+            <button data-a="sec-menu" data-si="${si}" aria-label="Plus d’options">${icon('more')}</button>
           </span>
         </div>
         <div class="cp-bars" style="--cols:${c.cols || 4}">${bars}</div>
       </section>`;
     }).join('');
-    const addSec = `<div class="cp-add">${KINDS.map(([k, l]) => `<button class="btn small" data-a="add-sec" data-v="${k}">${icon('plus')} ${l}</button>`).join('')}</div>`;
+    const addSec = `<div class="cp-add"><span class="note">Ajouter une partie</span>${KINDS.map(([k, l]) => `<button class="cp-addk k-${k}" data-a="add-sec" data-v="${k}"><i class="cp-dot"></i>${l}</button>`).join('')}</div>`;
     this.el.innerHTML = `${head}<div class="cp-wrap"><main class="cp-main">${opts}${this.fillBar()}${this.micPanel()}${this.midiPanel()}${this.improPanel()}<div class="cp-grid">${secs}</div>${addSec}
       <p class="note cp-help">Touche une case pour y mettre un accord · deux accords par case : « Couper la mesure » · les doigtés s’enchaînent tout seuls (le moins de déplacements possible). · Sons réalistes : banque FluidR3 GM (Frank Wen, licence CC BY 3.0).</p></main>
       ${this.panel(key)}</div>`;
@@ -304,7 +324,7 @@ export class ComposeView {
       return `<div class="ch-col ${cls}"><div class="ch-bar"><i style="height:${Math.round(Math.min(1, v) * 100)}%"></i></div><span>${n}</span></div>`;
     }).join('');
     const meter = Math.min(100, Math.round((L?.rms || 0) * 900));
-    return `<div class="cp-midi cp-mic lv-${lvl}">
+    return `<div class="cp-tool cp-midi cp-mic lv-${lvl}">
       <div class="im-head"><b>Micro</b><span class="mk-st">${st}</span><span class="im-sp"></span>
         <span class="mic-meter" title="Niveau du micro"><i style="width:${meter}%"></i></span>
         ${rec && active && this.sel && !this.player.on && rec.score > 0.82 ? `<button class="btn small" data-a="mic-put" data-v="${esc(rec.name)}">Mettre ${esc(rec.name)} dans la case</button>` : ''}
@@ -397,7 +417,7 @@ export class ComposeView {
     const chk = this.midiCheck(notes, target);
     const sel = this.sel, b = sel && this.c.sections[sel.si].bars[sel.bi];
     const canPut = notes.length >= 2 && nameChord(notes) && sel && !this.player.on;
-    return `<div class="cp-midi lv-${chk.level}">
+    return `<div class="cp-tool cp-midi lv-${chk.level}">
       <div class="im-head"><b>Clavier MIDI</b><span class="mk-st">${this.midiStatus(notes, target, chk)}</span><span class="im-sp"></span>
         ${canPut ? `<button class="btn small" data-a="midi-put" title="Mettre l’accord joué dans la case choisie">Mettre ${esc(nameChord(notes))} dans la case</button>` : ''}
         <button type="button" class="icon-btn im-x" data-a="midi" aria-label="Fermer">✕</button></div>
@@ -434,7 +454,7 @@ export class ComposeView {
     const key = this.key(), S = SCALES[key.minor ? 'minor' : 'major'];
     const { board, now } = this.improBoard();
     const chip = (k, label, on) => `<button type="button" class="im-chip ${on ? 'on' : ''}" data-a="im" data-v="${k}">${label}</button>`;
-    return `<div class="cp-impro">
+    return `<div class="cp-tool cp-impro">
       <div class="im-head"><b>Impro</b>
         <span class="seg"><button data-a="im-mode" data-v="song" class="${o.mode !== 'chord' ? 'on' : ''}">Tout le morceau</button><button data-a="im-mode" data-v="chord" class="${o.mode === 'chord' ? 'on' : ''}">Accord choisi</button></span>
         <span class="im-now">${now}</span><span class="im-sp"></span>
@@ -563,19 +583,22 @@ export class ComposeView {
         ${cur ? `<button class="icon-btn" data-a="hear" data-v="${esc(cur)}" aria-label="Écouter">${icon('play')}</button>` : ''}
       </div>
       ${inst === 'piano' ? this.drawPiano(cur, b) : this.drawNeck(cur, b)}
+      <div class="cp-lbl">Construire un accord</div>
       <div class="cp-roots">${(([1, 3, 5, 8, 10].includes(key.pc) && !key.minor) || [0, 2, 5, 7, 10].includes(key.pc) && key.minor ? FLAT : ['C', 'Db', 'D', 'Eb', 'E', 'F', 'F#', 'G', 'Ab', 'A', 'Bb', 'B']).map((n, i) => `<button data-a="root" data-v="${n}" class="${this.root === n ? 'on' : ''}">${n}</button>`).join('')}</div>
       <div class="cp-quals">${QUAL.map(([q, l]) => `<button data-a="qual" data-v="${q}">${l}</button>`).join('')}</div>
-      <div class="cp-row cp-acts">
-        <button class="btn small" data-a="split" title="${b.c.length > 1 ? 'Un seul accord dans la mesure' : 'Deux accords dans la mesure'}">${b.c.length > 1 ? '1 accord' : '2 accords'}</button>
-        ${b.c.length > 1 ? `<span class="seg"><button data-a="half" data-v="0" class="${sel.h === 0 ? 'on' : ''}">1re</button><button data-a="half" data-v="1" class="${sel.h === 1 ? 'on' : ''}">2e</button></span>` : ''}
-        <button class="btn small ghost" data-a="copy-prev" title="Reprendre l’accord d’avant">= préc.</button>
-        <button class="btn small ghost" data-a="clear">Effacer</button>
-        <span class="cp-sep"></span>
-        <button class="btn small ghost${this.multi ? ' on' : ''}" data-a="multi" title="Puis touche la dernière case à prendre">Plusieurs</button>
-        <button class="btn small ghost" data-a="copy">Copier</button>
-        ${CLIP?.length ? `<button class="btn small ghost" data-a="paste" title="Coller ${CLIP.length} mesure(s) ici">Coller</button><button class="btn small ghost" data-a="paste-ins" title="Insérer ici sans rien écraser">Insérer</button>` : ''}
+      <div class="cp-acts2">
+        <div><div class="cp-lbl">Mesure</div><div class="cp-btns">
+          <button data-a="split" title="${b.c.length > 1 ? 'Un seul accord dans la mesure' : 'Deux accords dans la mesure'}">${b.c.length > 1 ? '1 accord' : '2 accords'}</button>
+          ${b.c.length > 1 ? `<button data-a="half" data-v="0" class="${sel.h === 0 ? 'on' : ''}">1re</button><button data-a="half" data-v="1" class="${sel.h === 1 ? 'on' : ''}">2e</button>` : ''}
+          <button data-a="copy-prev" title="Reprendre l’accord d’avant">= préc.</button>
+          <button data-a="clear">Effacer</button></div></div>
+        <div><div class="cp-lbl">Copier-coller</div><div class="cp-btns">
+          <button data-a="multi" class="${this.multi ? 'on' : ''}" title="Puis touche la dernière case à prendre">Plusieurs</button>
+          <button data-a="copy">Copier</button>
+          ${CLIP?.length ? `<button data-a="paste" title="Coller ${CLIP.length} mesure(s) ici">Coller</button><button data-a="paste-ins" title="Insérer ici sans rien écraser">Insérer</button>` : ''}</div></div>
       </div>
-      <div class="seg cp-tabs">${[['next', 'Suite'], ['trans', 'Transitions'], ['var', 'Variantes'], ['vo', inst === 'piano' ? 'Position' : 'Doigtés']].map(([k, l]) => `<button data-a="tab" data-v="${k}" class="${this.tab === k ? 'on' : ''}">${l}</button>`).join('')}</div>
+      <div class="cp-lbl">Idées</div>
+      <div class="cp-tabs2">${[['next', 'Suite'], ['trans', 'Transitions'], ['var', 'Variantes'], ['vo', inst === 'piano' ? 'Position' : 'Doigtés']].map(([k, l]) => `<button data-a="tab" data-v="${k}" class="${this.tab === k ? 'on' : ''}">${l}</button>`).join('')}</div>
       <div class="cp-tab">${body}</div>
     </aside>`;
   }
@@ -752,6 +775,7 @@ export class ComposeView {
   }
 
   async onClick(e) {
+    if (e.target.closest('.cp-setd > summary')) { setTimeout(() => { this._setOpen = this.el.querySelector('.cp-setd')?.open; }, 0); return; }
     const t = e.target.closest('[data-a], [data-open], .cp-bar');
     if (!t) return;
     if (t.dataset.open && !e.target.closest('[data-a]')) { this.app.go(`#/compo/${t.dataset.open}`); return; }
