@@ -258,6 +258,25 @@ export class PlayerView {
     const off = (s.prefs.offset || 0) / 1000; // temps des paroles = temps audio + décalage
     this.applyWrittenBars(off);
     this.timeline = chordTimeline(s.doc, s.duration || this.engine.duration, s.detectedChords);
+    // horloge de l'audio : on cherche sur quel temps tombent la plupart des changements d'accords → c'est le 1er temps
+    this._autoPhase = 0; this._clock = null;
+    {
+      const ck = this.masterClock();
+      if (ck.src === 'audio' && ck.beats.length > 16 && !s.clock?.phaseOff) {
+        const bpb = ck.bpb || 4, cnt = new Array(bpb).fill(0);
+        let k = 0, n = 0;
+        for (const c of this.timeline) {
+          if (c.t == null || c.fixed) continue;
+          const a = c.t - off;
+          while (k + 1 < ck.beats.length && ck.beats[k + 1] <= a) k++;
+          const j = ck.beats[k + 1] != null && ck.beats[k + 1] - a < a - ck.beats[k] ? k + 1 : k;
+          cnt[j % bpb]++; n++;
+        }
+        const best = cnt.indexOf(Math.max(...cnt));
+        if (n >= 8 && best && cnt[best] >= 1.5 * cnt[0]) { this._autoPhase = best; this._clock = null; }
+      }
+    }
+    { const ck = this.masterClock(); if (ck.beats.length) this.engine.setBeats(ck.beats, ck.bars); }
     // accords du texte : posés sur le temps le plus proche de l'horloge maître
     {
       const bt = this.masterClock().beats;
@@ -346,6 +365,13 @@ export class PlayerView {
         if (c.scale === 2) d = d.filter((_, i) => i % 2 === 0);
         else if (c.scale === 0.5) { const o = []; d.forEach((x, i) => { o.push(x); if (d[i + 1] != null) o.push((x + d[i + 1]) / 2); }); d = o; }
         bars = d.map((x) => x + (c.offset || 0));
+        // phase trouvée d'après les changements d'accords (les mesures détectées sont souvent décalées de 1 ou 2 temps)
+        if (this._autoPhase && bars.length > 2 && c.phase == null) {
+          const gp = bars.slice(1).map((x, i) => x - bars[i]).sort((a, b) => a - b);
+          const step = (gp[gp.length >> 1] / (c.bpb || 4)) * this._autoPhase;
+          bars = bars.map((x) => x + step);
+          if (bars[0] - gp[gp.length >> 1] > 0) bars.unshift(bars[0] - gp[gp.length >> 1]);
+        }
       }
     }
     if (!bars?.length) return (this._clock = { bars: [], beats: [], bpb: 4, src: null });
@@ -513,7 +539,8 @@ export class PlayerView {
       let inner;
       if (!ch.length) inner = prev ? `<b class="cont" title="${esc(this.display(prev))} (continue)">${esc(this.display(prev))}</b>` : '<b class="cont">–</b>';
       else if (ch.length === 1 && ch[0].slot === 0) inner = `<b>${esc(this.display(ch[0].name))}</b>`;
-      else if (ch.length === 1) inner = `<span class="split"><b class="c1 cont">${esc(this.display(prev || '–'))}</b><b class="c2">${esc(this.display(ch[0].name))}</b></span>`;
+      else if (ch.length === 1 && (!prev || sameName(prev, ch[0].name))) inner = `<b>${esc(this.display(ch[0].name))}</b>`;
+      else if (ch.length === 1) inner = `<span class="split"><b class="c1 cont">${esc(this.display(prev))}</b><b class="c2">${esc(this.display(ch[0].name))}</b></span>`;
       else if (ch.length === 2) inner = `<span class="split"><b class="c1">${esc(this.display(ch[0].name))}</b><b class="c2">${esc(this.display(ch[1].name))}</b></span>`;
       else inner = `<span class="many">${ch.map((x) => `<b>${esc(this.display(x.name))}</b>`).join('')}</span>`;
       if (ch.length) prev = ch[ch.length - 1].name;
@@ -2257,6 +2284,8 @@ function increasing(a) {
   for (let i = best; i >= 0; i = prev[i]) out.push(a[i]);
   return out.reverse();
 }
+
+function sameName(a, b) { return String(a).replace(/\*$/, '') === String(b).replace(/\*$/, ''); }
 
 function sameChord(a, b) {
   const r = (x) => (x || '').replace(/^([A-G][#b]?).*$/, '$1').replace('Db', 'C#').replace('Eb', 'D#').replace('Gb', 'F#').replace('Ab', 'G#').replace('Bb', 'A#');
