@@ -1075,6 +1075,7 @@ export class PlayerView {
         this._hudKey = hk;
         const dg = shown ? diagramSVG(shown, this.instrument, { index: this.voicingIdx[shown] || 0 }) : '';
         this.el.querySelectorAll('[data-r="hud"]').forEach((e) => { e.innerHTML = shown ? `<div class="hud-txt"><b>${esc(shown)}</b>${nextShown ? `<small>ensuite <i>${esc(nextShown)}</i></small>` : ''}</div><div class="hud-dg">${dg}</div>` : ''; });
+        if (this.mode === 'score') this.layoutHud();
       }
     }
     const key = shown + '|' + this.instrument + '|' + (this.voicingIdx[shown] || 0) + '|' + nextShown;
@@ -1363,6 +1364,37 @@ export class PlayerView {
     box.innerHTML = `<div class="scl-cur">${cur || '<p class="ln note">…</p>'}</div><div class="scl-next">${next}</div>`;
     box.querySelectorAll('.cur,.past,.sung,.singing,.now').forEach((e) => e.classList.remove('cur', 'past', 'sung', 'singing', 'now'));
     this.markScoreChord(this.timeline?.[this.lastChordIdx]);
+    this.layoutHud();
+  }
+
+  /** Accord du bandeau : déplaçable à gauche ou à droite des paroles, sans jamais les recouvrir. */
+  layoutHud(dragX) {
+    const band = this.el.querySelector('.sc-lyrics'), hud = band?.querySelector('.hud');
+    if (!hud || band.hidden || !hud.offsetWidth) return;
+    if (!this._hudDrag) {
+      this._hudDrag = true;
+      hud.addEventListener('pointerdown', (e) => {
+        e.preventDefault(); hud.setPointerCapture(e.pointerId); hud.classList.add('drag');
+        const dx = e.clientX - hud.getBoundingClientRect().left;
+        const mv = (ev) => this.layoutHud(ev.clientX - band.getBoundingClientRect().left - dx);
+        const up = () => { hud.classList.remove('drag'); hud.removeEventListener('pointermove', mv); hud.removeEventListener('pointerup', up); hud.removeEventListener('pointercancel', up); this.app.setPref('hudPos', this.prefsCache.hudPos); };
+        hud.addEventListener('pointermove', mv); hud.addEventListener('pointerup', up); hud.addEventListener('pointercancel', up);
+      });
+      if (window.ResizeObserver) new ResizeObserver(() => this.layoutHud()).observe(band);
+    }
+    const W = band.clientWidth, w = hud.offsetWidth, br = band.getBoundingClientRect();
+    let L = W / 2, R = W / 2;
+    band.querySelectorAll('.scl-body .ln').forEach((ln) => { const r = ln.getBoundingClientRect(); if (r.width) { L = Math.min(L, r.left - br.left); R = Math.max(R, r.right - br.left); } });
+    const zones = { left: [8, L - w - 16], right: [R + 16, W - w - 8] };
+    const pos = (this.prefsCache ||= {}).hudPos || { side: 'left', f: 0 };
+    if (dragX != null) {
+      const side = dragX + w / 2 < W / 2 ? 'left' : 'right', [a, b] = zones[side];
+      pos.side = side; pos.f = b > a ? Math.max(0, Math.min(1, (dragX - a) / (b - a))) : side === 'left' ? 0 : 1;
+      this.prefsCache.hudPos = pos;
+    }
+    const [a, b] = zones[pos.side] || zones.left;
+    const x = b >= a ? a + pos.f * (b - a) : (pos.side === 'right' ? W - w - 8 : 8);
+    hud.style.left = `${Math.round(x)}px`;
   }
 
   applyHud() {

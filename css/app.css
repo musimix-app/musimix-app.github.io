@@ -951,3 +951,9 @@ dialog.diag-dlg { width: min(560px, calc(100vw - 20px)); }
 .stage.stage-mode .stage-hud .hud-txt small { font-size: 16px; }
 .stage.stage-mode .stage-hud .hud-dg svg { width: clamp(80px, 8vw, 120px); }
 .stage.stage-mode .stage-hud .hud-dg svg.piano { width: 180px; }
+/* accord du bandeau : déplaçable */
+.sc-lyrics { position: relative; min-height: 74px; }
+.sc-lyrics .hud { position: absolute; top: 50%; transform: translateY(-50%); left: 8px; z-index: 2; padding: 4px 10px; border: 0; border-radius: 10px; cursor: grab; touch-action: none; user-select: none; }
+.sc-lyrics .hud:hover { background: color-mix(in srgb, var(--ink) 5%, transparent); }
+.sc-lyrics .hud.drag { cursor: grabbing; background: color-mix(in srgb, var(--chord) 12%, transparent); }
+.sc-lyrics .scl-body { flex: 1; }
