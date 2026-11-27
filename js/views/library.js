@@ -21,6 +21,7 @@ export class LibraryView {
         <div class="spacer"></div>
         <button class="studio-pill sync-pill" data-act="sync" hidden>${icon('sync')}<span></span></button>
         <button class="studio-pill" data-act="studio"><i></i><span>Studio</span></button>
+        <button class="icon-btn" data-act="compo" aria-label="Composer" title="Composer (grille d’accords avec suggestions)">${icon('sparkle')}</button>
         <button class="icon-btn" data-act="setlists" aria-label="Setlists" title="Setlists">${icon('list')}</button>
         <button class="icon-btn" data-act="tuner" aria-label="Accordeur" title="Accordeur">${icon('tuner')}</button>
         <button class="icon-btn" data-act="settings" aria-label="Réglages" title="Réglages">${icon('settings')}</button>
@@ -162,6 +163,7 @@ export class LibraryView {
       else if (a === 'job-retry') this.app.jobs.get(act.dataset.k)?.retry?.();
       else if (a === 'job-dismiss') this.app.jobs.get(act.dataset.k)?.dismiss?.();
       else if (a === 'setlists') this.app.go('#/setlists');
+      else if (a === 'compo') this.app.go('#/compo');
       else if (a === 'studio') this.app.studioDialog();
       else if (a === 'sync') { const sy = this.app.sync; if (sy.state === 'reconnect') sy.connect().catch((err) => toast(err.message, 6000)); else if (sy.state === 'error') this.app.go('#/settings'); else sy.run(); }
       else if (a === 'job-cancel') { this.app.jobs.get(act.dataset.k)?.abort?.(); }

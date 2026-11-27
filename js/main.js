@@ -11,6 +11,7 @@ import { esc, icon, toast, dialog, pickFiles, confirmBox } from './ui.js';
 import { importFiles, importPack, importSingleAudio, guessTitleArtist, newSong, STEM_KINDS, applyLRC } from './songs.js';
 import { parseSheet, docFromSongJson, fillLineEnds, looksLikeLRC } from './sheet.js';
 import { LibraryView, SetlistsView, askName } from './views/library.js';
+import { ComposeView } from './views/compose.js';
 import { PlayerView } from './views/player.js';
 import { EditorView } from './views/editor.js';
 import { printDialog } from './print.js';
@@ -103,6 +104,10 @@ class App extends EventTarget {
       if (!song) { this.go('#/'); return; }
       this.view = new EditorView(this);
       await this.view.open(song, extra || 'text');
+    } else if (name === 'compo') {
+      this.view = new ComposeView(this);
+      document.title = 'Composer · MusiMix';
+      await this.view.open(id);
     } else if (name === 'setlists') {
       this.view = new SetlistsView(this);
       await this.view.open(id);

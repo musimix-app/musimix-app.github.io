@@ -1,0 +1,437 @@
+// MusiMix — atelier de composition : grille vierge par parties, suggestions (suite, transitions,
+// variantes, doigtés enchaînés), écoute des accords et de la grille dans le style choisi.
+import { db, uid } from '../db.js';
+import { esc, icon, toast, confirmBox, openMenu, debounce } from '../ui.js';
+import { parseChord, FLAT, SHARP } from '../theory.js';
+import { diagramSVG } from '../diagrams.js';
+import { STYLES, nextChords, transitions, variations, chainVoicings, voicingOptions, voicingOf, playChord, GridPlayer, guessKey, roman, degree } from '../compose.js';
+import { newSong } from '../songs.js';
+import { parseSheet } from '../sheet.js';
+
+const KINDS = [['intro', 'Intro'], ['verse', 'Couplet'], ['prechorus', 'Pré-refrain'], ['chorus', 'Refrain'], ['bridge', 'Pont'], ['solo', 'Solo'], ['outro', 'Final']];
+const QUAL = [['', 'maj'], ['m', 'm'], ['7', '7'], ['maj7', 'maj7'], ['m7', 'm7'], ['sus2', 'sus2'], ['sus4', 'sus4'], ['add9', 'add9'], ['6', '6'], ['9', '9'], ['m9', 'm9'], ['dim', 'dim'], ['m7b5', 'ø'], ['aug', 'aug'], ['5', '5']];
+const KEYS = [];
+for (let pc = 0; pc < 12; pc++) { KEYS.push({ pc, minor: false }); KEYS.push({ pc, minor: true }); }
+const keyLabel = (k) => (k ? (k.minor ? (k.pc === 3 || k.pc === 10 ? FLAT : SHARP)[k.pc] + 'm' : ([1, 3, 8, 10].includes(k.pc) ? FLAT : SHARP)[k.pc]) : 'Auto');
+
+function blank(name = 'Ma composition') {
+  return {
+    id: uid(), name, style: 'pop', key: null, bpm: 100, instrument: 'guitar', zone: null, drums: true,
+    sections: [
+      { id: uid(), kind: 'intro', label: 'Intro', repeat: 1, bars: Array.from({ length: 4 }, () => ({ c: [] })) },
+      { id: uid(), kind: 'verse', label: 'Couplet', repeat: 1, bars: Array.from({ length: 8 }, () => ({ c: [] })) },
+      { id: uid(), kind: 'chorus', label: 'Refrain', repeat: 1, bars: Array.from({ length: 8 }, () => ({ c: [] })) },
+    ],
+    createdAt: Date.now(), updatedAt: Date.now(),
+  };
+}
+
+export class ComposeView {
+  constructor(app) { this.app = app; this.player = new GridPlayer(); this.undo = []; this.tab = 'next'; }
+
+  async open(id) {
+    this.list = (await db.get('compos', [])) || [];
+    this.c = id ? this.list.find((x) => x.id === id) : null;
+    const el = document.createElement('section');
+    el.className = 'view compose';
+    this.el = el;
+    this.app.mount(el);
+    el.addEventListener('click', (e) => this.onClick(e));
+    el.addEventListener('change', (e) => this.onChange(e));
+    el.addEventListener('input', (e) => this.onInput(e));
+    this.keyH = (e) => this.onKey(e);
+    document.addEventListener('keydown', this.keyH);
+    this.save = debounce(() => this.persist(), 400);
+    this.render();
+  }
+
+  close() { this.player.stop(); document.removeEventListener('keydown', this.keyH); this.el?.remove(); }
+
+  async persist() {
+    if (this.c) { this.c.updatedAt = Date.now(); const i = this.list.findIndex((x) => x.id === this.c.id); if (i >= 0) this.list[i] = this.c; else this.list.unshift(this.c); }
+    await db.set('compos', this.list);
+  }
+
+  snap() { this.undo.push(JSON.stringify(this.c)); if (this.undo.length > 80) this.undo.shift(); }
+  changed({ snap = true } = {}) { if (snap) this.snap(); this.save(); this.render(); }
+
+  // ───────────────────────────────────────────────── données dérivées ──
+  key() { return this.c.key || guessKey(this.flat().map((x) => x.name)); }
+
+  /** Suite des accords, dans l'ordre : [{ si, bi, h, name }] (h = moitié 0/1). */
+  flat() {
+    const out = [];
+    this.c.sections.forEach((s, si) => s.bars.forEach((b, bi) => b.c.forEach((nm, h) => { if (nm) out.push({ si, bi, h, name: nm }); })));
+    return out;
+  }
+
+  voicingsAuto() {
+    const f = this.flat(), locked = {};
+    f.forEach((x, i) => { const v = this.c.sections[x.si].bars[x.bi].v?.[x.h]; if (v != null) locked[i] = v; });
+    const idx = chainVoicings(f.map((x) => x.name), this.c.instrument === 'piano' ? 'guitar' : this.c.instrument, { locked, zone: this.c.zone });
+    const map = new Map();
+    f.forEach((x, i) => map.set(`${x.si}.${x.bi}.${x.h}`, idx[i]));
+    this._vmap = map; this._flat = f;
+    return map;
+  }
+
+  vAt(si, bi, h) { return this._vmap?.get(`${si}.${bi}.${h}`) ?? 0; }
+
+  neighbors(si, bi, h) {
+    const f = this._flat || this.flat();
+    const i = f.findIndex((x) => x.si === si && x.bi === bi && x.h === h);
+    // place dans la suite même si la case est vide
+    let prev = null, next = null;
+    if (i >= 0) { prev = f[i - 1] || null; next = f[i + 1] || null; } else {
+      const ord = (x) => x.si * 1e4 + x.bi * 10 + x.h, me = si * 1e4 + bi * 10 + h;
+      prev = [...f].reverse().find((x) => ord(x) < me) || null; next = f.find((x) => ord(x) > me) || null;
+    }
+    return { prev, next };
+  }
+
+  // ─────────────────────────────────────────────────────────── rendu ──
+  render() {
+    if (!this.c) return this.renderList();
+    const c = this.c, key = this.key();
+    this.voicingsAuto();
+    const sel = this.sel;
+    const inst = c.instrument === 'piano' ? 'piano' : 'guitar';
+    const head = `<header class="topbar cp-top">
+      <button class="icon-btn" data-a="back" aria-label="Retour">${icon('back')}</button>
+      <input class="cp-name" data-f="name" value="${esc(c.name)}" aria-label="Nom de la composition">
+      <div class="spacer"></div>
+      <button class="icon-btn" data-a="undo" aria-label="Annuler" title="Annuler (Ctrl+Z)" ${this.undo.length ? '' : 'disabled'}>${icon('undo')}</button>
+      <button class="icon-btn" data-a="more" aria-label="Plus">${icon('more')}</button>
+    </header>`;
+    const opts = `<div class="cp-opts">
+      <label>Style <select data-f="style">${Object.entries(STYLES).map(([k, v]) => `<option value="${k}" ${c.style === k ? 'selected' : ''}>${v.label}</option>`).join('')}</select></label>
+      <label>Tonalité <select data-f="key"><option value="">Auto${c.key ? '' : ` (${esc(keyLabel(key))})`}</option>${KEYS.map((k) => `<option value="${k.pc}${k.minor ? 'm' : ''}" ${c.key && c.key.pc === k.pc && c.key.minor === k.minor ? 'selected' : ''}>${keyLabel(k)}</option>`).join('')}</select></label>
+      <label>Tempo <input type="number" min="40" max="240" data-f="bpm" value="${c.bpm}"> bpm</label>
+      <span class="seg">${[['guitar', 'Guitare'], ['piano', 'Piano']].map(([k, l]) => `<button data-a="inst" data-v="${k}" class="${c.instrument === k ? 'on' : ''}">${l}</button>`).join('')}</span>
+      ${inst === 'guitar' ? `<label>Manche <select data-f="zone"><option value="">Libre</option><option value="low" ${c.zone === 'low' ? 'selected' : ''}>En bas (cordes à vide)</option><option value="mid" ${c.zone === 'mid' ? 'selected' : ''}>Au milieu</option><option value="high" ${c.zone === 'high' ? 'selected' : ''}>En haut</option></select></label>` : ''}
+      <label class="chk"><input type="checkbox" data-f="drums" ${c.drums ? 'checked' : ''}> Batterie</label>
+      <button class="btn primary cp-play" data-a="play">${this.player.on ? `${icon('pause')} Stop` : `${icon('play')} Écouter la grille`}</button>
+      ${sel ? `<button class="btn small" data-a="play-sec" title="Écouter seulement cette partie en boucle">${icon('loop')} Cette partie</button>` : ''}
+    </div>`;
+    const secs = c.sections.map((s, si) => {
+      const bars = s.bars.map((b, bi) => {
+        const isSel = sel && sel.si === si && sel.bi === bi;
+        const cs = b.c.filter(Boolean);
+        let inner;
+        if (!b.c.length || !cs.length) inner = '<span class="cp-empty">+</span>';
+        else if (b.c.length === 1) inner = `<b class="cp-ch">${esc(b.c[0])}</b>`;
+        else inner = `<span class="cp-split"><b class="c1${sel && isSel && sel.h === 0 ? ' hsel' : ''}">${esc(b.c[0] || '·')}</b><b class="c2${sel && isSel && sel.h === 1 ? ' hsel' : ''}">${esc(b.c[1] || '·')}</b></span>`;
+        const dg = cs.length ? `<span class="cp-dg">${b.c.map((nm, h) => (nm ? diagramSVG(nm, inst, { index: this.vAt(si, bi, h) }) : '')).join('')}</span>` : '';
+        const rm = cs.length && b.c.length === 1 ? `<i class="cp-rn">${esc(roman(b.c[0], key))}</i>` : '';
+        return `<div class="cp-bar${isSel ? ' cp-sel' : ''}${this.playing === `${si}.${bi}` ? ' cp-now' : ''}" data-si="${si}" data-bi="${bi}">${inner}${rm}${dg}<span class="n">${bi + 1}</span></div>`;
+      }).join('');
+      return `<section class="cp-sec k-${s.kind}" data-si="${si}">
+        <div class="cp-sec-h">
+          <input class="cp-sec-name" data-f="label" data-si="${si}" value="${esc(s.label)}" aria-label="Nom de la partie">
+          <span class="stepper sm" title="Nombre de fois"><button data-a="rep" data-si="${si}" data-v="-1">−</button><output>×${s.repeat}</output><button data-a="rep" data-si="${si}" data-v="1">+</button></span>
+          <span class="cp-sec-acts">
+            <button class="btn small ghost" data-a="sec-play" data-si="${si}" title="Écouter cette partie">${icon('play')}</button>
+            <button class="btn small ghost" data-a="bars" data-si="${si}" data-v="-1" title="Retirer une mesure">− mes.</button>
+            <button class="btn small ghost" data-a="bars" data-si="${si}" data-v="1" title="Ajouter une mesure">+ mes.</button>
+            <button class="btn small ghost" data-a="sec-menu" data-si="${si}" aria-label="Plus">${icon('more')}</button>
+          </span>
+        </div>
+        <div class="cp-bars">${bars}</div>
+      </section>`;
+    }).join('');
+    const addSec = `<div class="cp-add">${KINDS.map(([k, l]) => `<button class="btn small" data-a="add-sec" data-v="${k}">${icon('plus')} ${l}</button>`).join('')}</div>`;
+    this.el.innerHTML = `${head}<div class="cp-wrap"><main class="cp-main">${opts}<div class="cp-grid">${secs}</div>${addSec}
+      <p class="note cp-help">Touche une case pour y mettre un accord · deux accords par case : « Couper la mesure » · les doigtés s’enchaînent tout seuls (le moins de déplacements possible).</p></main>
+      ${this.panel(key)}</div>`;
+    if (sel && this._scrollSel !== `${sel.si}.${sel.bi}`) {
+      this._scrollSel = `${sel.si}.${sel.bi}`;
+      requestAnimationFrame(() => {
+        const bar = this.el.querySelector('.cp-bar.cp-sel'), pnl = this.el.querySelector('.cp-panel');
+        if (!bar || !pnl || getComputedStyle(pnl).position !== 'fixed') return;
+        const r = bar.getBoundingClientRect(), limit = innerHeight - pnl.offsetHeight - 12;
+        if (r.bottom > limit || r.top < 60) bar.scrollIntoView({ block: 'start', behavior: 'smooth' });
+      });
+    }
+  }
+
+  panel(key) {
+    const sel = this.sel, c = this.c;
+    if (!sel) return `<aside class="cp-panel empty-p"><h3>Composer</h3><p class="note">Touche une case de la grille pour choisir un accord. MusiMix te proposera :</p>
+      <ul class="note"><li><b>Suite</b> : les accords qui vont bien après le précédent</li><li><b>Transitions</b> : des accords de passage vers le suivant</li><li><b>Variantes</b> : couleurs, renversements, substitutions</li><li><b>Doigtés</b> : les formes les plus proches sur le manche</li></ul>
+      <p class="note">Le style (${esc(STYLES[c.style].label)}) oriente les propositions et le rythme d’écoute.</p></aside>`;
+    const s = c.sections[sel.si], b = s.bars[sel.bi], cur = b.c[sel.h] || '';
+    const { prev, next } = this.neighbors(sel.si, sel.bi, sel.h);
+    const inst = c.instrument === 'piano' ? 'piano' : 'guitar';
+    const chip = (nm, why, extra = '') => `<span class="cp-chip"><button class="cp-use" data-a="use" data-v="${esc(nm)}" ${extra} title="${esc(why || '')}"><b>${esc(nm)}</b>${why ? `<small>${esc(why)}</small>` : ''}</button><button class="cp-hear" data-a="hear" data-v="${esc(nm)}" aria-label="Écouter ${esc(nm)}">${icon('play')}</button></span>`;
+    let body = '';
+    if (this.tab === 'next') {
+      const list = nextChords(prev?.name || '', key, c.style);
+      body = `<p class="note">${prev ? `Après <b>${esc(prev.name)}</b> :` : 'Pour commencer :'}</p><div class="cp-chips">${list.map((x) => chip(x.name, x.why)).join('')}</div>
+        <p class="note" style="margin-top:10px">Accords de la tonalité (${esc(keyLabel(key))}) :</p><div class="cp-chips small">${[0, 1, 2, 3, 4, 5, 6].map((d) => { const nm = degree(key, d, c.style); return chip(nm, roman(nm, key)); }).join('')}</div>`;
+    } else if (this.tab === 'trans') {
+      const a = cur || prev?.name, nb = next?.name;
+      if (!a || !nb) body = '<p class="note">Il faut un accord ici et un accord après pour proposer des transitions.</p>';
+      else body = `<p class="note">De <b>${esc(a)}</b> vers <b>${esc(nb)}</b> — joués sur la 2<sup>e</sup> moitié de la mesure :</p><div class="cp-chips">${transitions(a, nb, key, c.style).map((x) => `<span class="cp-chip"><button class="cp-use" data-a="trans" data-v="${esc(x.names.join(' '))}" title="${esc(x.why)}"><b>${esc(x.names.join(' → '))}</b><small>${esc(x.why)}</small></button><button class="cp-hear" data-a="hear-seq" data-v="${esc([a, ...x.names, nb].join(' '))}" aria-label="Écouter">${icon('play')}</button></span>`).join('')}</div>`;
+    } else if (this.tab === 'var') {
+      body = cur ? `<p class="note">Autres couleurs pour <b>${esc(cur)}</b> :</p><div class="cp-chips">${variations(cur, key, c.style).map((x) => chip(x.name, x.why)).join('')}</div>` : '<p class="note">Choisis d’abord un accord.</p>';
+    } else if (this.tab === 'vo') {
+      if (!cur) body = '<p class="note">Choisis d’abord un accord.</p>';
+      else if (inst === 'piano') body = `<div class="cp-vo">${diagramSVG(cur, 'piano', {})}</div>`;
+      else {
+        const pv = prev ? voicingOf(prev.name, this.vAt(prev.si, prev.bi, prev.h)) : null, nv = next ? voicingOf(next.name, this.vAt(next.si, next.bi, next.h)) : null;
+        const opts = voicingOptions(cur, pv, nv, 'guitar'), cv = this.vAt(sel.si, sel.bi, sel.h), lockd = b.v?.[sel.h] != null;
+        body = `<p class="note">Classés du plus proche au plus loin de ${prev ? `<b>${esc(prev.name)}</b>` : ''}${prev && next ? ' et ' : ''}${next ? `<b>${esc(next.name)}</b>` : ''} :</p>
+          <div class="cp-vos">${opts.map((o, r) => `<button class="cp-vo${o.index === cv ? ' on' : ''}" data-a="vo" data-v="${o.index}">${diagramSVG(cur, 'guitar', { index: o.index })}<small>${o.pos ? `case ${o.pos}` : 'cordes à vide'}${r === 0 ? ' · le plus proche' : ''}</small></button>`).join('')}</div>
+          ${lockd ? '<button class="btn small" data-a="vo-auto">Revenir au choix automatique</button>' : ''}`;
+      }
+    }
+    return `<aside class="cp-panel">
+      <div class="cp-p-head"><b>${esc(s.label)} · mesure ${sel.bi + 1}${b.c.length > 1 ? ` · ${sel.h ? '2e' : '1re'} moitié` : ''}</b><button class="icon-btn sm" data-a="unsel" aria-label="Fermer">${icon('close')}</button></div>
+      <div class="cp-entry">
+        <input class="cp-in" data-f="chord" value="${esc(cur)}" placeholder="Accord (ex. Am7, F/A, G)" autocomplete="off" spellcheck="false">
+        ${cur ? `<button class="icon-btn" data-a="hear" data-v="${esc(cur)}" aria-label="Écouter">${icon('play')}</button>` : ''}
+      </div>
+      <div class="cp-roots">${(([1, 3, 5, 8, 10].includes(key.pc) && !key.minor) || [0, 2, 5, 7, 10].includes(key.pc) && key.minor ? FLAT : ['C', 'Db', 'D', 'Eb', 'E', 'F', 'F#', 'G', 'Ab', 'A', 'Bb', 'B']).map((n, i) => `<button data-a="root" data-v="${n}" class="${this.root === n ? 'on' : ''}">${n}</button>`).join('')}</div>
+      <div class="cp-quals">${QUAL.map(([q, l]) => `<button data-a="qual" data-v="${q}">${l}</button>`).join('')}</div>
+      <div class="cp-row">
+        <button class="btn small" data-a="split">${b.c.length > 1 ? 'Un seul accord dans la mesure' : 'Couper la mesure (2 accords)'}</button>
+        ${b.c.length > 1 ? `<span class="seg"><button data-a="half" data-v="0" class="${sel.h === 0 ? 'on' : ''}">1re moitié</button><button data-a="half" data-v="1" class="${sel.h === 1 ? 'on' : ''}">2e moitié</button></span>` : ''}
+        <button class="btn small ghost" data-a="clear">Effacer</button>
+        <button class="btn small ghost" data-a="copy-prev" title="Reprendre l’accord de la mesure d’avant">= précédent</button>
+      </div>
+      <div class="seg cp-tabs">${[['next', 'Suite'], ['trans', 'Transitions'], ['var', 'Variantes'], ['vo', 'Doigtés']].map(([k, l]) => `<button data-a="tab" data-v="${k}" class="${this.tab === k ? 'on' : ''}">${l}</button>`).join('')}</div>
+      <div class="cp-tab">${body}</div>
+    </aside>`;
+  }
+
+  renderList() {
+    const items = [...this.list].sort((a, b) => b.updatedAt - a.updatedAt);
+    this.el.innerHTML = `<header class="topbar"><button class="icon-btn" data-a="home" aria-label="Retour">${icon('back')}</button>
+      <div class="song-title"><b>Composer</b><span>Grilles d’accords avec suggestions et écoute</span></div><div class="spacer"></div></header>
+      <main class="library"><div class="lib-head"><div><h1>Mes compositions</h1></div><div class="spacer"></div><button class="btn primary" data-a="new">${icon('plus')} Nouvelle composition</button></div>
+      ${items.length ? `<ul class="songs">${items.map((x) => { const n = x.sections.reduce((a, s) => a + s.bars.filter((b) => b.c.some(Boolean)).length, 0); return `<li class="song-row" data-open="${x.id}"><div class="t"><b>${esc(x.name)}</b><span>${esc(STYLES[x.style]?.label || '')} · ${esc(x.sections.map((s) => s.label).join(', '))}</span></div><div class="meta">${n} mesure${n > 1 ? 's' : ''}</div><button class="icon-btn" data-a="del" data-v="${x.id}" aria-label="Supprimer">${icon('trash')}</button></li>`; }).join('')}</ul>`
+        : `<div class="empty"><h2>Aucune composition</h2><p>Pars d’une grille vierge (intro, couplet, refrain…), mets quelques accords, et laisse MusiMix te proposer la suite, des transitions, des variantes et les doigtés les plus pratiques.</p><div class="row"><button class="btn primary" data-a="new">Commencer</button></div></div>`}
+      </main>`;
+  }
+
+  // ───────────────────────────────────────────────────────── actions ──
+  setChord(nm, { play = true } = {}) {
+    const sel = this.sel;
+    if (!sel) return;
+    const b = this.c.sections[sel.si].bars[sel.bi];
+    this.snap();
+    if (!b.c.length) b.c = [''];
+    b.c[sel.h] = nm;
+    if (b.v) b.v[sel.h] = null;
+    if (play && nm) { this.voicingsAuto(); playChord(nm, this.c.instrument, this.vAt(sel.si, sel.bi, sel.h)); }
+    this.save(); this.render();
+  }
+
+  advance() {
+    const sel = this.sel, s = this.c.sections[sel.si], b = s.bars[sel.bi];
+    if (b.c.length > 1 && sel.h === 0) { this.sel = { ...sel, h: 1 }; return; }
+    if (sel.bi + 1 < s.bars.length) this.sel = { si: sel.si, bi: sel.bi + 1, h: 0 };
+    else if (sel.si + 1 < this.c.sections.length) this.sel = { si: sel.si + 1, bi: 0, h: 0 };
+  }
+
+  events(onlySi = null) {
+    // événements pour le lecteur (en noires), parties répétées
+    const ev = [];
+    let beat = 0;
+    this.c.sections.forEach((s, si) => {
+      if (onlySi != null && si !== onlySi) return;
+      for (let r = 0; r < (onlySi != null ? 1 : s.repeat); r++) {
+        s.bars.forEach((b, bi) => {
+          const cs = b.c.length ? b.c : [''];
+          let last = null;
+          cs.forEach((nm, h) => {
+            const dur = 4 / cs.length;
+            let name = nm;
+            if (!name) { const prev = ev[ev.length - 1]; name = prev ? prev.name : ''; }
+            if (name) ev.push({ name, v: this.vAt(si, bi, h), beat0: beat + h * dur, dur, barBeat0: beat, firstOfBar: h === 0, key: `${si}.${bi}` });
+            last = name;
+          });
+          if (!cs.some(Boolean) && !ev.length) ev.push({ name: '', v: 0, beat0: beat, dur: 4, barBeat0: beat, firstOfBar: true, key: `${si}.${bi}`, rest: true });
+          beat += 4;
+        });
+      }
+    });
+    return ev.filter((e) => e.name || e.rest).map((e) => (e.rest ? { ...e, name: 'C', silent: true } : e)).filter((e) => !e.silent);
+  }
+
+  play(onlySi = null) {
+    if (this.player.on) { this.player.stop(); this.playing = null; this.render(); return; }
+    const ev = this.events(onlySi);
+    if (!ev.length) { toast('Mets au moins un accord dans la grille'); return; }
+    this.player.start(ev, {
+      bpm: this.c.bpm, style: this.c.style, instrument: this.c.instrument, drums: this.c.drums, loop: true,
+      onPos: (i) => {
+        this.playing = i >= 0 ? ev[i].key : null;
+        this.el.querySelectorAll('.cp-bar.cp-now').forEach((x) => x.classList.remove('cp-now'));
+        if (this.playing) { const [si, bi] = this.playing.split('.'); this.el.querySelector(`.cp-bar[data-si="${si}"][data-bi="${bi}"]`)?.classList.add('cp-now'); }
+      },
+    });
+    this.render();
+  }
+
+  exportText() {
+    const c = this.c;
+    const lines = [`{title: ${c.name}}`, `{tempo: ${c.bpm}}`, ''];
+    for (const s of c.sections) {
+      lines.push(`[${s.label}${s.repeat > 1 ? ` x${s.repeat}` : ''}]`);
+      for (let i = 0; i < s.bars.length; i += 4) {
+        const row = s.bars.slice(i, i + 4).map((b) => (b.c.filter(Boolean).length ? b.c.map((x) => x || '%').join(' ') : '%'));
+        lines.push(`| ${row.join(' | ')} |`);
+      }
+      lines.push('');
+    }
+    return lines.join('\n');
+  }
+
+  async onClick(e) {
+    const t = e.target.closest('[data-a], [data-open], .cp-bar');
+    if (!t) return;
+    if (t.dataset.open && !e.target.closest('[data-a]')) { this.app.go(`#/compo/${t.dataset.open}`); return; }
+    if (t.classList.contains('cp-bar') && !t.dataset.a) {
+      const si = +t.dataset.si, bi = +t.dataset.bi, b = this.c.sections[si].bars[bi];
+      let h = 0;
+      if (b.c.length > 1) { const r = t.getBoundingClientRect(); h = (e.clientX - r.left) / r.width + (e.clientY - r.top) / r.height > 1 ? 1 : 0; }
+      this.sel = { si, bi, h };
+      if (b.c[h]) playChord(b.c[h], this.c.instrument, this.vAt(si, bi, h));
+      this.render();
+      setTimeout(() => { const inp = this.el.querySelector('.cp-in'); if (inp && matchMedia('(pointer: fine)').matches) inp.focus(); }, 0);
+      return;
+    }
+    const a = t.dataset.a, v = t.dataset.v;
+    const c = this.c;
+    switch (a) {
+      case 'home': this.app.go('#/'); break;
+      case 'back': this.player.stop(); this.app.go('#/compo'); break;
+      case 'new': {
+        const x = blank(`Composition ${this.list.length + 1}`);
+        this.list.unshift(x); await db.set('compos', this.list);
+        this.app.go(`#/compo/${x.id}`); break;
+      }
+      case 'del': {
+        e.stopPropagation();
+        const x = this.list.find((y) => y.id === v);
+        if (x && await confirmBox('Supprimer la composition ?', `« ${x.name} » sera supprimée.`, { ok: 'Supprimer', danger: true })) { this.list = this.list.filter((y) => y.id !== v); await db.set('compos', this.list); this.render(); }
+        break;
+      }
+      case 'undo': if (this.undo.length) { const id = c.id; this.c = JSON.parse(this.undo.pop()); this.c.id = id; this.save(); this.render(); } break;
+      case 'more': openMenu(t, [
+        { icon: 'list', label: 'Copier la grille (texte)', action: async () => { try { await navigator.clipboard.writeText(this.exportText()); toast('Grille copiée : colle-la dans l’éditeur d’un morceau'); } catch { toast('Copie impossible'); } } },
+        { icon: 'plus', label: 'Créer un morceau avec cette grille', action: () => this.toSong() },
+        { icon: 'edit', label: 'Dupliquer la composition', action: async () => { const x = JSON.parse(JSON.stringify(c)); x.id = uid(); x.name += ' (copie)'; this.list.unshift(x); await db.set('compos', this.list); this.app.go(`#/compo/${x.id}`); } },
+      ]); break;
+      case 'inst': c.instrument = v; this.changed(); break;
+      case 'play': this.play(); break;
+      case 'play-sec': case 'sec-play': this.player.stop(); this.play(a === 'sec-play' ? +t.dataset.si : this.sel.si); break;
+      case 'rep': { const s = c.sections[+t.dataset.si]; s.repeat = Math.max(1, Math.min(8, s.repeat + +v)); this.changed(); break; }
+      case 'bars': {
+        const s = c.sections[+t.dataset.si];
+        this.snap();
+        if (+v > 0) s.bars.push({ c: [] }); else if (s.bars.length > 1) { s.bars.pop(); if (this.sel?.si === +t.dataset.si && this.sel.bi >= s.bars.length) this.sel = null; }
+        this.changed({ snap: false }); break;
+      }
+      case 'sec-menu': {
+        const si = +t.dataset.si;
+        openMenu(t, [
+          { label: 'Monter', action: () => { if (si > 0) { this.snap(); const [x] = c.sections.splice(si, 1); c.sections.splice(si - 1, 0, x); this.sel = null; this.changed({ snap: false }); } } },
+          { label: 'Descendre', action: () => { if (si < c.sections.length - 1) { this.snap(); const [x] = c.sections.splice(si, 1); c.sections.splice(si + 1, 0, x); this.sel = null; this.changed({ snap: false }); } } },
+          { label: 'Dupliquer la partie', action: () => { this.snap(); const x = JSON.parse(JSON.stringify(c.sections[si])); x.id = uid(); c.sections.splice(si + 1, 0, x); this.changed({ snap: false }); } },
+          { icon: 'trash', label: 'Supprimer la partie', action: () => { this.snap(); c.sections.splice(si, 1); this.sel = null; this.changed({ snap: false }); } },
+        ]);
+        break;
+      }
+      case 'add-sec': { const [k, l] = KINDS.find((x) => x[0] === v); this.snap(); c.sections.push({ id: uid(), kind: k, label: l, repeat: 1, bars: Array.from({ length: k === 'intro' || k === 'outro' ? 4 : 8 }, () => ({ c: [] })) }); this.changed({ snap: false }); break; }
+      case 'unsel': this.sel = null; this.render(); break;
+      case 'root': this.root = v; this.render(); break;
+      case 'qual': { const r = this.root || parseChord(this.c.sections[this.sel.si].bars[this.sel.bi].c[this.sel.h])?.rootName || 'C'; this.setChord(r + v); break; }
+      case 'use': this.setChord(v); break;
+      case 'hear': playChord(v, c.instrument); break;
+      case 'hear-seq': { const ns = v.split(' '); ns.forEach((nm, i) => setTimeout(() => playChord(nm, c.instrument, 0, { dur: 0.9 }), i * 700)); break; }
+      case 'trans': {
+        const ns = v.split(' '), sel = this.sel, s = c.sections[sel.si], b = s.bars[sel.bi];
+        this.snap();
+        const a0 = b.c[sel.h] || this.neighbors(sel.si, sel.bi, sel.h).prev?.name || '';
+        if (ns.length === 1) { b.c = [a0, ns[0]]; b.v = []; this.sel = { ...sel, h: 1 }; }
+        else { b.c = [a0, ns[0]]; b.v = []; s.bars.splice(sel.bi + 1, 0, { c: [ns[1]] }); }
+        this.save(); this.render();
+        const seq = [a0, ...ns, this.neighbors(sel.si, sel.bi, 1).next?.name].filter(Boolean);
+        seq.forEach((nm, i) => setTimeout(() => playChord(nm, c.instrument, 0, { dur: 0.9 }), i * 650));
+        break;
+      }
+      case 'split': {
+        const b = c.sections[this.sel.si].bars[this.sel.bi];
+        this.snap();
+        if (b.c.length > 1) { b.c = [b.c[0] || b.c[1]]; b.v = []; this.sel.h = 0; } else { b.c = [b.c[0] || '', '']; this.sel.h = 1; }
+        this.save(); this.render(); break;
+      }
+      case 'half': this.sel.h = +v; this.render(); break;
+      case 'clear': { const b = c.sections[this.sel.si].bars[this.sel.bi]; this.snap(); b.c = []; b.v = []; this.sel.h = 0; this.save(); this.render(); break; }
+      case 'copy-prev': { const p = this.neighbors(this.sel.si, this.sel.bi, this.sel.h).prev; if (p) this.setChord(p.name); break; }
+      case 'tab': this.tab = v; this.render(); break;
+      case 'vo': { const b = c.sections[this.sel.si].bars[this.sel.bi]; this.snap(); b.v = b.v || []; b.v[this.sel.h] = +v; this.save(); this.render(); playChord(b.c[this.sel.h], c.instrument, +v); break; }
+      case 'vo-auto': { const b = c.sections[this.sel.si].bars[this.sel.bi]; if (b.v) b.v[this.sel.h] = null; this.changed(); break; }
+      default:
+    }
+  }
+
+  onChange(e) {
+    const f = e.target.dataset.f, c = this.c;
+    if (!f || !c) return;
+    if (f === 'style') { c.style = e.target.value; if (!this._bpmTouched) c.bpm = STYLES[c.style].bpm; this.changed(); }
+    else if (f === 'key') { const v = e.target.value; c.key = v ? { pc: parseInt(v, 10), minor: v.endsWith('m') } : null; this.changed(); }
+    else if (f === 'bpm') { c.bpm = Math.max(40, Math.min(240, +e.target.value || 100)); this._bpmTouched = true; this.save(); }
+    else if (f === 'zone') { c.zone = e.target.value || null; this.changed(); }
+    else if (f === 'drums') { c.drums = e.target.checked; this.save(); }
+    else if (f === 'label') { const s = c.sections[+e.target.dataset.si]; s.label = e.target.value.trim() || s.label; this.save(); }
+    else if (f === 'name') { c.name = e.target.value.trim() || c.name; this.save(); }
+    else if (f === 'chord') this.commitInput(e.target);
+  }
+
+  onInput(e) {
+    if (e.target.dataset.f === 'chord') e.target.classList.toggle('bad', !!e.target.value.trim() && !e.target.value.trim().split(/\s+/).every((x) => parseChord(x)));
+  }
+
+  commitInput(inp, adv = false) {
+    const raw = inp.value.trim();
+    if (!this.sel) return;
+    const parts = raw ? raw.split(/\s+/) : [];
+    if (parts.some((x) => !parseChord(x))) { toast('Accord non reconnu'); return; }
+    const b = this.c.sections[this.sel.si].bars[this.sel.bi];
+    if (parts.length >= 2) { this.snap(); b.c = parts.slice(0, 2); b.v = []; this.save(); if (adv) { this.sel.h = 1; this.advance(); } this.render(); playChord(parts[0], this.c.instrument); return; }
+    if ((b.c[this.sel.h] || '') === (parts[0] || '')) { if (adv) { this.advance(); this.render(); } return; }
+    this.setChord(parts[0] || '', { play: true });
+    if (adv) { this.advance(); this.render(); }
+  }
+
+  onKey(e) {
+    if (!this.c) return;
+    const inInput = e.target.matches?.('input, select, textarea');
+    if ((e.ctrlKey || e.metaKey) && e.key === 'z') { e.preventDefault(); this.el.querySelector('[data-a="undo"]')?.click(); return; }
+    if (e.target.classList?.contains('cp-in')) {
+      if (e.key === 'Enter' || e.key === 'Tab') { e.preventDefault(); this.commitInput(e.target, true); setTimeout(() => this.el.querySelector('.cp-in')?.focus(), 0); }
+      if (e.key === 'Escape') { this.sel = null; this.render(); }
+      return;
+    }
+    if (inInput) return;
+    if (e.key === ' ') { e.preventDefault(); this.play(); }
+    if (!this.sel) return;
+    if (e.key === 'ArrowRight') { this.advance(); this.render(); }
+    if (e.key === 'ArrowLeft') { const s = this.sel; if (s.h === 1) s.h = 0; else if (s.bi > 0) { s.bi--; s.h = 0; } else if (s.si > 0) { s.si--; s.bi = this.c.sections[s.si].bars.length - 1; s.h = 0; } this.render(); }
+    if (e.key === 'Delete' || e.key === 'Backspace') this.el.querySelector('[data-a="clear"]')?.click();
+  }
+
+  async toSong() {
+    const text = this.exportText().replace(/\[([^\]]+?) x\d+\]/g, '[$1]');
+    const song = newSong({ title: this.c.name, artist: '', bpm: this.c.bpm, source: 'composition' });
+    song.doc = parseSheet(text);
+    const k = this.key();
+    song.key = keyLabel(k);
+    await db.putSong(song);
+    toast('Morceau créé : ajoute ton enregistrement pour l’écouter avec la grille');
+    this.app.go(`#/edit/${song.id}`);
+  }
+}
