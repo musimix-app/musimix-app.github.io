@@ -1114,3 +1114,28 @@ body.noselect, body.noselect * { user-select: none !important; -webkit-user-sele
 .cp-draw .cp-draw-res { margin-top: 4px; }
 .cp-draw .cp-draw-res > span { font-size: 13px; }
 .cp-draw .cp-draw-res b { font-size: 14px; }
+/* panneau compact (tient sur une page) */
+.cp-panel { padding-top: 10px; }
+.cp-p-head { margin-bottom: 6px; }
+.cp-in { font-size: 19px; padding: 6px 10px; }
+.cp-draw { margin: 8px 0 4px; padding: 6px 6px 4px; }
+.nk { overflow: visible; }
+.nk-rows { min-width: 0; }
+.nk-row { grid-template-columns: 22px 20px repeat(12, minmax(0, 1fr)); }
+.nk-l { font-size: 9px; padding-right: 3px; }
+.nk-open, .nk-c { height: 19px; }
+.nk-row:not(.nk-m)::before { left: 42px; }
+.nk-c.on::after { width: 13px; height: 13px; margin: -6.5px 0 0 -6.5px; }
+.nk-m span { font-size: 9px; }
+.cp-draw .cp-draw-res { flex-wrap: nowrap; gap: 4px; }
+.cp-draw .cp-draw-res > span { flex: 1 1 auto; font-size: 12px; }
+.cp-draw .cp-draw-res .btn { padding: 0 8px; min-height: 28px; }
+.cp-roots { display: grid; grid-template-columns: repeat(12, minmax(0, 1fr)); gap: 3px; margin-top: 6px; }
+.cp-quals { display: grid; grid-template-columns: repeat(8, minmax(0, 1fr)); gap: 3px; margin-top: 4px; }
+.cp-roots button, .cp-quals button { min-width: 0; height: 28px; padding: 0; font-size: 12px; border-radius: 7px; }
+.cp-acts { gap: 4px; margin: 8px 0 6px; }
+.cp-acts .btn { padding: 0 9px; min-height: 28px; font-size: 12.5px; }
+.cp-acts .btn.on { background: var(--ink); color: var(--bg); }
+.cp-acts .seg button { padding: 0 8px; font-size: 12.5px; }
+.cp-sep { width: 1px; align-self: stretch; background: var(--line-2); margin: 2px 2px; }
+.cp-tabs { margin: 4px 0 8px; }

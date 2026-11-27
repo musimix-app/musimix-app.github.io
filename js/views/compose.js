@@ -299,16 +299,15 @@ export class ComposeView {
       ${inst === 'piano' ? this.drawPiano(cur, b) : this.drawNeck(cur, b)}
       <div class="cp-roots">${(([1, 3, 5, 8, 10].includes(key.pc) && !key.minor) || [0, 2, 5, 7, 10].includes(key.pc) && key.minor ? FLAT : ['C', 'Db', 'D', 'Eb', 'E', 'F', 'F#', 'G', 'Ab', 'A', 'Bb', 'B']).map((n, i) => `<button data-a="root" data-v="${n}" class="${this.root === n ? 'on' : ''}">${n}</button>`).join('')}</div>
       <div class="cp-quals">${QUAL.map(([q, l]) => `<button data-a="qual" data-v="${q}">${l}</button>`).join('')}</div>
-      <div class="cp-row">
-        <button class="btn small" data-a="split">${b.c.length > 1 ? 'Un seul accord dans la mesure' : 'Couper la mesure (2 accords)'}</button>
-        ${b.c.length > 1 ? `<span class="seg"><button data-a="half" data-v="0" class="${sel.h === 0 ? 'on' : ''}">1re moitié</button><button data-a="half" data-v="1" class="${sel.h === 1 ? 'on' : ''}">2e moitié</button></span>` : ''}
+      <div class="cp-row cp-acts">
+        <button class="btn small" data-a="split" title="${b.c.length > 1 ? 'Un seul accord dans la mesure' : 'Deux accords dans la mesure'}">${b.c.length > 1 ? '1 accord' : '2 accords'}</button>
+        ${b.c.length > 1 ? `<span class="seg"><button data-a="half" data-v="0" class="${sel.h === 0 ? 'on' : ''}">1re</button><button data-a="half" data-v="1" class="${sel.h === 1 ? 'on' : ''}">2e</button></span>` : ''}
+        <button class="btn small ghost" data-a="copy-prev" title="Reprendre l’accord d’avant">= préc.</button>
         <button class="btn small ghost" data-a="clear">Effacer</button>
-        <button class="btn small ghost" data-a="copy-prev" title="Reprendre l’accord de la mesure d’avant">= précédent</button>
-      </div>
-      <div class="cp-row cp-clip">
-        <button class="btn small ghost${this.multi ? ' on' : ''}" data-a="multi" title="Puis touche la dernière case à prendre">Sélectionner plusieurs</button>
+        <span class="cp-sep"></span>
+        <button class="btn small ghost${this.multi ? ' on' : ''}" data-a="multi" title="Puis touche la dernière case à prendre">Plusieurs</button>
         <button class="btn small ghost" data-a="copy">Copier</button>
-        ${CLIP?.length ? `<button class="btn small" data-a="paste">Coller (${CLIP.length} mes.)</button><button class="btn small ghost" data-a="paste-ins" title="Insère les mesures copiées ici, sans rien écraser">Insérer</button>` : ''}
+        ${CLIP?.length ? `<button class="btn small ghost" data-a="paste" title="Coller ${CLIP.length} mesure(s) ici">Coller</button><button class="btn small ghost" data-a="paste-ins" title="Insérer ici sans rien écraser">Insérer</button>` : ''}
       </div>
       <div class="seg cp-tabs">${[['next', 'Suite'], ['trans', 'Transitions'], ['var', 'Variantes'], ['vo', inst === 'piano' ? 'Position' : 'Doigtés']].map(([k, l]) => `<button data-a="tab" data-v="${k}" class="${this.tab === k ? 'on' : ''}">${l}</button>`).join('')}</div>
       <div class="cp-tab">${body}</div>
@@ -357,8 +356,8 @@ export class ComposeView {
     const pending = this.draft?.key === this.slotKey();
     return `<div class="cp-draw">
       <div class="nk"><div class="nk-rows">${rows}<div class="nk-row nk-m"><span class="nk-l"></span>${marks}</div></div></div>
-      <div class="cp-draw-res"><span class="note">${pending ? (midi.length >= 2 ? 'Accord non reconnu : ajoute ou enlève une note' : 'Pose au moins deux notes') : cur ? `Touche le manche pour modifier <b>${esc(nm || cur)}</b>` : 'Pose tes doigts sur le manche pour créer un accord'} · o / × : corde à vide / étouffée</span>
-        <button class="btn small ghost" data-a="nk-hear" ${midi.length ? '' : 'disabled'}>${icon('play')} Écouter</button>
+      <div class="cp-draw-res"><span class="note" title="Touche une case par corde · o / × : corde à vide / étouffée">${pending ? (midi.length >= 2 ? 'Non reconnu : ajoute ou enlève une note' : 'Pose au moins deux notes') : cur ? 'Touche le manche pour modifier' : 'Pose tes doigts pour créer un accord'}</span>
+        <button class="btn small ghost" data-a="nk-hear" ${midi.length ? '' : 'disabled'} aria-label="Écouter">${icon('play')}</button>
         <button class="btn small ghost" data-a="nk-clear">Vider</button></div></div>`;
   }
 
@@ -377,8 +376,8 @@ export class ComposeView {
     const pending = this.draft?.key === this.slotKey();
     return `<div class="cp-draw">
       <div class="pk"><svg viewBox="-1 -1 ${x + 2} ${wH + 2}">${whites}${blacks}</svg></div>
-      <div class="cp-draw-res"><span class="note">${pending ? (set.size >= 2 ? 'Accord non reconnu : ajoute ou enlève une note' : 'Choisis au moins deux notes') : cur ? `Touche le clavier pour modifier <b>${esc(nm || cur)}</b>` : 'Touche les notes pour créer un accord'} · la plus grave = la basse</span>
-        <button class="btn small ghost" data-a="pk-hear" ${set.size ? '' : 'disabled'}>${icon('play')} Écouter</button>
+      <div class="cp-draw-res"><span class="note" title="La note la plus grave est la basse">${pending ? (set.size >= 2 ? 'Non reconnu : ajoute ou enlève une note' : 'Choisis au moins deux notes') : cur ? 'Touche le clavier pour modifier' : 'Touche les notes pour créer un accord'}</span>
+        <button class="btn small ghost" data-a="pk-hear" ${set.size ? '' : 'disabled'} aria-label="Écouter">${icon('play')}</button>
         <button class="btn small ghost" data-a="nk-clear">Vider</button></div></div>`;
   }
 
