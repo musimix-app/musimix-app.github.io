@@ -930,9 +930,9 @@ dialog.diag-dlg { width: min(560px, calc(100vw - 20px)); }
 .sc-lyrics .scl-body { flex: 1; min-width: 0; }
 .sc-lyrics .scl-body[hidden] { display: none; }
 .sc-lyrics .hud { flex: none; padding-right: 16px; border-right: 1px solid var(--line); }
-.player.hud-off .hud { display: none; }
+.player.hud-off .hud, .player.hud-off .stage-hud { display: none; }
 .sc-hud-btn.on { background: var(--chord); color: #fff; border-color: var(--chord); }
-.stage-hud { position: absolute; top: 12px; left: 16px; z-index: 4; padding: 8px 12px; border-radius: var(--radius-s, 10px); background: color-mix(in srgb, var(--bg) 88%, transparent); box-shadow: 0 1px 0 var(--line); }
+.stage-hud { position: absolute; top: 12px; left: 16px; z-index: 4; display: flex; align-items: center; padding: 8px 12px; border-radius: var(--radius-s, 10px); background: color-mix(in srgb, var(--bg) 88%, transparent); box-shadow: 0 1px 0 var(--line); }
 .stage:not(.stage-mode) .stage-hud { display: none; }
 .stage.stage-mode .stage-hud .hud-txt b { font-size: 44px; }
 /* panneau de droite masquable */
@@ -945,7 +945,7 @@ dialog.diag-dlg { width: min(560px, calc(100vw - 20px)); }
 @media (max-width: 600px) { .hud-txt b { font-size: 26px; } .hud-dg svg { width: 48px; } .sc-lyrics { gap: 10px; } .sc-lyrics .hud { padding-right: 10px; } }
 @media (max-width: 860px) { .sc-lyrics .hud, .stage-hud { display: none !important; } }
 /* Scène : accord en grand, centré */
-.stage.stage-mode .stage-hud { left: 50%; transform: translateX(-50%); top: 14px; padding: 10px 22px; gap: 18px; }
+.stage.stage-mode .stage-hud { left: 50%; transform: translateX(-50%); top: 14px; padding: 10px 34px 10px 22px; }
 .stage.stage-mode .stage-hud .hud-txt { justify-items: center; text-align: center; }
 .stage.stage-mode .stage-hud .hud-txt b { font-size: clamp(56px, 7vw, 96px); }
 .stage.stage-mode .stage-hud .hud-txt small { font-size: 16px; }
@@ -959,3 +959,11 @@ dialog.diag-dlg { width: min(560px, calc(100vw - 20px)); }
 .sc-lyrics .scl-body { flex: 1; }
 .stage-hud { cursor: grab; touch-action: none; user-select: none; }
 .stage-hud.drag { cursor: grabbing; box-shadow: 0 6px 20px rgba(0,0,0,.12); }
+
+.stage-hud:has(.hud:empty) { display: none; }
+.stage.stage-mode .stage-hud .hud { gap: 18px; }
+.hud-size { position: absolute; top: 4px; right: 4px; display: flex; gap: 2px; opacity: 0; transition: opacity .15s; }
+.stage-hud:hover .hud-size, .stage-hud.drag .hud-size { opacity: 1; }
+@media (hover: none) { .hud-size { opacity: .55; } }
+.hud-size button { width: 26px; height: 26px; border-radius: 50%; border: 1px solid var(--line-2); background: var(--bg); color: var(--ink); font: 700 15px/1 var(--font-ui); cursor: pointer; padding: 0; }
+.hud-size button:hover { background: var(--ink); color: var(--bg); }

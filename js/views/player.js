@@ -157,7 +157,7 @@ export class PlayerView {
         <div class="fs-hint">Toucher l’écran : lecture / pause · Pédale : partie suivante · Double-toucher ou Échap : quitter</div>
         <button class="btn small follow-btn" data-act="follow" hidden>${icon('sync')} Suivre la lecture</button>
         <div class="countdown" hidden></div>
-        <div class="hud stage-hud" data-r="hud"></div>
+        <div class="stage-hud"><div class="hud" data-r="hud"></div><span class="hud-size"><button data-act="hud-size" data-v="-1" title="Réduire l’accord" aria-label="Réduire l’accord">−</button><button data-act="hud-size" data-v="1" title="Agrandir l’accord" aria-label="Agrandir l’accord">+</button></span></div>
         <button class="rail-open" data-act="rail-toggle" title="Afficher le panneau Accords et mixage" hidden>◂ Accords et mixage</button>
       </div>
       <aside class="rail" aria-label="Accords et mixage">
@@ -1032,16 +1032,18 @@ export class PlayerView {
     if (!this._stHudDrag) {
       this._stHudDrag = true;
       hud.addEventListener('pointerdown', (e) => {
+        if (e.target.closest('.hud-size')) return;
         e.preventDefault(); e.stopPropagation(); hud.setPointerCapture(e.pointerId); hud.classList.add('drag');
         const r = hud.getBoundingClientRect(), dx = e.clientX - r.left, dy = e.clientY - r.top;
         const mv = (ev) => { const sr = stage.getBoundingClientRect(); this.layoutStageHud({ x: ev.clientX - sr.left - dx, y: ev.clientY - sr.top - dy, live: true }); };
         const up = (ev) => { hud.classList.remove('drag'); hud.removeEventListener('pointermove', mv); hud.removeEventListener('pointerup', up); hud.removeEventListener('pointercancel', up); const sr = stage.getBoundingClientRect(); this.layoutStageHud({ x: ev.clientX - sr.left - dx, y: ev.clientY - sr.top - dy }); this.app.setPref('stageHudPos', this.prefsCache.stageHudPos); };
         hud.addEventListener('pointermove', mv); hud.addEventListener('pointerup', up); hud.addEventListener('pointercancel', up);
       });
-      hud.addEventListener('click', (e) => e.stopPropagation());
       if (window.ResizeObserver) new ResizeObserver(() => this.layoutStageHud()).observe(stage);
     }
-    const W = stage.clientWidth, H = stage.clientHeight, w = hud.offsetWidth, h = hud.offsetHeight, m = 10;
+    const z = this.prefsCache?.stageHudZoom || 1;
+    hud.style.zoom = z;
+    const W = stage.clientWidth, H = stage.clientHeight, w = hud.offsetWidth * z, h = hud.offsetHeight * z, m = 10;
     const P = (this.prefsCache ||= {}).stageHudPos || { fx: 0.5, fy: 0 };
     let x, y;
     if (drag) { x = drag.x; y = drag.y; } else { x = P.fx * (W - w); y = P.fy * (H - h); }
@@ -1063,7 +1065,7 @@ export class PlayerView {
       }
       if (drag) this.prefsCache.stageHudPos = { fx: W > w ? x / (W - w) : 0, fy: H > h ? y / (H - h) : 0 };
     }
-    hud.style.left = `${Math.round(x)}px`; hud.style.top = `${Math.round(y)}px`; hud.style.transform = 'none';
+    hud.style.left = `${Math.round(x / z)}px`; hud.style.top = `${Math.round(y / z)}px`; hud.style.transform = 'none';
   }
 
   syncBigWords(t) {
@@ -2010,7 +2012,7 @@ export class PlayerView {
   bind() {
     const el = this.el;
     el.addEventListener('click', (e) => {
-      if (this.fullStage && e.target.closest('.stage')) {
+      if (this.fullStage && e.target.closest('.stage') && !e.target.closest('.stage-hud')) {
         // plein écran : un toucher = lecture / pause (un double-toucher quitte)
         clearTimeout(this._fsTap);
         if (this._fsLast && performance.now() - this._fsLast < 320) { this._fsLast = 0; this.exitFullStage(); return; }
@@ -2210,6 +2212,11 @@ export class PlayerView {
         this.engine.setRate(p.rate); this.updateOptionOutputs(); this.saveSong(); break;
       }
       case 'off-auto': this.autoLyrics(); break;
+      case 'hud-size': {
+        const z0 = this.prefsCache?.stageHudZoom || 1, z = Math.max(0.5, Math.min(2.5, Math.round((z0 + (+b.dataset.v) * 0.15) * 100) / 100));
+        (this.prefsCache ||= {}).stageHudZoom = z; this.app.setPref('stageHudZoom', z); this.layoutStageHud();
+        break;
+      }
       case 'rail-toggle': { const off = !this.prefsCache?.railOff; (this.prefsCache ||= {}).railOff = off; this.app.setPref('railOff', off); this.applyRail(); break; }
       case 'hud-toggle': { const on = !this.hudOn(); (this.prefsCache ||= {}).hud = on; this.app.setPref('hud', on); this.applyHud(); this.renderScoreLyrics(true); this.updateScoreBar?.(); break; }
       case 'off-': case 'off+': p.offset = (p.offset || 0) + (a === 'off+' ? 50 : -50); this.updateOptionOutputs(); this.frame(true); this.renderBarMarks(); this.saveSong(); break;
