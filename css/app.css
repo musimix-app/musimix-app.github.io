@@ -977,3 +977,7 @@ dialog.diag-dlg { width: min(560px, calc(100vw - 20px)); }
 .sc-grip::after { content: ''; position: absolute; left: 50%; top: 4px; width: 44px; height: 4px; margin-left: -22px; border-radius: 2px; background: var(--line-2); transition: background .15s, width .15s; }
 .sc-grip:hover::after, .sc-grip.on::after { background: var(--playhead); width: 80px; margin-left: -40px; }
 @media (max-width: 600px) { .sc-lyrics { font-size: calc(16px * var(--bz, 1)); } }
+.sc-lyrics { overflow: visible; }
+.sc-grip { bottom: 0; height: 14px; }
+.sc-grip::after { top: 6px; }
+body.noselect, body.noselect * { user-select: none !important; -webkit-user-select: none !important; }

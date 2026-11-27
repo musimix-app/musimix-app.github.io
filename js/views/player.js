@@ -1029,8 +1029,8 @@ export class PlayerView {
   layoutStageHud(drag) {
     const stage = this.el.querySelector('.stage'), hud = stage?.querySelector('.stage-hud');
     if (!hud || this.mode !== 'stage' || !hud.offsetWidth) return;
-    if (!this._stHudDrag) {
-      this._stHudDrag = true;
+    if (!hud.dataset.drag) {
+      hud.dataset.drag = '1';
       hud.addEventListener('pointerdown', (e) => {
         if (e.target.closest('.hud-size')) return;
         e.preventDefault(); e.stopPropagation(); hud.setPointerCapture(e.pointerId); hud.classList.add('drag');
@@ -1391,6 +1391,7 @@ export class PlayerView {
   renderScoreLyrics(force = false, idx) {
     const wrap = this.el.querySelector('.sc-lyrics');
     if (!wrap) return;
+    this.initBandGrip();
     const on = !!this.song.score?.showLyrics, hud = this.hudOn();
     wrap.hidden = !on && !hud;
     const box = wrap.querySelector('.scl-body');
@@ -1412,12 +1413,34 @@ export class PlayerView {
     this.layoutHud();
   }
 
+  /** Poignée du bas du bandeau : glisser vers le bas / le haut agrandit / réduit accord et paroles. */
+  initBandGrip() {
+    const band = this.el.querySelector('.sc-lyrics');
+    if (!band) return;
+    const grip = band.querySelector('.sc-grip');
+    if (grip && !grip.dataset.on) {
+      grip.dataset.on = '1';
+      band.style.setProperty('--bz', this.prefsCache?.scBandZoom || 1);
+      grip.addEventListener('pointerdown', (e) => {
+        e.preventDefault(); e.stopPropagation(); grip.setPointerCapture(e.pointerId); grip.classList.add('on'); document.body.classList.add('noselect');
+        const y0 = e.clientY, z0 = this.prefsCache?.scBandZoom || 1;
+        const mv = (ev) => {
+          const z = Math.max(0.6, Math.min(3, Math.round(z0 * (1 + (ev.clientY - y0) / 160) * 100) / 100));
+          (this.prefsCache ||= {}).scBandZoom = z; band.style.setProperty('--bz', z); this.layoutHud();
+        };
+        const up = () => { grip.classList.remove('on'); document.body.classList.remove('noselect'); grip.removeEventListener('pointermove', mv); grip.removeEventListener('pointerup', up); grip.removeEventListener('pointercancel', up); this.app.setPref('scBandZoom', this.prefsCache.scBandZoom); };
+        grip.addEventListener('pointermove', mv); grip.addEventListener('pointerup', up); grip.addEventListener('pointercancel', up);
+      });
+      grip.addEventListener('dblclick', () => { (this.prefsCache ||= {}).scBandZoom = 1; band.style.setProperty('--bz', 1); this.app.setPref('scBandZoom', 1); this.layoutHud(); });
+    }
+  }
+
   /** Accord du bandeau : déplaçable à gauche ou à droite des paroles, sans jamais les recouvrir. */
   layoutHud(dragX) {
     const band = this.el.querySelector('.sc-lyrics'), hud = band?.querySelector('.hud');
     if (!hud || band.hidden || !hud.offsetWidth) return;
-    if (!this._hudDrag) {
-      this._hudDrag = true;
+    if (!hud.dataset.drag) {
+      hud.dataset.drag = '1';
       hud.addEventListener('pointerdown', (e) => {
         e.preventDefault(); hud.setPointerCapture(e.pointerId); hud.classList.add('drag');
         const dx = e.clientX - hud.getBoundingClientRect().left;
@@ -1426,22 +1449,6 @@ export class PlayerView {
         hud.addEventListener('pointermove', mv); hud.addEventListener('pointerup', up); hud.addEventListener('pointercancel', up);
       });
       if (window.ResizeObserver) new ResizeObserver(() => this.layoutHud()).observe(band);
-    }
-    if (!this._gripOn) {
-      this._gripOn = true;
-      const grip = band.querySelector('.sc-grip');
-      band.style.setProperty('--bz', this.prefsCache?.scBandZoom || 1);
-      grip.addEventListener('pointerdown', (e) => {
-        e.preventDefault(); grip.setPointerCapture(e.pointerId); grip.classList.add('on');
-        const y0 = e.clientY, z0 = this.prefsCache?.scBandZoom || 1;
-        const mv = (ev) => {
-          const z = Math.max(0.6, Math.min(3, Math.round(z0 * (1 + (ev.clientY - y0) / 160) * 100) / 100));
-          (this.prefsCache ||= {}).scBandZoom = z; band.style.setProperty('--bz', z); this.layoutHud();
-        };
-        const up = () => { grip.classList.remove('on'); grip.removeEventListener('pointermove', mv); grip.removeEventListener('pointerup', up); grip.removeEventListener('pointercancel', up); this.app.setPref('scBandZoom', this.prefsCache.scBandZoom); };
-        grip.addEventListener('pointermove', mv); grip.addEventListener('pointerup', up); grip.addEventListener('pointercancel', up);
-      });
-      grip.addEventListener('dblclick', () => { (this.prefsCache ||= {}).scBandZoom = 1; band.style.setProperty('--bz', 1); this.app.setPref('scBandZoom', 1); this.layoutHud(); });
     }
     const W = band.clientWidth, w = hud.offsetWidth, br = band.getBoundingClientRect();
     let L = W / 2, R = W / 2;
