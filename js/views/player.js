@@ -146,6 +146,7 @@ export class PlayerView {
               <button class="btn small ghost" data-sc="auto:lyr" title="Écoute la voix et cale les paroles dessus">Auto</button>
               <button class="btn small ghost" data-sc="auto:words" title="Chaque mot prend le temps de sa note dans la partition (si elle contient les paroles)">Mot à mot</button></span>
             <span class="note sc-status" data-r="sc-status"></span>
+            <button class="btn small ghost sc-hide" data-sc="bar:toggle" title="Masquer / afficher les réglages de la partition"><span class="when-open">Masquer ▴</span><span class="when-min">Réglages de la partition ▾</span></button>
           </div>
           <div class="sc-lyrics" hidden aria-live="off"></div>
           <div class="score-host"></div>
@@ -1146,6 +1147,12 @@ export class PlayerView {
       this._scBound = true;
       view.querySelector('.score-bar').addEventListener('click', (e) => {
         const b = e.target.closest('[data-sc]');
+        if (b?.dataset.sc === 'bar:toggle') {
+          const min = !this.prefsCache?.scoreBarMin;
+          (this.prefsCache ||= {}).scoreBarMin = min; this.app.setPref('scoreBarMin', min);
+          this.el.querySelector('.score-bar').classList.toggle('min', min);
+          return;
+        }
         if (!b || (!this.scoreView && !b.dataset.sc.startsWith('lyrics'))) return;
         const [k, v] = b.dataset.sc.split(':');
         if (k === 'layout') this.scoreView.setLayout(v);
@@ -1360,6 +1367,7 @@ export class PlayerView {
     const v = this.el.querySelector('.score-view');
     v.querySelectorAll('[data-sc^="layout:"]').forEach((b) => b.classList.toggle('on', b.dataset.sc === `layout:${sc.layout || 'both'}`));
     const s = sc.sync || {};
+    v.querySelector('.score-bar').classList.toggle('min', !!this.prefsCache?.scoreBarMin);
     const lb = v.querySelector('.sc-lyr-btn');
     lb.classList.toggle('on', !!sc.showLyrics); lb.setAttribute('aria-pressed', String(!!sc.showLyrics));
     v.querySelector('.sc-loff').hidden = !sc.showLyrics;

@@ -911,3 +911,8 @@ dialog.diag-dlg { width: min(560px, calc(100vw - 20px)); }
 .sel-sm { min-width: 84px; }
 .sc-lyrics .scl-cur, .sc-lyrics .scl-next { display: flex; justify-content: center; text-align: left; }
 .sc-lyrics .ln { width: fit-content; max-width: 100%; }
+.score-bar .sc-hide { margin-left: auto; }
+.score-bar .sc-hide .when-min, .score-bar.min .sc-hide .when-open { display: none; }
+.score-bar.min .sc-hide .when-min { display: inline; }
+.score-bar.min { padding: 2px 14px; }
+.score-bar.min > *:not(.sc-hide) { display: none !important; }
