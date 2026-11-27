@@ -150,7 +150,7 @@ export class PlayerView {
             <span class="note sc-status" data-r="sc-status"></span>
             <button class="btn small ghost sc-hide" data-sc="bar:toggle" title="Masquer / afficher les réglages de la partition"><span class="when-open">Masquer ▴</span><span class="when-min">Réglages de la partition ▾</span></button>
           </div>
-          <div class="sc-lyrics" hidden aria-live="off"><div class="hud" data-r="hud"></div><div class="scl-body"></div></div>
+          <div class="sc-lyrics" hidden aria-live="off"><div class="hud" data-r="hud"></div><div class="scl-body"></div><div class="sc-grip" title="Glisser vers le bas pour agrandir, vers le haut pour réduire" role="separator" aria-orientation="horizontal" aria-label="Taille du bandeau"></div></div>
           <div class="score-host"></div>
         </div>
         <div class="fs-chords" aria-live="off"><span class="fs-now" data-r="now"></span><span class="fs-next" data-r="next"></span></div>
@@ -1426,6 +1426,22 @@ export class PlayerView {
         hud.addEventListener('pointermove', mv); hud.addEventListener('pointerup', up); hud.addEventListener('pointercancel', up);
       });
       if (window.ResizeObserver) new ResizeObserver(() => this.layoutHud()).observe(band);
+    }
+    if (!this._gripOn) {
+      this._gripOn = true;
+      const grip = band.querySelector('.sc-grip');
+      band.style.setProperty('--bz', this.prefsCache?.scBandZoom || 1);
+      grip.addEventListener('pointerdown', (e) => {
+        e.preventDefault(); grip.setPointerCapture(e.pointerId); grip.classList.add('on');
+        const y0 = e.clientY, z0 = this.prefsCache?.scBandZoom || 1;
+        const mv = (ev) => {
+          const z = Math.max(0.6, Math.min(3, Math.round(z0 * (1 + (ev.clientY - y0) / 160) * 100) / 100));
+          (this.prefsCache ||= {}).scBandZoom = z; band.style.setProperty('--bz', z); this.layoutHud();
+        };
+        const up = () => { grip.classList.remove('on'); grip.removeEventListener('pointermove', mv); grip.removeEventListener('pointerup', up); grip.removeEventListener('pointercancel', up); this.app.setPref('scBandZoom', this.prefsCache.scBandZoom); };
+        grip.addEventListener('pointermove', mv); grip.addEventListener('pointerup', up); grip.addEventListener('pointercancel', up);
+      });
+      grip.addEventListener('dblclick', () => { (this.prefsCache ||= {}).scBandZoom = 1; band.style.setProperty('--bz', 1); this.app.setPref('scBandZoom', 1); this.layoutHud(); });
     }
     const W = band.clientWidth, w = hud.offsetWidth, br = band.getBoundingClientRect();
     let L = W / 2, R = W / 2;
