@@ -32,7 +32,9 @@ export class LyricsEditing {
   stored(display) { return this.shift ? transposeChord(display, -this.shift, this.p.display.key) : display; }
 
   toggle(on = !this.on) {
+    const was = this.on;
     this.on = on;
+    if (was !== on && this.p.song.score?.chords?.length) this.p.renderLyrics(); // en modification : les accords du texte, pas ceux de la partition
     const lyr = this.p.$lyrics;
     lyr.classList.toggle('editing', on);
     let bar = this.p.el.querySelector('.edit-bar');

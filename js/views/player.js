@@ -263,7 +263,9 @@ export class PlayerView {
     this._clock = null;
     const off = (s.prefs.offset || 0) / 1000; // temps des paroles = temps audio + décalage
     this.applyWrittenBars(off);
-    this.timeline = chordTimeline(s.doc, s.duration || this.engine.duration, s.detectedChords);
+    this.vdoc = this.viewDoc(off);
+    this.timeline = chordTimeline(this.vdoc, s.duration || this.engine.duration, s.detectedChords);
+    if (this.vdocFromScore) this.timeline.forEach((c) => { c.fixed = true; });
     // un accord écrit au-dessus d'un mot tombe sur le mot, pas forcément sur le changement joué :
     // s'il existe tout près le même accord entendu dans l'audio, on prend le moment entendu
     if (s.detectedChords?.length) {
@@ -318,7 +320,7 @@ export class PlayerView {
       }
     }
     // accords écrits dans la partition (calée) : prioritaires pour le temps ; on les relie aux accords du texte
-    if (s.score?.chords?.length && s.score.useChords !== false) {
+    if (!this.vdocFromScore && s.score?.chords?.length && s.score.useChords !== false) {
       const txt = this.timeline.filter((c) => c.t != null && c.li >= 0);
       const used = new Set();
       this.timeline = s.score.chords.map((c0) => {
@@ -332,14 +334,14 @@ export class PlayerView {
     }
     this.timedLines = [];
     const tl0 = [];
-    s.doc.lines.forEach((l, li) => { if (l.type === 'lyric' && l.s != null) tl0.push({ li, s: l.s, e: l.e }); });
+    this.vdoc.lines.forEach((l, li) => { if (l.type === 'lyric' && l.s != null) tl0.push({ li, s: l.s, e: l.e }); });
     // une ligne dont le temps est en désordre (reste d'un ancien calage) ferait revenir le rose en arrière : on l'ignore
     this.timedLines = increasing(tl0);
     this.synced = this.timedLines.length > 0;
     this.hasTimedChords = this.timeline.some((c) => c.t != null);
-    const hasLines = s.doc.lines.some((l) => l.type === 'lyric' || l.type === 'chords');
+    const hasLines = this.vdoc.lines.some((l) => l.type === 'lyric' || l.type === 'chords');
     if (hasLines) {
-      this.$lyrics.innerHTML = renderSheet(s.doc, { display: this.display });
+      this.$lyrics.innerHTML = renderSheet(this.vdoc, { display: this.display });
     } else if (this.timeline.length) {
       // pas de paroles : on affiche la suite d'accords détectés
       this.$lyrics.innerHTML = `<div class="sheet"><p class="ln section">Accords détectés</p>${chunk(this.timeline, 4).map((g) => `<p class="ln chords-only">${g.map((c) => `<span class="cbar" data-t="${c.t}">${esc(this.display(c.name))}</span>`).join('')}</p>`).join('')}
@@ -354,7 +356,7 @@ export class PlayerView {
     this.$lyrics.querySelectorAll('.ln[data-li]').forEach((p) => this.lineEls.set(+p.dataset.li, p));
     this.chordEls = new Map();
     this.$lyrics.querySelectorAll('[data-ci]').forEach((c) => this.chordEls.set(`${c.dataset.li}|${c.dataset.ci}`, c));
-    this.sections = sectionsOf(s.doc, this.timeline);
+    this.sections = sectionsOf(this.vdoc, this.timeline);
     this.curLine = -2;
     this.lastChordIdx = -2;
     this.renderLanes();
@@ -538,7 +540,7 @@ export class PlayerView {
       if (!cells[k].sec) cells[k].sec = { label: sec.label, kind: sec.kind };
     }
     // paroles de chaque mesure (mot par mot si possible)
-    s.doc.lines.forEach((l) => {
+    (this.vdoc || s.doc).lines.forEach((l) => {
       if (l.type !== 'lyric' || l.s == null) return;
       const toks = tokenize(l.text);
       if (l.words?.length === toks.length) toks.forEach((tk, i) => cells[barOf(l.words[i].s - off, 0.15)].ly.push(tk.w));
@@ -1028,7 +1030,7 @@ export class PlayerView {
 
   renderBig(i) {
     const tl = this.timedLines;
-    const doc = this.song.doc;
+    const doc = this.vdoc || this.song.doc;
     const cur = i >= 0 ? doc.lines[tl[i].li] : null;
     const nxt = doc.lines[tl[i + 1]?.li];
     let tag = '';
@@ -1388,6 +1390,51 @@ export class PlayerView {
       if (sc > bestScore) { bestScore = sc; best = st; }
     }
     return (this._gsAuto = best);
+  }
+
+  /**
+   * Vue des paroles avec les accords de la PARTITION (si elle en a, qu'elle est calée et que les paroles le sont) :
+   * chaque accord est posé sur le mot chanté à ce moment-là ; les accords entre deux phrases forment une ligne d'accords.
+   * Rien n'est enregistré : la grille d'origine reste intacte (et revient en mode Modifier).
+   */
+  viewDoc(off) {
+    const s = this.song, sc = s.score;
+    this.vdocFromScore = false;
+    if (!sc?.chords?.length || sc.useChords === false || this.editing?.on) return s.doc;
+    const lines = s.doc.lines.map((l) => ({ ...l, chords: l.type === 'lyric' ? [] : l.chords }));
+    const lyr = []; lines.forEach((l, i) => { if (l.type === 'lyric' && l.s != null) lyr.push(i); });
+    if (lyr.length < 2) return s.doc;
+    // les lignes d'accords seules (intro, solo) sont remplacées par celles de la partition
+    for (let i = lines.length - 1; i >= 0; i--) if (lines[i].type === 'chords') lines.splice(i, 1);
+    const L = []; lines.forEach((l, i) => { if (l.type === 'lyric' && l.s != null) L.push(i); });
+    const endOf = (k) => { const l = lines[L[k]]; const we = l.words?.length ? (l.words[l.words.length - 1].e ?? l.words[l.words.length - 1].s + 0.5) : (l.e ?? l.s + 3); return Math.min(we + 0.6, lines[L[k + 1]]?.s ?? Infinity); };
+    const gaps = new Map(); // index de ligne de paroles → accords joués juste avant
+    for (const c0 of sc.chords) {
+      const t = c0.t + off;
+      let k = -1; for (let j = 0; j < L.length; j++) if (lines[L[j]].s - 0.35 <= t) k = j; else break;
+      if (k < 0 || t > endOf(k)) { const nk = k + 1; if (!gaps.has(nk)) gaps.set(nk, []); gaps.get(nk).push({ name: c0.name, t, fixed: true }); continue; }
+      const l = lines[L[k]], toks = tokenize(l.text);
+      let pos = 0;
+      if (l.words?.length === toks.length) { let w = 0; for (let i = 0; i < toks.length; i++) if (l.words[i].s - 0.12 <= t) w = i; pos = toks[w].start; }
+      else { const f = Math.max(0, Math.min(1, (t - l.s) / Math.max(0.5, (l.e ?? l.s + 3) - l.s))); pos = Math.round(f * l.text.length); }
+      const ch = l.chords, last = ch[ch.length - 1];
+      if (last && last.pos >= pos) { if (last.t + 0.25 > t) { last.name = c0.name; continue; } pos = Math.min(l.text.length, last.pos + 1); }
+      ch.push({ pos, name: c0.name, t, fixed: true });
+    }
+    // lignes d'accords entre les phrases (après le titre de partie s'il y en a un)
+    [...gaps.keys()].sort((a, b) => b - a).forEach((k) => {
+      const cs = gaps.get(k);
+      let at = k < L.length ? L[k] : lines.length;
+      // partie restée vide (ex. « Intro » dont on a retiré les accords écrits) juste avant : les accords y vont
+      let j = at - 1; while (j >= 0 && lines[j].type === 'blank') j--;
+      if (j >= 0 && lines[j].type === 'section') {
+        let h = j - 1; while (h >= 0 && lines[h].type === 'blank') h--;
+        if (h >= 0 && lines[h].type === 'section') at = h + 1;
+      }
+      lines.splice(at, 0, { type: 'chords', text: '', chords: cs.map((c, i) => ({ ...c, pos: i })) });
+    });
+    this.vdocFromScore = true;
+    return { ...s.doc, lines };
   }
 
   /** Relève les accords de la partition (après chaque calage) et les garde avec le morceau. */
@@ -1893,7 +1940,7 @@ export class PlayerView {
   /** Fiche d'un accord : diagramme guitare / ukulélé / piano, positions, notes, tous les accords du morceau. */
   openChordSheet(name, t = null, at = null) {
     if (!name) return;
-    const all = uniqueChords(this.song.doc, this.display, this.song.detectedChords);
+    const all = uniqueChords(this.vdoc || this.song.doc, this.display, this.song.detectedChords);
     let cur = name;
     const d = dialog(`<div class="dlg chord-sheet">
       <div class="cs-head"><b class="cs-name"></b>
@@ -1931,7 +1978,7 @@ export class PlayerView {
 
   /** Sans accords datés : tous les accords du morceau, en diagrammes. */
   showAllChords() {
-    const names = uniqueChords(this.song.doc, this.display, this.song.detectedChords);
+    const names = uniqueChords(this.vdoc || this.song.doc, this.display, this.song.detectedChords);
     const sec = this.el.querySelector('[data-r="chords-sec"]');
     sec.querySelector('.now-next').hidden = true;
     this.el.querySelector('[data-r="formula"]').textContent = names.length ? 'Les accords se suivront en direct une fois le morceau synchronisé (Studio ou Éditer → Synchro).' : '';
