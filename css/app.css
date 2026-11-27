@@ -1172,3 +1172,26 @@ body.noselect, body.noselect * { user-select: none !important; -webkit-user-sele
 .cp-impro .im-keys { max-width: 620px; }
 .cp-impro-btn.on { background: var(--ink); color: var(--bg); border-color: var(--ink); }
 .cp-impro .seg button.on { background: var(--ink); color: var(--bg); }
+/* atelier : clavier MIDI comparé à l'accord demandé */
+.cp-midi { display: grid; gap: 6px; margin: 8px 0 4px; padding: 10px 12px; border: 2px solid var(--line); border-radius: 12px; background: var(--surface, var(--bg-2)); transition: border-color .12s, background .12s; }
+.cp-midi.lv-ok { border-color: #16a34a; background: color-mix(in srgb, #16a34a 8%, var(--bg)); }
+.cp-midi.lv-partial, .cp-midi.lv-bass { border-color: #d97706; }
+.cp-midi.lv-bad { border-color: #dc2626; background: color-mix(in srgb, #dc2626 6%, var(--bg)); }
+.mk-st { font-size: 14px; }
+.mk-target b { color: var(--chord); font-size: 17px; }
+.mk-ok { color: #16a34a; } .mk-warn { color: #d97706; } .mk-bad { color: #dc2626; }
+.mk-wrap { overflow-x: auto; }
+.mk { display: block; width: 100%; min-width: 520px; height: auto; }
+.mk-w { fill: #fff; stroke: var(--ink-3); stroke-width: .8; }
+.mk-b { fill: #222; }
+.mk-w.tgt { fill: color-mix(in srgb, var(--chord) 28%, #fff); }
+.mk-b.tgt { fill: color-mix(in srgb, var(--chord) 55%, #222); }
+.mk-w.ok, .mk-b.ok { fill: #16a34a; }
+.mk-w.bad, .mk-b.bad { fill: #dc2626; }
+.mk-w.on, .mk-b.on { fill: var(--chord); }
+.mk-t { font: 600 8px var(--font-ui); fill: var(--ink-3); text-anchor: middle; }
+.mk-leg { display: flex; gap: 14px; flex-wrap: wrap; font-size: 12px; color: var(--ink-3); }
+.mk-leg .sw { display: inline-block; width: 12px; height: 12px; border-radius: 3px; margin-right: 5px; vertical-align: -1px; }
+.mk-leg .sw.tgt { background: color-mix(in srgb, var(--chord) 35%, #fff); border: 1px solid var(--line-2); }
+.mk-leg .sw.ok { background: #16a34a; } .mk-leg .sw.bad { background: #dc2626; }
+.cp-midi-btn.on { background: var(--ink); color: var(--bg); border-color: var(--ink); }
