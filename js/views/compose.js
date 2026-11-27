@@ -4,7 +4,7 @@ import { db, uid } from '../db.js';
 import { esc, icon, toast, confirmBox, openMenu, debounce } from '../ui.js';
 import { parseChord, FLAT, SHARP } from '../theory.js';
 import { diagramSVG, allVoicings, voicings as vList } from '../diagrams.js';
-import { STYLES, nextChords, transitions, variations, chainVoicings, voicingOptions, voicingOf, playChord, GridPlayer, guessKey, roman, degree, pianoOptions, nameChord, chordMidi, PATTERNS, DRUM_STYLES, SOUNDS, setSounds, prepareSounds } from '../compose.js';
+import { STYLES, nextChords, transitions, variations, chainVoicings, voicingOptions, voicingOf, playChord, GridPlayer, guessKey, roman, degree, pianoOptions, nameChord, chordMidi, PATTERNS, DRUM_STYLES, SOUNDS, setSounds, prepareSounds, setVolume, getVolume } from '../compose.js';
 import { newSong } from '../songs.js';
 import { autofill, slotAlternatives } from '../autofill.js';
 import { improLayers, neckSvg, keysSvg, SCALES } from '../impro.js';
@@ -23,6 +23,17 @@ const keyLabel = (k) => (k ? (k.minor ? (k.pc === 3 || k.pc === 10 ? FLAT : SHAR
 let CLIP = null;
 try { CLIP = JSON.parse(sessionStorage.getItem('mm-compo-clip') || 'null'); } catch { /* */ }
 const setClip = (bars) => { CLIP = bars; try { sessionStorage.setItem('mm-compo-clip', JSON.stringify(bars)); } catch { /* */ } };
+
+const FR_ROOT = { C: 'Do', D: 'Ré', E: 'Mi', F: 'Fa', G: 'Sol', A: 'La', B: 'Si' };
+const FR_QUAL = { '': 'majeur', m: 'mineur', 7: 'septième', maj7: 'majeur 7', m7: 'mineur 7', 6: 'sixte', m6: 'mineur 6', 9: 'neuvième', m9: 'mineur 9', maj9: 'majeur 9', add9: 'add 9', madd9: 'mineur add 9', sus2: 'sus 2', sus4: 'sus 4', '7sus4': '7 sus 4', dim: 'diminué', dim7: 'diminué 7', aug: 'augmenté', m7b5: 'demi-diminué', 5: 'power chord', 11: 'onzième', m11: 'mineur 11', 13: 'treizième', '7b9': '7 ♭9', '7#9': '7 ♯9', 69: '6/9' };
+function frNote(n) { return (FR_ROOT[n[0]] || n[0]) + (n.slice(1) === '#' ? ' dièse' : n.slice(1) === 'b' ? ' bémol' : ''); }
+/** « F#m7/A » → « Fa dièse mineur 7, basse La » */
+function frChord(name) {
+  const ch = parseChord(name);
+  if (!ch) return '';
+  return `${frNote(ch.rootName)} ${FR_QUAL[ch.suffix] ?? ch.suffix}${ch.bassName ? `, basse ${frNote(ch.bassName)}` : ''}`;
+}
+const fmtT = (sec) => `${String(Math.floor(sec / 60)).padStart(2, '0')}:${String(Math.floor(sec % 60)).padStart(2, '0')}`;
 
 function blank(name = 'Ma composition') {
   return {
@@ -51,20 +62,31 @@ export class ComposeView {
     el.addEventListener('input', (e) => this.onInput(e));
     this.keyH = (e) => this.onKey(e);
     document.addEventListener('keydown', this.keyH);
-    this.save = debounce(() => this.persist(), 400);
+    const deb = debounce(() => this.persist(), 400);
+    this.save = () => { this.setSaved(false); deb(); };
+    this.redo = [];
+    this.view2 = this.c?.impro?.on ? 'impro' : 'compose';
+    try { const vv = localStorage.getItem('mm-compo-vol'); if (vv != null) setVolume(+vv); } catch { /* */ }
     this.render();
     this.bindDrag();
-    if (this.c && localStorage.getItem('mm-compo-midi') === '1') this.midiOnStart(false);
+
   }
 
-  close() { this.player.stop(); document.removeEventListener('keydown', this.keyH); this.midiOff(true); this.listener?.stop(); this.el?.remove(); }
+  close() { cancelAnimationFrame(this._raf); this.player.stop(); document.removeEventListener('keydown', this.keyH); this.midiOff(true); this.listener?.stop(); this.el?.remove(); }
 
   async persist() {
     if (this.c) { this.c.updatedAt = Date.now(); const i = this.list.findIndex((x) => x.id === this.c.id); if (i >= 0) this.list[i] = this.c; else this.list.unshift(this.c); }
     await db.set('compos', this.list);
+    this.setSaved(true);
   }
 
-  snap() { this.undo.push(JSON.stringify(this.c)); if (this.undo.length > 80) this.undo.shift(); }
+  setSaved(ok) {
+    this._saved = ok;
+    const el = this.el?.querySelector('.cp-saved');
+    if (el) { el.classList.toggle('busy', !ok); el.innerHTML = ok ? `${icon('check')}<span>Enregistré</span>` : '<span>Enregistrement…</span>'; }
+  }
+
+  snap() { this.undo.push(JSON.stringify(this.c)); if (this.undo.length > 80) this.undo.shift(); this.redo = []; }
   changed({ snap = true } = {}) { if (snap) this.snap(); this.save(); this.render(); }
 
   // ───────────────────────────────────────────────── données dérivées ──
@@ -195,46 +217,43 @@ export class ComposeView {
     const sel = this.sel;
     const inst = c.instrument === 'piano' ? 'piano' : 'guitar';
     const head = `<header class="topbar cp-top">
-      <button class="icon-btn" data-a="back" aria-label="Retour">${icon('back')}</button>
-      <input class="cp-name" data-f="name" value="${esc(c.name)}" aria-label="Nom de la composition">
+      <button class="icon-btn" data-a="back" aria-label="Retour à mes compositions" title="Mes compositions">${icon('back')}</button>
+      <span class="cp-title">${icon('folder')}<input class="cp-name" data-f="name" value="${esc(c.name)}" aria-label="Nom de la composition"></span>
       <div class="spacer"></div>
+      <span class="cp-saved${this._saved === false ? ' busy' : ''}">${this._saved === false ? '<span>Enregistrement…</span>' : `${icon('check')}<span>Enregistré</span>`}</span>
+      <span class="cp-hsep"></span>
       <button class="icon-btn" data-a="undo" aria-label="Annuler" title="Annuler (Ctrl+Z)" ${this.undo.length ? '' : 'disabled'}>${icon('undo')}</button>
+      <button class="icon-btn cp-redo" data-a="redo" aria-label="Rétablir" title="Rétablir (Ctrl+Y)" ${this.redo?.length ? '' : 'disabled'}>${icon('undo')}</button>
       <button class="icon-btn" data-a="more" aria-label="Plus">${icon('more')}</button>
     </header>`;
-    const fld = (label, ctrl, cls = '') => `<label class="cp-f ${cls}"><span>${label}</span>${ctrl}</label>`;
-    const setOpen = this._setOpen ?? (window.innerWidth > 1440);
-    const summary = `${esc(STYLES[c.style]?.label || '')} · ${esc(keyLabel(key))} · ${c.bpm} bpm · ${c.instrument === 'piano' ? 'Piano' : 'Guitare'}`;
-    const opts = `<details class="cp-setd"${setOpen ? ' open' : ''}><summary><b>Réglages</b><span>${summary}</span></summary><div class="cp-set">
-      <div class="cp-grp">
-        ${fld('Style', `<select data-f="style">${Object.entries(STYLES).map(([k, v]) => `<option value="${k}" ${c.style === k ? 'selected' : ''}>${v.label}</option>`).join('')}</select>`)}
-        ${fld('Tonalité', `<select data-f="key"><option value="">Auto${c.key ? '' : ` · ${esc(keyLabel(key))}`}</option>${KEYS.map((k) => `<option value="${k.pc}${k.minor ? 'm' : ''}" ${c.key && c.key.pc === k.pc && c.key.minor === k.minor ? 'selected' : ''}>${keyLabel(k)}</option>`).join('')}</select>`)}
-        ${fld('Tempo', `<span class="cp-num"><input type="number" min="40" max="240" data-f="bpm" value="${c.bpm}"><i>bpm</i></span>`, 'narrow')}
-      </div>
-      <div class="cp-grp">
-        ${fld('Instrument', `<span class="cp-seg">${[['guitar', 'Guitare'], ['piano', 'Piano']].map(([k, l]) => `<button type="button" data-a="inst" data-v="${k}" class="${c.instrument === k ? 'on' : ''}">${l}</button>`).join('')}</span>`)}
-        ${fld('Son', `<select data-f="sound"><option value="synth" ${c.sound === 'synth' ? 'selected' : ''}>Synthé (léger)</option>${SOUNDS[inst].map(([k, l]) => `<option value="${k}" ${(c.sound || SOUNDS[inst][0][0]) === k && c.sound !== 'synth' ? 'selected' : ''}>${l}</option>`).join('')}</select>`)}
-        ${inst === 'guitar' ? fld('Position', `<select data-f="zone"><option value="">Libre</option><option value="low" ${c.zone === 'low' ? 'selected' : ''}>En bas du manche</option><option value="mid" ${c.zone === 'mid' ? 'selected' : ''}>Au milieu</option><option value="high" ${c.zone === 'high' ? 'selected' : ''}>En haut</option></select>`) : ''}
-      </div>
-      <div class="cp-grp">
-        ${fld('Jeu', `<select data-f="pattern">${PATTERNS.map(([k, l]) => `<option value="${k}" ${(c.pattern || '') === k ? 'selected' : ''}>${l}</option>`).join('')}</select>`)}
-        ${fld('Batterie', `<select data-f="drumStyle">${DRUM_STYLES.map(([k, l]) => `<option value="${k}" ${(c.drumStyle ?? (c.drums === false ? 'off' : '')) === k ? 'selected' : ''}>${l}</option>`).join('')}</select>`)}
-      </div>
-      <div class="cp-grp">
-        ${fld('Colonnes', `<select data-f="cols">${[2, 3, 4, 5, 6, 8].map((n) => `<option value="${n}" ${(c.cols || 4) === n ? 'selected' : ''}>${n}</option>`).join('')}</select>`, 'narrow')}
-      </div>
-    </div></details>
-    <div class="cp-actbar">
-      <button class="cp-playbig${this.player.on ? ' on' : ''}" data-a="play" aria-label="${this.player.on ? 'Arrêter' : 'Écouter la grille'}" title="${this.player.on ? 'Arrêter' : 'Écouter la grille (Espace)'}">${icon(this.player.on ? 'pause' : 'play')}</button>
-      <span class="cp-act-l"><b>${this.player.on ? 'Lecture…' : 'Écouter'}</b>${sel ? `<button class="cp-link" data-a="play-sec" title="Écouter seulement cette partie, en boucle">${icon('loop')} seulement « ${esc(c.sections[sel.si]?.label || '')} »</button>` : '<span class="note">toute la grille, en boucle</span>'}</span>
-      <span class="cp-tools">
-        <button class="${c.impro?.on ? 'on' : ''}" data-a="impro" title="Impro : les notes qui sonnent juste">${icon('impro')}<span>Impro</span></button>
-        <button class="${this.midiActive ? 'on' : ''}" data-a="midi" title="Clavier MIDI : tes notes comparées à l’accord demandé">${icon('piano')}<span>Clavier MIDI</span></button>
-        <button class="${this.micActive ? 'on' : ''}" data-a="mic" title="Micro : ta guitare ou ton piano comparés à l’accord demandé">${icon('rec')}<span>Micro</span></button>
-      </span>
-      <button class="cp-fill-btn" data-a="fill" title="Compléter les cases vides selon tes accords, la tonalité et le style">${icon('sparkle')}<span>Remplir<em> les cases vides</em></span></button>
+    // réglages : cartes (icône, étiquette, valeur ▾) — le menu natif couvre toute la carte
+    const card = (ic, label, value, ctrl, cls = '') => `<label class="cp-card ${cls}">${icon(ic)}<span class="cp-card-t"><small>${label}</small><b>${value}</b></span><i class="cp-chev">▾</i>${ctrl}</label>`;
+    const optSel = (f, list, cur) => `<select data-f="${f}" aria-label="${f}">${list.map(([k, l]) => `<option value="${k}" ${String(cur) === String(k) ? 'selected' : ''}>${l}</option>`).join('')}</select>`;
+    const soundList = [['synth', 'Synthé (léger)'], ...SOUNDS[inst]];
+    const curSound = c.sound === 'synth' ? 'synth' : SOUNDS[inst].some(([k]) => k === c.sound) ? c.sound : SOUNDS[inst][0][0];
+    const keyList = [['', `Auto (${keyLabel(key)})`], ...KEYS.map((k) => [`${k.pc}${k.minor ? 'm' : ''}`, keyLabel(k)])];
+    const keyCur = c.key ? `${c.key.pc}${c.key.minor ? 'm' : ''}` : '';
+    const drumCur = c.drumStyle ?? (c.drums === false ? 'off' : '');
+    const lbl = (list, cur) => (list.find(([k]) => String(k) === String(cur)) || list[0])[1];
+    const opts = `<div class="cp-cards">
+      ${card('stage', 'Style', esc(STYLES[c.style].label), optSel('style', Object.entries(STYLES).map(([k, v]) => [k, v.label]), c.style))}
+      ${card('tuner', 'Tonalité', esc(c.key ? keyLabel(c.key) : `Auto · ${keyLabel(key)}`), optSel('key', keyList, keyCur))}
+      <label class="cp-card cp-card-tempo">${icon('metro')}<span class="cp-card-t"><small>Tempo</small><b><input type="number" min="40" max="240" data-f="bpm" value="${c.bpm}" aria-label="Tempo"> BPM</b></span></label>
+      ${card(inst === 'piano' ? 'piano' : 'guitar', 'Instrument', esc(lbl(soundList, curSound).replace(/\s*\(.*\)$/, '')), `<select data-f="instsound" aria-label="Instrument et son"><optgroup label="Guitare">${[['synth', 'Synthé (léger)'], ...SOUNDS.guitar].map(([k, l]) => `<option value="guitar|${k}" ${inst === 'guitar' && curSound === k ? 'selected' : ''}>${l}</option>`).join('')}</optgroup><optgroup label="Piano">${[['synth', 'Synthé (léger)'], ...SOUNDS.piano].map(([k, l]) => `<option value="piano|${k}" ${inst === 'piano' && curSound === k ? 'selected' : ''}>${l}</option>`).join('')}</optgroup></select>`)}
+      ${card('grid', 'Jeu', esc(lbl(PATTERNS, c.pattern || '')), optSel('pattern', PATTERNS, c.pattern || ''))}
+      ${card('tap', 'Batterie', esc(lbl(DRUM_STYLES, drumCur)), optSel('drumStyle', DRUM_STYLES, drumCur))}
+      ${inst === 'guitar' ? card('guitar', 'Manche', esc({ '': 'Libre', low: 'En bas', mid: 'Au milieu', high: 'En haut' }[c.zone || '']), optSel('zone', [['', 'Libre'], ['low', 'En bas (cordes à vide)'], ['mid', 'Au milieu'], ['high', 'En haut']], c.zone || ''), 'sm') : ''}
+      ${card('list', 'Grille', `${c.cols || 4} col.`, optSel('cols', [2, 3, 4, 5, 6, 8].map((n) => [n, `${n} colonnes`]), c.cols || 4), 'sm')}
     </div>`;
+    // onglets de travail
+    const v2 = this.view2 || 'compose';
+    const tab = (k, ic, l) => `<button class="${v2 === k ? 'on' : ''}" data-a="view" data-v="${k}">${icon(ic)}<span>${l}</span></button>`;
+    const tabs = `<div class="cp-tabsbar"><div class="cp-vtabs">${tab('compose', 'grid', 'Composition')}${tab('impro', 'impro', 'Improvisation')}${tab('midi', 'piano', 'Clavier MIDI')}${tab('mic', 'rec', 'Micro')}</div>
+      <button class="cp-fill-btn" data-a="fill" title="Compléter les cases vides selon tes accords, la tonalité et le style">${icon('sparkle')}<span>Remplir<em> les cases vides</em></span></button></div>`;
+    const toolPanel = v2 === 'impro' ? this.improPanel() : v2 === 'midi' ? this.midiPanel() : v2 === 'mic' ? this.micPanel() : '';
+    const narrow = (c.cols || 4) >= 5;
     const secs = c.sections.map((s, si) => {
-      const bars = s.bars.map((b, bi) => {
+      const bars = s.collapsed ? '' : s.bars.map((b, bi) => {
         const isSel = sel && sel.si === si && sel.bi === bi;
         const cs = b.c.filter(Boolean);
         let inner;
@@ -246,33 +265,34 @@ export class ComposeView {
         if (hasSug) inner += `<button class="cp-ok" data-a="ok" data-si="${si}" data-bi="${bi}" title="Valider ${b.c.length > 1 ? 'ces accords' : 'cet accord'}" aria-label="Valider">${icon('check')}</button>`;
         const dg = cs.length ? `<span class="cp-dg">${b.c.map((nm, h) => (nm ? diagramSVG(nm, inst, { index: this.vAt(si, bi, h), ...this.own(si, bi, h) }) : '')).join('')}</span>` : '';
         const rm = cs.length && b.c.length === 1 ? `<i class="cp-rn">${esc(roman(b.c[0], key))}</i>` : '';
-        return `<div class="cp-bar${hasSug ? ' has-sug' : ''}${isSel ? ' cp-sel' : ''}${this.inRange(si, bi) ? ' cp-rng' : ''}${this.playing === `${si}.${bi}` ? ' cp-now' : ''}" data-si="${si}" data-bi="${bi}">${inner}${rm}${dg}<span class="n">${bi + 1}</span></div>`;
+        return `<div class="cp-bar${cs.length ? '' : ' cp-void'}${hasSug ? ' has-sug' : ''}${isSel ? ' cp-sel' : ''}${this.inRange(si, bi) ? ' cp-rng' : ''}${this.playing === `${si}.${bi}` ? ' cp-now' : ''}" data-si="${si}" data-bi="${bi}">${inner}${rm}${dg}<span class="n">${bi + 1}</span></div>`;
       }).join('');
-      const ovr = [s.pattern && PATTERNS.find((x) => x[0] === s.pattern)?.[1], s.drumStyle && DRUM_STYLES.find((x) => x[0] === s.drumStyle)?.[1]].filter(Boolean);
-      return `<section class="cp-sec k-${s.kind}" data-si="${si}">
+      return `<section class="cp-sec k-${s.kind}${s.collapsed ? ' closed' : ''}" data-si="${si}">
         <div class="cp-sec-h">
-          <i class="cp-dot"></i>
+          <button class="cp-fold" data-a="fold" data-si="${si}" aria-label="${s.collapsed ? 'Déplier' : 'Replier'}">▾</button>
+          <i class="cp-kbar"></i>
           <input class="cp-sec-name" data-f="label" data-si="${si}" value="${esc(s.label)}" aria-label="Nom de la partie" size="${Math.max(4, s.label.length + 1)}">
-          <span class="cp-rep" title="Nombre de fois que la partie est jouée"><button data-a="rep" data-si="${si}" data-v="-1" aria-label="Moins">−</button><output>×${s.repeat}</output><button data-a="rep" data-si="${si}" data-v="1" aria-label="Plus">+</button></span>
+          <label class="cp-pill" title="Nombre de fois que la partie est jouée">×${s.repeat}<i class="cp-chev">▾</i><select data-f="rep" data-si="${si}">${[1, 2, 3, 4, 5, 6, 8].map((n) => `<option value="${n}" ${s.repeat === n ? 'selected' : ''}>× ${n}</option>`).join('')}</select></label>
           <span class="cp-sec-acc" title="Jeu et batterie de cette partie">
             <select data-f="sec-pattern" data-si="${si}" class="${s.pattern ? 'set' : ''}"><option value="">Jeu général</option>${PATTERNS.slice(1).map(([k, l]) => `<option value="${k}" ${s.pattern === k ? 'selected' : ''}>${l}</option>`).join('')}</select>
             <select data-f="sec-drums" data-si="${si}" class="${s.drumStyle ? 'set' : ''}"><option value="">Batterie générale</option>${DRUM_STYLES.slice(1).map(([k, l]) => `<option value="${k}" ${s.drumStyle === k ? 'selected' : ''}>${l}</option>`).join('')}</select>
           </span>
           <span class="cp-sec-tools">
             <button data-a="sec-play" data-si="${si}" title="Écouter cette partie" aria-label="Écouter cette partie">${icon('play')}</button>
-            <button data-a="bars" data-si="${si}" data-v="-1" title="Retirer une mesure" aria-label="Retirer une mesure">−</button>
-            <span class="cp-nb">${s.bars.length} mes.</span>
-            <button data-a="bars" data-si="${si}" data-v="1" title="Ajouter une mesure" aria-label="Ajouter une mesure">+</button>
+            <span class="cp-nb">${s.bars.length} mesure${s.bars.length > 1 ? 's' : ''}</span>
+            <button class="cp-plus" data-a="bars" data-si="${si}" data-v="1" title="Ajouter une mesure" aria-label="Ajouter une mesure">+</button>
             <button data-a="sec-menu" data-si="${si}" aria-label="Plus d’options">${icon('more')}</button>
           </span>
         </div>
-        <div class="cp-bars" style="--cols:${c.cols || 4}">${bars}</div>
+        ${s.collapsed ? '' : `<div class="cp-bars${narrow ? ' narrow' : ''}" style="--cols:${c.cols || 4}">${bars}</div>`}
       </section>`;
     }).join('');
     const addSec = `<div class="cp-add"><span class="note">Ajouter une partie</span>${KINDS.map(([k, l]) => `<button class="cp-addk k-${k}" data-a="add-sec" data-v="${k}"><i class="cp-dot"></i>${l}</button>`).join('')}</div>`;
-    this.el.innerHTML = `${head}<div class="cp-wrap"><main class="cp-main">${opts}${this.fillBar()}${this.micPanel()}${this.midiPanel()}${this.improPanel()}<div class="cp-grid">${secs}</div>${addSec}
-      <p class="note cp-help">Touche une case pour y mettre un accord · deux accords par case : « Couper la mesure » · les doigtés s’enchaînent tout seuls (le moins de déplacements possible). · Sons réalistes : banque FluidR3 GM (Frank Wen, licence CC BY 3.0).</p></main>
-      ${this.panel(key)}</div>`;
+    this.el.innerHTML = `${head}<div class="cp-wrap${this.panelHidden ? ' no-panel' : ''}"><main class="cp-main">${opts}${tabs}${this.fillBar()}${toolPanel}<div class="cp-grid">${secs}</div>${addSec}
+      <p class="note cp-help">Touche une case pour y mettre un accord · Maj+clic ou glisser pour sélectionner plusieurs mesures · Espace : écouter · sons réalistes : FluidR3 GM (Frank Wen, CC BY 3.0).</p></main>
+      ${this.panelHidden ? '<button class="cp-panel-open" data-a="panel" title="Afficher le panneau de l’accord">«</button>' : this.panel(key)}</div>
+      ${this.transport()}`;
+    this.tickTransport();
     if (sel && this._scrollSel !== `${sel.si}.${sel.bi}`) {
       this._scrollSel = `${sel.si}.${sel.bi}`;
       requestAnimationFrame(() => {
@@ -291,10 +311,10 @@ export class ComposeView {
       this.listener ||= new ChordListener();
       await this.listener.start(prefs.micId);
       this.listener.onFrame = () => { const now = performance.now(); if (now - (this._micT || 0) > 140) { this._micT = now; this.updateMic(); } };
-      this.micActive = true;
+      this.micActive = true; this.view2 = 'mic';
       toast('Micro ouvert : joue l’accord demandé' + (this.player.on ? ' (mets un casque pour que le micro n’entende pas MusiMix)' : ''), 4000);
     } catch (err) {
-      this.micActive = false;
+      this.micActive = false; this.view2 = 'compose';
       toast(err?.name === 'NotAllowedError' ? 'Accès au micro refusé : autorise-le dans le navigateur' : err?.name === 'NotFoundError' ? 'Aucun micro trouvé' : 'Micro indisponible', 6000);
     }
     this.render();
@@ -328,7 +348,7 @@ export class ComposeView {
       <div class="im-head"><b>Micro</b><span class="mk-st">${st}</span><span class="im-sp"></span>
         <span class="mic-meter" title="Niveau du micro"><i style="width:${meter}%"></i></span>
         ${rec && active && this.sel && !this.player.on && rec.score > 0.82 ? `<button class="btn small" data-a="mic-put" data-v="${esc(rec.name)}">Mettre ${esc(rec.name)} dans la case</button>` : ''}
-        <button type="button" class="icon-btn im-x" data-a="mic" aria-label="Fermer">✕</button></div>
+        <button type="button" class="icon-btn im-x" data-a="view" data-v="compose" aria-label="Fermer">✕</button></div>
       <div class="ch-cols">${bars}</div>
       <div class="mk-leg"><span><i class="sw tgt"></i>notes de l’accord demandé</span><span><i class="sw ok"></i>entendue, juste</span><span><i class="sw bad"></i>entendue, hors accord</span><span class="note">· le micro entend les notes, pas l’octave</span></div></div>`;
   }
@@ -352,10 +372,10 @@ export class ComposeView {
         midi.addEventListener('notes', this._midiH);
         midi.addEventListener('devices', this._midiD);
       }
-      this.midiActive = true; this.midiNotes = [...midi.held];
+      this.midiActive = true; this.midiNotes = [...midi.held]; this.view2 = 'midi';
       localStorage.setItem('mm-compo-midi', '1');
       if (user) toast(midi.devices.length ? `Clavier connecté : ${midi.devices[0]}` : 'Aucun clavier MIDI détecté : branche-le (USB), il apparaîtra tout seul');
-    } catch (err) { if (user) toast(err.message || 'MIDI indisponible', 6000); this.midiActive = false; }
+    } catch (err) { if (user) toast(err.message || 'MIDI indisponible', 6000); this.midiActive = false; this.view2 = 'compose'; }
     this.render();
   }
 
@@ -420,7 +440,7 @@ export class ComposeView {
     return `<div class="cp-tool cp-midi lv-${chk.level}">
       <div class="im-head"><b>Clavier MIDI</b><span class="mk-st">${this.midiStatus(notes, target, chk)}</span><span class="im-sp"></span>
         ${canPut ? `<button class="btn small" data-a="midi-put" title="Mettre l’accord joué dans la case choisie">Mettre ${esc(nameChord(notes))} dans la case</button>` : ''}
-        <button type="button" class="icon-btn im-x" data-a="midi" aria-label="Fermer">✕</button></div>
+        <button type="button" class="icon-btn im-x" data-a="view" data-v="compose" aria-label="Fermer">✕</button></div>
       <div class="mk-wrap">${this.midiKeys(notes, chk.want)}</div>
       <div class="mk-leg"><span><i class="sw tgt"></i>notes de l’accord demandé</span><span><i class="sw ok"></i>juste</span><span><i class="sw bad"></i>hors accord</span></div></div>`;
   }
@@ -458,7 +478,7 @@ export class ComposeView {
       <div class="im-head"><b>Impro</b>
         <span class="seg"><button data-a="im-mode" data-v="song" class="${o.mode !== 'chord' ? 'on' : ''}">Tout le morceau</button><button data-a="im-mode" data-v="chord" class="${o.mode === 'chord' ? 'on' : ''}">Accord choisi</button></span>
         <span class="im-now">${now}</span><span class="im-sp"></span>
-        <button type="button" class="icon-btn im-x" data-a="impro" aria-label="Fermer">✕</button></div>
+        <button type="button" class="icon-btn im-x" data-a="view" data-v="compose" aria-label="Fermer">✕</button></div>
       <div class="im-legend">
         ${o.mode === 'chord' ? '<span class="im-chip on plain"><i class="sw chord"></i>Notes de l’accord</span>' : ''}
         ${chip('penta', '<i class="sw penta"></i>Toujours bonnes <small>(pentatonique)</small>', o.penta !== false)}
@@ -529,7 +549,7 @@ export class ComposeView {
 
   panel(key) {
     const sel = this.sel, c = this.c;
-    if (!sel) return `<aside class="cp-panel empty-p"><h3>Composer</h3><p class="note">Touche une case de la grille pour choisir un accord. MusiMix te proposera :</p>
+    if (!sel) return `<aside class="cp-panel empty-p"><div class="cp-p-head"><button class="cp-pbtn" data-a="panel" title="Masquer le panneau" aria-label="Masquer le panneau">»</button><b>Accord</b></div><h3>Composer</h3><p class="note">Touche une case de la grille pour choisir un accord. MusiMix te proposera :</p>
       <ul class="note"><li><b>Suite</b> : les accords qui vont bien après le précédent</li><li><b>Transitions</b> : des accords de passage vers le suivant</li><li><b>Variantes</b> : couleurs, renversements, substitutions</li><li><b>Doigtés</b> : les formes les plus proches sur le manche</li></ul>
       <p class="note">Le style (${esc(STYLES[c.style].label)}) oriente les propositions et le rythme d’écoute.</p></aside>`;
     const s = c.sections[sel.si], b = s.bars[sel.bi], cur = b.c[sel.h] || '';
@@ -544,62 +564,71 @@ export class ComposeView {
     const { prev, next } = this.neighbors(sel.si, sel.bi, sel.h);
     const inst = c.instrument === 'piano' ? 'piano' : 'guitar';
     const chip = (nm, why, extra = '') => `<span class="cp-chip"><button class="cp-use" data-a="use" data-v="${esc(nm)}" ${extra} title="${esc(why || '')}"><b>${esc(nm)}</b>${why ? `<small>${esc(why)}</small>` : ''}</button><button class="cp-hear" data-a="hear" data-v="${esc(nm)}" aria-label="Écouter ${esc(nm)}">${icon('play')}</button></span>`;
-    let body = '';
-    if (!['next', 'trans', 'var', 'vo'].includes(this.tab)) this.tab = 'next';
-    if (this.tab === 'next') {
-      const list = nextChords(prev?.name || '', key, c.style);
-      body = `<p class="note">${prev ? `Après <b>${esc(prev.name)}</b> :` : 'Pour commencer :'}</p><div class="cp-chips">${list.map((x) => chip(x.name, x.why)).join('')}</div>
-        <p class="note" style="margin-top:10px">Accords de la tonalité (${esc(keyLabel(key))}) :</p><div class="cp-chips small">${[0, 1, 2, 3, 4, 5, 6].map((d) => { const nm = degree(key, d, c.style); return chip(nm, roman(nm, key)); }).join('')}</div>`;
-    } else if (this.tab === 'trans') {
+    const od = (this.openD ||= new Set(['acts']));
+    const det = (k, title, body, ic = '') => `<details class="cp-det" data-d="${k}"${od.has(k) ? ' open' : ''}><summary>${ic ? icon(ic) : ''}<span>${title}</span><i class="cp-chev">▾</i></summary><div class="cp-det-b">${body}</div></details>`;
+    // contenus
+    const sugg = nextChords(prev?.name || '', key, c.style).slice(0, 6);
+    const transBody = (() => {
       const a = cur || prev?.name, nb = next?.name;
-      if (!a || !nb) body = '<p class="note">Il faut un accord ici et un accord après pour proposer des transitions.</p>';
-      else body = `<p class="note">De <b>${esc(a)}</b> vers <b>${esc(nb)}</b> — joués sur la 2<sup>e</sup> moitié de la mesure :</p><div class="cp-chips">${transitions(a, nb, key, c.style).map((x) => `<span class="cp-chip"><button class="cp-use" data-a="trans" data-v="${esc(x.names.join(' '))}" title="${esc(x.why)}"><b>${esc(x.names.join(' → '))}</b><small>${esc(x.why)}</small></button><button class="cp-hear" data-a="hear-seq" data-v="${esc([a, ...x.names, nb].join(' '))}" aria-label="Écouter">${icon('play')}</button></span>`).join('')}</div>`;
-    } else if (this.tab === 'var') {
-      body = cur ? `<p class="note">Autres couleurs pour <b>${esc(cur)}</b> :</p><div class="cp-chips">${variations(cur, key, c.style).map((x) => chip(x.name, x.why)).join('')}</div>` : '<p class="note">Choisis d’abord un accord.</p>';
-    } else if (this.tab === 'vo') {
-      if (!cur) body = '<p class="note">Choisis d’abord un accord.</p>';
-      else if (inst === 'piano') {
-        const own = b.p?.[sel.h];
-        body = `<p class="note">Choisis la position de <b>${esc(cur)}</b> au clavier :</p><div class="cp-vos piano">${pianoOptions(cur).map((o) => `<button class="cp-vo${own && own.join() === o.notes.join() ? ' on' : ''}" data-a="pno" data-v="${o.notes.join(',')}">${diagramSVG(cur, 'piano', { notes: o.notes })}<small>${esc(o.label)}</small></button>`).join('')}</div>
-          ${own ? '<button class="btn small" data-a="vo-auto">Position normale</button>' : ''}`;
-      } else {
-        const pv = prev ? this.vObj(prev) : null, nv = next ? this.vObj(next) : null;
-        const all = allVoicings(cur, 'guitar'), curF = this.vObj({ si: sel.si, bi: sel.bi, h: sel.h, name: cur })?.frets?.join();
-        const close = voicingOptions(cur, pv, nv, 'guitar')[0];
-        const closeF = close ? vList(cur, 'guitar')[close.index]?.frets.join() : null;
-        const lockd = b.v?.[sel.h] != null || b.g?.[sel.h];
-        body = `<p class="note">Toutes les positions de <b>${esc(cur)}</b> sur le manche, de la tête vers le corps${prev || next ? ' · ★ = la plus proche des accords voisins' : ''} :</p>
-          <div class="cp-vos">${all.map((v) => `<button class="cp-vo${v.frets.join() === curF ? ' on' : ''}" data-a="vof" data-v="${v.frets.join(',')}">${diagramSVG(cur, 'guitar', { frets: v.frets })}<small>${v.frets.join() === closeF ? '★ ' : ''}${v.pos ? `case ${v.pos}` : 'cordes à vide'}</small></button>`).join('')}</div>
-          ${lockd ? '<button class="btn small" data-a="vo-auto">Revenir au choix automatique</button>' : ''}`;
-      }
+      if (!a || !nb) return '<p class="note">Il faut un accord ici et un accord après pour proposer des transitions.</p>';
+      return `<p class="note">De <b>${esc(a)}</b> vers <b>${esc(nb)}</b>, joués sur la 2<sup>e</sup> moitié de la mesure :</p><div class="cp-chips">${transitions(a, nb, key, c.style).map((x) => `<span class="cp-chip"><button class="cp-use" data-a="trans" data-v="${esc(x.names.join(' '))}" title="${esc(x.why)}"><b>${esc(x.names.join(' → '))}</b><small>${esc(x.why)}</small></button><button class="cp-hear" data-a="hear-seq" data-v="${esc([a, ...x.names, nb].join(' '))}" aria-label="Écouter">${icon('play')}</button></span>`).join('')}</div>`;
+    })();
+    const varBody = cur ? `<div class="cp-chips">${variations(cur, key, c.style).map((x) => chip(x.name, x.why)).join('')}</div>` : '<p class="note">Choisis d’abord un accord.</p>';
+    let voBody;
+    if (!cur) voBody = '<p class="note">Choisis d’abord un accord.</p>';
+    else if (inst === 'piano') {
+      const own = b.p?.[sel.h];
+      voBody = `<div class="cp-vos piano">${pianoOptions(cur).map((o) => `<button class="cp-vo${own && own.join() === o.notes.join() ? ' on' : ''}" data-a="pno" data-v="${o.notes.join(',')}">${diagramSVG(cur, 'piano', { notes: o.notes })}<small>${esc(o.label)}</small></button>`).join('')}</div>${own ? '<button class="btn small" data-a="vo-auto">Position normale</button>' : ''}`;
+    } else {
+      const pv = prev ? this.vObj(prev) : null, nv = next ? this.vObj(next) : null;
+      const all = allVoicings(cur, 'guitar'), curF = this.vObj({ si: sel.si, bi: sel.bi, h: sel.h, name: cur })?.frets?.join();
+      const close = voicingOptions(cur, pv, nv, 'guitar')[0];
+      const closeF = close ? vList(cur, 'guitar')[close.index]?.frets.join() : null;
+      const lockd = b.v?.[sel.h] != null || b.g?.[sel.h];
+      voBody = `<p class="note">${prev || next ? '★ = la plus proche des accords voisins' : 'De la tête vers le corps du manche'}</p>
+        <div class="cp-vos">${all.map((v) => `<button class="cp-vo${v.frets.join() === curF ? ' on' : ''}" data-a="vof" data-v="${v.frets.join(',')}">${diagramSVG(cur, 'guitar', { frets: v.frets })}<small>${v.frets.join() === closeF ? '★ ' : ''}${v.pos ? `case ${v.pos}` : 'cordes à vide'}</small></button>`).join('')}</div>
+        ${lockd ? '<button class="btn small" data-a="vo-auto">Revenir au choix automatique</button>' : ''}`;
     }
+    const keyBody = `<div class="cp-chips small">${[0, 1, 2, 3, 4, 5, 6].map((d) => { const nm = degree(key, d, c.style); return chip(nm, roman(nm, key)); }).join('')}</div>`;
+    const actsBody = `<div class="cp-btns">
+        <button data-a="split" title="${b.c.length > 1 ? 'Un seul accord dans la mesure' : 'Deux accords dans la mesure'}">${b.c.length > 1 ? '1 accord' : '2 accords'}</button>
+        ${b.c.length > 1 ? `<button data-a="half" data-v="0" class="${sel.h === 0 ? 'on' : ''}">1re moitié</button><button data-a="half" data-v="1" class="${sel.h === 1 ? 'on' : ''}">2e moitié</button>` : ''}
+        <button data-a="copy-prev" title="Reprendre l’accord d’avant">= précédent</button>
+        <button data-a="clear">Effacer</button></div>
+      <div class="cp-btns" style="margin-top:6px">
+        <button data-a="multi" class="${this.multi ? 'on' : ''}" title="Puis touche la dernière case à prendre">Sélectionner plusieurs</button>
+        <button data-a="copy">Copier</button>
+        ${CLIP?.length ? `<button data-a="paste" title="Coller ${CLIP.length} mesure(s) ici">Coller</button><button data-a="paste-ins" title="Insérer ici sans rien écraser">Insérer</button>` : ''}</div>`;
+    const rn = cur ? roman(cur, key) : '';
     return `<aside class="cp-panel">
-      <div class="cp-p-head"><b>${esc(s.label)} · mesure ${sel.bi + 1}${b.c.length > 1 ? ` · ${sel.h ? '2e' : '1re'} moitié` : ''}</b><button class="icon-btn sm" data-a="unsel" aria-label="Fermer">${icon('close')}</button></div>
+      <div class="cp-p-head">
+        <button class="cp-pbtn" data-a="panel" title="Masquer le panneau" aria-label="Masquer le panneau">»</button>
+        <button class="cp-pbtn" data-a="nav" data-v="-1" aria-label="Case précédente">‹</button>
+        <b>${esc(s.label)} · mesure ${sel.bi + 1}${b.c.length > 1 ? ` · ${sel.h ? '2e' : '1re'} moitié` : ''}</b>
+        <button class="cp-pbtn" data-a="nav" data-v="1" aria-label="Case suivante">›</button>
+        <button class="cp-pbtn" data-a="unsel" aria-label="Fermer">${icon('close')}</button>
+      </div>
       ${cur && b.s?.[sel.h] ? `<div class="cp-sugbox"><div class="cp-sug-h">${icon('sparkle')} <b>Proposé par MusiMix</b>
           <button class="btn small primary" data-a="ok-slot">${icon('check')} Valider</button><button class="btn small ghost" data-a="ok-sec" title="Valider tous les accords proposés de cette partie">Toute la partie</button></div>
           <div class="cp-sug-alts"><span class="note">Ou plutôt :</span>${slotAlternatives(c, key, sel.si, sel.bi, sel.h, cur).map((nm) => `<button class="cp-alt" data-a="alt" data-v="${esc(nm)}" title="Essayer ${esc(nm)} (reste proposé)">${esc(nm)}</button>`).join('')}</div></div>` : ''}
       <div class="cp-entry">
-        <input class="cp-in" data-f="chord" value="${esc(cur)}" placeholder="Accord (ex. Am7, F/A, G)" autocomplete="off" spellcheck="false">
-        ${cur ? `<button class="icon-btn" data-a="hear" data-v="${esc(cur)}" aria-label="Écouter">${icon('play')}</button>` : ''}
+        <input class="cp-in${b.s?.[sel.h] ? ' sug' : ''}" data-f="chord" value="${esc(cur)}" placeholder="Accord (ex. Am7, F/A, G)" autocomplete="off" spellcheck="false">
+        <button class="cp-in-play" data-a="${cur ? 'hear-slot' : 'noop'}" aria-label="Écouter" ${cur ? '' : 'disabled'}>${icon('play')}</button>
       </div>
-      ${inst === 'piano' ? this.drawPiano(cur, b) : this.drawNeck(cur, b)}
+      <div class="cp-dcard">
+        ${inst === 'piano' ? this.drawPiano(cur, b) : this.drawNeck(cur, b)}
+        ${cur ? `<div class="cp-dname"><span><b>${esc(cur)}</b><small>${esc(frChord(cur))}</small></span>${rn ? `<i class="cp-rnb">${esc(rn)}</i>` : ''}</div>` : ''}
+      </div>
       <div class="cp-lbl">Construire un accord</div>
-      <div class="cp-roots">${(([1, 3, 5, 8, 10].includes(key.pc) && !key.minor) || [0, 2, 5, 7, 10].includes(key.pc) && key.minor ? FLAT : ['C', 'Db', 'D', 'Eb', 'E', 'F', 'F#', 'G', 'Ab', 'A', 'Bb', 'B']).map((n, i) => `<button data-a="root" data-v="${n}" class="${this.root === n ? 'on' : ''}">${n}</button>`).join('')}</div>
-      <div class="cp-quals">${QUAL.map(([q, l]) => `<button data-a="qual" data-v="${q}">${l}</button>`).join('')}</div>
-      <div class="cp-acts2">
-        <div><div class="cp-lbl">Mesure</div><div class="cp-btns">
-          <button data-a="split" title="${b.c.length > 1 ? 'Un seul accord dans la mesure' : 'Deux accords dans la mesure'}">${b.c.length > 1 ? '1 accord' : '2 accords'}</button>
-          ${b.c.length > 1 ? `<button data-a="half" data-v="0" class="${sel.h === 0 ? 'on' : ''}">1re</button><button data-a="half" data-v="1" class="${sel.h === 1 ? 'on' : ''}">2e</button>` : ''}
-          <button data-a="copy-prev" title="Reprendre l’accord d’avant">= préc.</button>
-          <button data-a="clear">Effacer</button></div></div>
-        <div><div class="cp-lbl">Copier-coller</div><div class="cp-btns">
-          <button data-a="multi" class="${this.multi ? 'on' : ''}" title="Puis touche la dernière case à prendre">Plusieurs</button>
-          <button data-a="copy">Copier</button>
-          ${CLIP?.length ? `<button data-a="paste" title="Coller ${CLIP.length} mesure(s) ici">Coller</button><button data-a="paste-ins" title="Insérer ici sans rien écraser">Insérer</button>` : ''}</div></div>
-      </div>
-      <div class="cp-lbl">Idées</div>
-      <div class="cp-tabs2">${[['next', 'Suite'], ['trans', 'Transitions'], ['var', 'Variantes'], ['vo', inst === 'piano' ? 'Position' : 'Doigtés']].map(([k, l]) => `<button data-a="tab" data-v="${k}" class="${this.tab === k ? 'on' : ''}">${l}</button>`).join('')}</div>
-      <div class="cp-tab">${body}</div>
+      <div class="cp-roots">${(([1, 3, 5, 8, 10].includes(key.pc) && !key.minor) || [0, 2, 5, 7, 10].includes(key.pc) && key.minor ? FLAT : ['C', 'Db', 'D', 'Eb', 'E', 'F', 'F#', 'G', 'Ab', 'A', 'Bb', 'B']).map((n) => `<button data-a="root" data-v="${n}" class="${(this.root || parseChord(cur)?.rootName) === n ? 'on' : ''}">${n}</button>`).join('')}</div>
+      <div class="cp-quals">${QUAL.map(([q, l]) => `<button data-a="qual" data-v="${q}" class="${cur && parseChord(cur)?.suffix === q && !parseChord(cur)?.bassName ? 'on' : ''}">${l}</button>`).join('')}</div>
+      <div class="cp-lbl">Accords suggérés ${prev ? `<span>après ${esc(prev.name)}</span>` : `<span>(${esc(keyLabel(key))})</span>`}</div>
+      <div class="cp-sugg">${sugg.map((x) => `<button data-a="use" data-v="${esc(x.name)}" title="${esc(x.why)}">${esc(x.name)}</button>`).join('')}</div>
+      ${det('acts', 'Mesure et copier-coller', actsBody, 'grid')}
+      ${det('trans', 'Transitions vers l’accord suivant', transBody, 'next')}
+      ${det('var', 'Variantes et substitutions', varBody, 'sparkle')}
+      ${det('vo', inst === 'piano' ? 'Positions au clavier' : 'Doigtés alternatifs', voBody, inst === 'piano' ? 'piano' : 'guitar')}
+      ${det('key', `Accords de la tonalité (${esc(keyLabel(key))})`, keyBody, 'tuner')}
     </aside>`;
   }
 
@@ -731,33 +760,98 @@ export class ComposeView {
     return ev.filter((e) => e.name || e.rest).map((e) => (e.rest ? { ...e, name: 'C', silent: true } : e)).filter((e) => !e.silent);
   }
 
-  async play(onlySi = null) {
-    if (this.player.on) { this.player.stop(); this.playing = null; this.render(); return; }
+  async play(onlySi = null, from = 0) {
+    if (this.player.on) { this.player.stop(); this.playing = null; this._posBeat = 0; this.render(); return; }
     this._only = onlySi;
     if (this.c.sound !== 'synth' && !this._soundReady) {
-      const btn = this.el.querySelector('.cp-play'); if (btn) btn.textContent = 'Chargement des sons…';
+      const btn = this.el.querySelector('.cp-tplay'); if (btn) btn.classList.add('loading');
       this._soundReady = await Promise.race([prepareSounds(this.c.instrument), new Promise((r) => setTimeout(() => r(false), 8000))]);
       if (!this._soundReady) toast('Sons réalistes indisponibles pour l’instant : synthé utilisé');
     }
     const ev = this.events(onlySi);
-    if (!ev.length) { toast('Mets au moins un accord dans la grille'); return; }
+    if (!ev.length) { toast('Mets au moins un accord dans la grille'); this.render(); return; }
+    this._evs = ev;
+    from = Math.max(0, Math.min(ev.length - 1, from));
+    this._posBeat = ev[from].beat0; this._posAt = performance.now();
     this.player.start(ev, {
-      bpm: this.c.bpm, style: this.c.style, instrument: this.c.instrument, drums: true, pattern: this.c.pattern || '', drumStyle: this.c.drumStyle ?? (this.c.drums === false ? 'off' : ''), loop: true,
+      bpm: this.c.bpm, style: this.c.style, instrument: this.c.instrument, drums: true, pattern: this.c.pattern || '', drumStyle: this.c.drumStyle ?? (this.c.drums === false ? 'off' : ''), loop: this.c.loop !== false, from,
       onPos: (i) => {
-        this.playing = i >= 0 ? ev[i].key : null;
-        const pc = i >= 0 ? ev[i].name : null;
+        if (i < 0) { this.playing = null; this._playChord = null; if (!this.player.on) { this._posBeat = 0; this.render(); } return; }
+        this.playing = ev[i].key;
+        this._posBeat = ev[i].beat0; this._posAt = performance.now();
+        const pc = ev[i].name;
         if (pc !== this._playChord) { this._playChord = pc; this.updateImpro(); if (this.midiActive) this.updateMidi(); }
         this.el.querySelectorAll('.cp-bar.cp-now').forEach((x) => x.classList.remove('cp-now'));
-        if (this.playing) { const [si, bi] = this.playing.split('.'); this.el.querySelector(`.cp-bar[data-si="${si}"][data-bi="${bi}"]`)?.classList.add('cp-now'); }
+        const [si, bi] = this.playing.split('.'); this.el.querySelector(`.cp-bar[data-si="${si}"][data-bi="${bi}"]`)?.classList.add('cp-now');
       },
     });
     this.render();
+  }
+
+  /** Barre de lecture (en bas). */
+  transport() {
+    const c = this.c, ev = this.events(this.scopeSi ?? null);
+    const total = ev.length ? Math.max(...ev.map((e) => e.beat0 + e.dur)) * 60 / c.bpm : 0;
+    this._total = total;
+    const on = this.player.on, loop = c.loop !== false;
+    const spk = '<svg class="i" viewBox="0 0 24 24"><path d="M4 9.5h3.5L12 5.5v13l-4.5-4H4z"/><path d="M15.5 9a4 4 0 0 1 0 6M18 6.5a7.5 7.5 0 0 1 0 11"/></svg>';
+    return `<div class="cp-transport">
+      <span class="cp-time"><b data-r="tcur">${fmtT(on ? 0 : 0)}</b><span> / ${fmtT(total)}</span></span>
+      <span class="cp-tsep"></span>
+      <button class="cp-tbtn" data-a="t-start" title="Revenir au début" aria-label="Revenir au début">${icon('prev')}</button>
+      <button class="cp-tplay${on ? ' on' : ''}" data-a="play" title="${on ? 'Pause' : 'Écouter (Espace)'}" aria-label="${on ? 'Pause' : 'Écouter'}">${icon(on ? 'pause' : 'play')}</button>
+      <button class="cp-tbtn" data-a="t-stop" title="Arrêter" aria-label="Arrêter"><i class="cp-sq"></i></button>
+      <button class="cp-tbtn${loop ? ' on' : ''}" data-a="t-loop" title="Boucle ${loop ? 'activée' : 'désactivée'}" aria-label="Boucle">${icon('loop')}</button>
+      <label class="cp-tscope" title="Ce qui est joué"><select data-f="scope"><option value="">Tout le morceau</option>${c.sections.map((x, i) => `<option value="${i}" ${this.scopeSi === i ? 'selected' : ''}>${esc(x.label)}</option>`).join('')}</select></label>
+      <div class="cp-prog" data-a="seek" title="Aller à…"><i data-r="tbar"></i><b data-r="tknob"></b></div>
+      <span class="cp-tsep"></span>
+      <label class="cp-tbpm" title="Tempo">♩<input type="number" min="40" max="240" data-f="bpm" value="${c.bpm}"></label>
+      <span class="cp-tsep"></span>
+      <label class="cp-tvol" title="Volume">${spk}<input type="range" min="0" max="1" step="0.01" value="${getVolume()}" data-f="vol"></label>
+    </div>`;
+  }
+
+  tickTransport() {
+    cancelAnimationFrame(this._raf);
+    const upd = () => {
+      const el = this.el?.querySelector('.cp-transport');
+      if (!el) return;
+      let beat = this._posBeat || 0;
+      if (this.player.on) beat += ((performance.now() - (this._posAt || 0)) / 1000) * (this.c.bpm / 60);
+      const tot = this._total || 0, t = Math.min(tot, (beat * 60) / this.c.bpm), f = tot ? t / tot : 0;
+      el.querySelector('[data-r="tcur"]').textContent = fmtT(t);
+      el.querySelector('[data-r="tbar"]').style.width = `${f * 100}%`;
+      el.querySelector('[data-r="tknob"]').style.left = `${f * 100}%`;
+      if (this.player.on) this._raf = requestAnimationFrame(upd);
+    };
+    upd();
+  }
+
+  seekTo(frac) {
+    const ev = this.events(this.scopeSi ?? null);
+    if (!ev.length) return;
+    const tot = Math.max(...ev.map((e) => e.beat0 + e.dur)), target = frac * tot;
+    let i = 0; ev.forEach((e, k) => { if (e.beat0 <= target + 1e-6) i = k; });
+    if (this.player.on) this.player.stop();
+    this.play(this.scopeSi ?? null, i);
   }
 
   restartIfPlaying() {
     if (!this.player.on) return;
     const only = this._only ?? null;
     this.player.stop(); this.play(only);
+  }
+
+  /** Change d'onglet de travail : Composition, Improvisation, Clavier MIDI, Micro. */
+  setView(v) {
+    const c = this.c;
+    if (v !== 'midi' && this.midiActive) this.midiOff(true);
+    if (v !== 'mic' && this.micActive) this.micStop();
+    c.impro = { mode: 'chord', ...(c.impro || {}), on: v === 'impro' };
+    this.view2 = v;
+    if (v === 'midi' && !this.midiActive) { this.midiOnStart(true); return; }
+    if (v === 'mic' && !this.micActive) { this.micStart(); return; }
+    this.save(); this.render();
   }
 
   exportText() {
@@ -775,6 +869,8 @@ export class ComposeView {
   }
 
   async onClick(e) {
+    const dsum = e.target.closest('.cp-det > summary');
+    if (dsum) { const d = dsum.parentElement; setTimeout(() => { (this.openD ||= new Set())[d.open ? 'add' : 'delete'](d.dataset.d); }, 0); return; }
     if (e.target.closest('.cp-setd > summary')) { setTimeout(() => { this._setOpen = this.el.querySelector('.cp-setd')?.open; }, 0); return; }
     const t = e.target.closest('[data-a], [data-open], .cp-bar');
     if (!t) return;
@@ -813,14 +909,24 @@ export class ComposeView {
         if (x && await confirmBox('Supprimer la composition ?', `« ${x.name} » sera supprimée.`, { ok: 'Supprimer', danger: true })) { this.list = this.list.filter((y) => y.id !== v); await db.set('compos', this.list); this.render(); }
         break;
       }
-      case 'undo': if (this.undo.length) { const id = c.id; this.c = JSON.parse(this.undo.pop()); this.c.id = id; this.save(); this.render(); } break;
+      case 'undo': if (this.undo.length) { const id = c.id; this.redo.push(JSON.stringify(c)); this.c = JSON.parse(this.undo.pop()); this.c.id = id; this.save(); this.render(); } break;
+      case 'redo': if (this.redo.length) { const id = c.id; this.undo.push(JSON.stringify(c)); this.c = JSON.parse(this.redo.pop()); this.c.id = id; this.save(); this.render(); } break;
       case 'more': openMenu(t, [
         { icon: 'list', label: 'Copier la grille (texte)', action: async () => { try { await navigator.clipboard.writeText(this.exportText()); toast('Grille copiée : colle-la dans l’éditeur d’un morceau'); } catch { toast('Copie impossible'); } } },
         { icon: 'plus', label: 'Créer un morceau avec cette grille', action: () => this.toSong() },
         { icon: 'edit', label: 'Dupliquer la composition', action: async () => { const x = JSON.parse(JSON.stringify(c)); x.id = uid(); x.name += ' (copie)'; this.list.unshift(x); await db.set('compos', this.list); this.app.go(`#/compo/${x.id}`); } },
       ]); break;
       case 'inst': this._soundReady = false; c.instrument = v; if (c.sound !== 'synth') c.sound = undefined; this.changed(); break;
-      case 'play': this.play(); break;
+      case 'play': this.play(this.player.on ? null : (this.scopeSi ?? null)); break;
+      case 't-start': if (this.player.on) { this.player.stop(); this.play(this.scopeSi ?? null, 0); } else { this._posBeat = 0; this.tickTransport(); } break;
+      case 't-stop': this.player.stop(); this.playing = null; this._posBeat = 0; this.render(); break;
+      case 't-loop': c.loop = c.loop === false; this.save(); this.render(); this.restartIfPlaying(); break;
+      case 'seek': { const r = t.getBoundingClientRect(); this.seekTo(Math.max(0, Math.min(1, (e.clientX - r.left) / r.width))); break; }
+      case 'view': this.setView(v); break;
+      case 'fold': { const sct = c.sections[+t.dataset.si]; sct.collapsed = !sct.collapsed; this.save(); this.render(); break; }
+      case 'panel': this.panelHidden = !this.panelHidden; this.render(); break;
+      case 'nav': { if (!this.sel) break; if (+v > 0) this.advance(); else { const s0 = this.sel; if (s0.h === 1) s0.h = 0; else if (s0.bi > 0) { s0.bi--; s0.h = c.sections[s0.si].bars[s0.bi].c.length > 1 ? 1 : 0; } else if (s0.si > 0) { s0.si--; s0.bi = c.sections[s0.si].bars.length - 1; s0.h = 0; } } this.draft = null; this.render(); this.hearSlot(this.sel.si, this.sel.bi, this.sel.h); break; }
+      case 'sec-less': { const sct = c.sections[+t.dataset.si]; if (sct.bars.length > 1) { this.snap(); sct.bars.pop(); this.save(); this.render(); } break; }
       case 'play-sec': case 'sec-play': this.player.stop(); this.play(a === 'sec-play' ? +t.dataset.si : this.sel.si); break;
       case 'rep': { const s = c.sections[+t.dataset.si]; s.repeat = Math.max(1, Math.min(8, s.repeat + +v)); this.changed(); break; }
       case 'bars': {
@@ -832,6 +938,7 @@ export class ComposeView {
       case 'sec-menu': {
         const si = +t.dataset.si;
         openMenu(t, [
+          { label: 'Retirer la dernière mesure', action: () => { const sct = c.sections[si]; if (sct.bars.length > 1) { this.snap(); sct.bars.pop(); this.save(); this.render(); } } },
           { label: 'Monter', action: () => { if (si > 0) { this.snap(); const [x] = c.sections.splice(si, 1); c.sections.splice(si - 1, 0, x); this.sel = null; this.changed({ snap: false }); } } },
           { label: 'Descendre', action: () => { if (si < c.sections.length - 1) { this.snap(); const [x] = c.sections.splice(si, 1); c.sections.splice(si + 1, 0, x); this.sel = null; this.changed({ snap: false }); } } },
           { label: 'Dupliquer la partie', action: () => { this.snap(); const x = JSON.parse(JSON.stringify(c.sections[si])); x.id = uid(); c.sections.splice(si + 1, 0, x); this.changed({ snap: false }); } },
@@ -840,11 +947,11 @@ export class ComposeView {
         break;
       }
       case 'add-sec': { const [k, l] = KINDS.find((x) => x[0] === v); this.snap(); c.sections.push({ id: uid(), kind: k, label: l, repeat: 1, bars: Array.from({ length: k === 'intro' || k === 'outro' ? 4 : 8 }, () => ({ c: [] })) }); this.changed({ snap: false }); break; }
-      case 'mic': if (this.micActive) { this.micStop(); this.render(); } else this.micStart(); break;
+      case 'mic': this.setView(this.view2 === 'mic' ? 'compose' : 'mic'); break;
       case 'mic-put': this.setChord(v, { play: false }); toast(`${v} mis dans la case`); break;
-      case 'midi': if (this.midiActive) { this.midiOff(); this.render(); } else this.midiOnStart(true); break;
+      case 'midi': if (this.view2 === 'midi') { this.midiOff(); this.setView('compose'); } else this.setView('midi'); break;
       case 'midi-put': { const notes = [...(this.midiNotes || [])].sort((x, y) => x - y), nm = nameChord(notes); if (nm) { this.setChord(nm, { play: false, keep: { notes } }); toast(`${nm} mis dans la case`); } break; }
-      case 'impro': { c.impro = { mode: 'chord', ...(c.impro || {}), on: !c.impro?.on }; this.save(); this.render(); break; }
+      case 'impro': this.setView(this.view2 === 'impro' ? 'compose' : 'impro'); break;
       case 'im-mode': c.impro.mode = v; this.save(); this.render(); break;
       case 'im': { const o = c.impro; if (v === 'names') o.names = o.names === 'degrees' ? 'notes' : 'degrees'; else o[v] = v === 'blues' ? !o.blues : o[v] === false; this.save(); this.render(); break; }
       case 'fill': {
@@ -904,6 +1011,8 @@ export class ComposeView {
       case 'qual': { const r = this.root || parseChord(this.c.sections[this.sel.si].bars[this.sel.bi].c[this.sel.h])?.rootName || 'C'; this.setChord(r + v); break; }
       case 'use': this.setChord(v); break;
       case 'hear': playChord(v, c.instrument); break;
+      case 'hear-slot': this.hearSlot(this.sel.si, this.sel.bi, this.sel.h); break;
+      case 'noop': break;
       case 'hear-seq': { const ns = v.split(' '); ns.forEach((nm, i) => setTimeout(() => playChord(nm, c.instrument, 0, { dur: 0.9 }), i * 700)); break; }
       case 'trans': {
         const ns = v.split(' '), sel = this.sel, s = c.sections[sel.si], b = s.bars[sel.bi];
@@ -956,9 +1065,13 @@ export class ComposeView {
     if (!f || !c) return;
     if (f === 'style') { c.style = e.target.value; if (!this._bpmTouched) c.bpm = STYLES[c.style].bpm; this.changed(); this.restartIfPlaying(); }
     else if (f === 'key') { const v = e.target.value; c.key = v ? { pc: parseInt(v, 10), minor: v.endsWith('m') } : null; this.changed(); }
-    else if (f === 'bpm') { c.bpm = Math.max(40, Math.min(240, +e.target.value || 100)); this._bpmTouched = true; this.save(); this.restartIfPlaying(); }
+    else if (f === 'bpm') { c.bpm = Math.max(40, Math.min(240, +e.target.value || 100)); this._bpmTouched = true; this.save(); this.el.querySelectorAll('[data-f="bpm"]').forEach((x) => { if (x !== e.target) x.value = c.bpm; }); this.restartIfPlaying(); }
     else if (f === 'zone') { c.zone = e.target.value || null; this.changed(); }
     else if (f === 'sound') { this._soundReady = false; c.sound = e.target.value; this.applySound(); this.save(); if (c.sound !== 'synth') { toast('Chargement du son…'); prepareSounds(c.instrument).then((ok) => { if (!ok) toast('Son réaliste indisponible (pas de connexion ?) : synthé utilisé'); else playChord('C', c.instrument); this.restartIfPlaying(); }); } else this.restartIfPlaying(); }
+    else if (f === 'instsound') { const [ins, snd] = e.target.value.split('|'); this._soundReady = false; c.instrument = ins; c.sound = snd; this.applySound(); this.save(); this.render(); if (snd !== 'synth') prepareSounds(ins).then((ok) => { if (ok) playChord('C', ins); this.restartIfPlaying(); }); else this.restartIfPlaying(); }
+    else if (f === 'rep') { const sct = c.sections[+e.target.dataset.si]; this.snap(); sct.repeat = +e.target.value; this.save(); this.render(); }
+    else if (f === 'scope') { this.scopeSi = e.target.value === '' ? null : +e.target.value; this.render(); if (this.player.on) { this.player.stop(); this.play(this.scopeSi); } }
+    else if (f === 'vol') { setVolume(+e.target.value); try { localStorage.setItem('mm-compo-vol', e.target.value); } catch { /* */ } }
     else if (f === 'cols') { c.cols = +e.target.value; this.save(); this.render(); }
     else if (f === 'pattern' || f === 'drumStyle') { c[f] = e.target.value; this.save(); this.restartIfPlaying(); }
     else if (f === 'sec-pattern' || f === 'sec-drums') { const sct = c.sections[+e.target.dataset.si]; sct[f === 'sec-pattern' ? 'pattern' : 'drumStyle'] = e.target.value || undefined; this.save(); this.restartIfPlaying(); }
@@ -968,6 +1081,7 @@ export class ComposeView {
   }
 
   onInput(e) {
+    if (e.target.dataset.f === 'vol') { setVolume(+e.target.value); return; }
     if (e.target.dataset.f === 'chord') e.target.classList.toggle('bad', !!e.target.value.trim() && !e.target.value.trim().split(/\s+/).every((x) => parseChord(x)));
   }
 
@@ -986,6 +1100,7 @@ export class ComposeView {
   onKey(e) {
     if (!this.c) return;
     const inInput = e.target.matches?.('input, select, textarea');
+    if ((e.ctrlKey || e.metaKey) && (e.key === 'y' || (e.shiftKey && e.key.toLowerCase() === 'z'))) { e.preventDefault(); this.el.querySelector('[data-a="redo"]')?.click(); return; }
     if ((e.ctrlKey || e.metaKey) && e.key === 'z') { e.preventDefault(); this.el.querySelector('[data-a="undo"]')?.click(); return; }
     if (e.target.classList?.contains('cp-in')) {
       if (e.key === 'Enter' || e.key === 'Tab') { e.preventDefault(); this.commitInput(e.target, true); setTimeout(() => this.el.querySelector('.cp-in')?.focus(), 0); }

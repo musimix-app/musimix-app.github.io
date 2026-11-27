@@ -237,12 +237,14 @@ export function voicingOf(nm, idx, instrument = 'guitar') { return voicings(nm, 
 
 // ──────────────────────────────────────────────────────────────── son ──
 const OPEN = { guitar: [40, 45, 50, 55, 59, 64], ukulele: [67, 60, 64, 69] };
-let ctx = null, master = null, noiseBuf = null;
+let ctx = null, master = null, noiseBuf = null, VOLUME = 0.8;
+export function setVolume(v) { VOLUME = v; if (master) master.gain.value = v; }
+export function getVolume() { return VOLUME; }
 
 function audio() {
   if (!ctx) {
     ctx = new (window.AudioContext || window.webkitAudioContext)();
-    master = ctx.createGain(); master.gain.value = 0.8;
+    master = ctx.createGain(); master.gain.value = VOLUME;
     const comp = ctx.createDynamicsCompressor(); comp.threshold.value = -14; comp.ratio.value = 4;
     master.connect(comp).connect(ctx.destination);
     noiseBuf = ctx.createBuffer(1, ctx.sampleRate * 0.5, ctx.sampleRate);
