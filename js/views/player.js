@@ -1022,6 +1022,48 @@ export class PlayerView {
     const nextHtml = nxt ? `<div class="next-line">${esc(nxt.text)}</div>` : '';
     this.$big.innerHTML = `${tag ? `<div class="tag">${esc(tag)}</div>` : ''}${curHtml}${nextHtml}`;
     this.bigWords = [...this.$big.querySelectorAll('.now-line .w[data-s]')].map((w) => ({ w, s: +w.dataset.s, e: +w.dataset.e }));
+    this.layoutStageHud();
+  }
+
+  /** Accord en Scène : déplaçable partout sur la page, sans jamais recouvrir les paroles. */
+  layoutStageHud(drag) {
+    const stage = this.el.querySelector('.stage'), hud = stage?.querySelector('.stage-hud');
+    if (!hud || this.mode !== 'stage' || !hud.offsetWidth) return;
+    if (!this._stHudDrag) {
+      this._stHudDrag = true;
+      hud.addEventListener('pointerdown', (e) => {
+        e.preventDefault(); e.stopPropagation(); hud.setPointerCapture(e.pointerId); hud.classList.add('drag');
+        const r = hud.getBoundingClientRect(), dx = e.clientX - r.left, dy = e.clientY - r.top;
+        const mv = (ev) => { const sr = stage.getBoundingClientRect(); this.layoutStageHud({ x: ev.clientX - sr.left - dx, y: ev.clientY - sr.top - dy, live: true }); };
+        const up = (ev) => { hud.classList.remove('drag'); hud.removeEventListener('pointermove', mv); hud.removeEventListener('pointerup', up); hud.removeEventListener('pointercancel', up); const sr = stage.getBoundingClientRect(); this.layoutStageHud({ x: ev.clientX - sr.left - dx, y: ev.clientY - sr.top - dy }); this.app.setPref('stageHudPos', this.prefsCache.stageHudPos); };
+        hud.addEventListener('pointermove', mv); hud.addEventListener('pointerup', up); hud.addEventListener('pointercancel', up);
+      });
+      hud.addEventListener('click', (e) => e.stopPropagation());
+      if (window.ResizeObserver) new ResizeObserver(() => this.layoutStageHud()).observe(stage);
+    }
+    const W = stage.clientWidth, H = stage.clientHeight, w = hud.offsetWidth, h = hud.offsetHeight, m = 10;
+    const P = (this.prefsCache ||= {}).stageHudPos || { fx: 0.5, fy: 0 };
+    let x, y;
+    if (drag) { x = drag.x; y = drag.y; } else { x = P.fx * (W - w); y = P.fy * (H - h); }
+    x = Math.max(m, Math.min(W - w - m, x)); y = Math.max(m, Math.min(H - h - m, y));
+    if (!drag?.live) {
+      // zone des paroles (agrandie un peu) : on en sort par le côté le plus proche
+      const sr = stage.getBoundingClientRect();
+      let T = null;
+      this.$big.querySelectorAll('.tag, .ln, .next-line, .big-chord').forEach((el) => {
+        const r = el.getBoundingClientRect(); if (!r.width) return;
+        const q = { l: r.left - sr.left - 14, t: r.top - sr.top - 14, r: r.right - sr.left + 14, b: r.bottom - sr.top + 14 };
+        T = T ? { l: Math.min(T.l, q.l), t: Math.min(T.t, q.t), r: Math.max(T.r, q.r), b: Math.max(T.b, q.b) } : q;
+      });
+      if (T && x < T.r && x + w > T.l && y < T.b && y + h > T.t) {
+        const c = [
+          { x: T.l - w, y }, { x: T.r, y }, { x, y: T.t - h }, { x, y: T.b },
+        ].filter((p) => p.x >= m - 0.5 && p.x <= W - w - m + 0.5 && p.y >= m - 0.5 && p.y <= H - h - m + 0.5);
+        if (c.length) { const best = c.reduce((a, b) => (Math.hypot(b.x - x, b.y - y) < Math.hypot(a.x - x, a.y - y) ? b : a)); x = best.x; y = best.y; }
+      }
+      if (drag) this.prefsCache.stageHudPos = { fx: W > w ? x / (W - w) : 0, fy: H > h ? y / (H - h) : 0 };
+    }
+    hud.style.left = `${Math.round(x)}px`; hud.style.top = `${Math.round(y)}px`; hud.style.transform = 'none';
   }
 
   syncBigWords(t) {
@@ -1076,6 +1118,7 @@ export class PlayerView {
         const dg = shown ? diagramSVG(shown, this.instrument, { index: this.voicingIdx[shown] || 0 }) : '';
         this.el.querySelectorAll('[data-r="hud"]').forEach((e) => { e.innerHTML = shown ? `<div class="hud-txt"><b>${esc(shown)}</b>${nextShown ? `<small>ensuite <i>${esc(nextShown)}</i></small>` : ''}</div><div class="hud-dg">${dg}</div>` : ''; });
         if (this.mode === 'score') this.layoutHud();
+        if (this.mode === 'stage') this.layoutStageHud();
       }
     }
     const key = shown + '|' + this.instrument + '|' + (this.voicingIdx[shown] || 0) + '|' + nextShown;
@@ -1925,6 +1968,7 @@ export class PlayerView {
     this.mode = mode;
     const stage = this.el.querySelector('.stage');
     stage.classList.toggle('stage-mode', mode === 'stage');
+    if (mode === 'stage') requestAnimationFrame(() => this.layoutStageHud());
     stage.classList.toggle('grid-mode', mode === 'grid');
     stage.classList.toggle('score-mode', mode === 'score');
     if (mode === 'score') { this.mountScore(); this.renderScoreLyrics(true); }

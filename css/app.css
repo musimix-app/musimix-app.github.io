@@ -957,3 +957,5 @@ dialog.diag-dlg { width: min(560px, calc(100vw - 20px)); }
 .sc-lyrics .hud:hover { background: color-mix(in srgb, var(--ink) 5%, transparent); }
 .sc-lyrics .hud.drag { cursor: grabbing; background: color-mix(in srgb, var(--chord) 12%, transparent); }
 .sc-lyrics .scl-body { flex: 1; }
+.stage-hud { cursor: grab; touch-action: none; user-select: none; }
+.stage-hud.drag { cursor: grabbing; box-shadow: 0 6px 20px rgba(0,0,0,.12); }
