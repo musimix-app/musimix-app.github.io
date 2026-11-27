@@ -1109,3 +1109,8 @@ body.noselect, body.noselect * { user-select: none !important; -webkit-user-sele
 .cp-rng-list span { padding: 2px 8px; border-radius: 6px; background: var(--bg); border: 1px solid var(--line-2); font: 700 14px var(--font-ui); color: var(--chord); }
 .cp-clip { border-top: 1px dashed var(--line-2); padding-top: 8px; }
 .cp-clip .btn.on { background: var(--ink); color: var(--bg); }
+.cp-draw { margin: 10px 0 4px; padding: 8px 8px 6px; border: 1px solid var(--line); border-radius: 12px; background: var(--bg); }
+.cp-draw .nk { padding: 2px 0 2px; }
+.cp-draw .cp-draw-res { margin-top: 4px; }
+.cp-draw .cp-draw-res > span { font-size: 13px; }
+.cp-draw .cp-draw-res b { font-size: 14px; }
