@@ -55,6 +55,35 @@ function isChordLine(line) {
   return toks.length > 0 && toks.every((t) => isChord(t));
 }
 
+/**
+ * Ligne de grille écrite en mesures : « | Am | F G | % | » ou « | [Am] | [F] [G] | ».
+ * Renvoie la liste des mesures (accords de chaque mesure ; % = mesure précédente répétée) ou null.
+ */
+export function barsFromLine(line) {
+  const str = String(line).replace(/\[([^\]]*)\]/g, ' $1 ');
+  if ((str.match(/\|/g) || []).length < 1) return null;
+  const segs = str.replace(/\|\||:\||\|:/g, '|').split('|');
+  if (!segs[0].trim()) segs.shift();
+  if (segs.length && !segs[segs.length - 1].trim()) segs.pop();
+  if (!segs.length) return null;
+  const bars = [];
+  for (const seg of segs) {
+    const toks = seg.trim().split(/\s+/).filter(Boolean).filter((t) => !/^\(?x\d+\)?$|^\d+x$|^[-.\/]$/i.test(t));
+    if (!toks.length) { if (bars.length) bars.push(bars[bars.length - 1].slice()); continue; }
+    if (toks.length === 1 && toks[0] === '%') { if (bars.length) bars.push(bars[bars.length - 1].slice()); continue; }
+    const names = toks.map((t) => (/^\(.*\)$/.test(t) ? t.slice(1, -1) : t));
+    if (!names.every((t) => t === '%' || isChord(t))) return null;
+    bars.push(names.filter((t) => t !== '%').map(normalizeChordToken));
+  }
+  return bars.length ? bars : null;
+}
+
+function barsLine(bars, chorus) {
+  const chords = [];
+  bars.forEach((b) => b.forEach((name) => chords.push({ pos: chords.length, name })));
+  return { type: 'chords', text: '', chords, bars, chorus: chorus || undefined };
+}
+
 // ─────────────────────────────────────────────────────────── lecture ──
 
 export function looksLikeChordPro(text) {
@@ -193,6 +222,11 @@ function parseChordPro(text) {
     }
     if (/^\s*#/.test(raw)) continue; // commentaire ChordPro
     if (!raw.trim()) { lines.push({ type: 'blank', chords: [] }); continue; }
+    // [Intro], [Refrain], Couplet 2 : … seuls sur la ligne → partie
+    const secM = /^\s*\[([^\]]+)\]\s*$/.exec(raw) || (SECTION_RE.exec(raw)?.[0].length === raw.trim().length ? [0, raw.trim()] : null);
+    if (secM && !isChord(secM[1].trim()) && SECTION_RE.test(secM[1].trim())) { const lb = secM[1].replace(/[[\]():]/g, '').trim(); lines.push({ type: 'section', label: cap(lb), kind: sectionKind(lb), chords: [] }); continue; }
+    // grille en mesures (« | Am | F G | »)
+    if (/\|/.test(raw)) { const bars = barsFromLine(raw); if (bars) { lines.push(barsLine(bars, inChorus)); continue; } }
     let textOnly = '';
     const chords = [];
     for (const part of raw.split(/(\[[^\]]*\])/)) {
@@ -208,7 +242,9 @@ function parseChordPro(text) {
       const t = textOnly.slice(lead).replace(/\s+$/, '');
       lines.push({ type: 'lyric', text: t, chords: chords.map((c) => ({ ...c, pos: Math.max(0, c.pos - lead) })), chorus: inChorus || undefined });
     } else if (chords.length) {
-      lines.push({ type: 'chords', text: '', chords: chords.map((c, i) => ({ ...c, pos: i })), chorus: inChorus || undefined });
+      const bars = /\|/.test(raw) ? barsFromLine(raw) : null;
+      if (bars) lines.push(barsLine(bars, inChorus));
+      else lines.push({ type: 'chords', text: '', chords: chords.map((c, i) => ({ ...c, pos: i })), chorus: inChorus || undefined });
     }
   }
   return { meta, lines: tidy(lines) };
@@ -231,6 +267,10 @@ function parseGrid(text) {
       const rest = ln.slice(sec[0].length);
       if (!rest.trim()) continue;
       ln = ' '.repeat(sec[0].length) + rest;
+    }
+    if (/\|/.test(ln) && isChordLine(ln.replace(/\|/g, ' '))) {
+      const bars = barsFromLine(ln);
+      if (bars) { lines.push(barsLine(bars)); continue; }
     }
     if (isChordLine(ln)) {
       const chords = [];
@@ -339,6 +379,8 @@ export function toChordPro(doc, { withMeta = true } = {}) {
       else out.push(`{comment: ${l.label}}`);
     } else if (l.type === 'blank') {
       if (out.length && out[out.length - 1] !== '') out.push('');
+    } else if (l.type === 'chords' && l.bars?.length) {
+      out.push(`| ${l.bars.map((b) => b.map((n) => `[${n}]`).join(' ') || '%').join(' | ')} |`);
     } else if (l.type === 'chords') {
       out.push(l.chords.map((c) => `[${c.name}]`).join(' '));
     } else {

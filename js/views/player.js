@@ -3,7 +3,7 @@
 import { db } from '../db.js';
 import { esc, icon, fmtTime, toast, openMenu, drag, debounce, dialog } from '../ui.js';
 import { renderSheet, lyricLine, chordDisplay, songKey, uniqueChords } from '../render.js';
-import { chordTimeline, sectionsOf } from '../sheet.js';
+import { chordTimeline, sectionsOf, tokenize } from '../sheet.js';
 import { diagramSVG, voicings, chordFormula, loadChordDb, setSongShapes } from '../diagrams.js';
 import { LyricsEditing } from './chord-edit.js';
 import { ensureLevels, isEmptyStem } from '../levels.js';
@@ -44,6 +44,7 @@ export class PlayerView {
   async open(song, ctx = {}) {
     this.song = song;
     this.ctx = ctx;
+    this._gsAuto = null; this._clock = null;
     const prefs = await this.app.prefs();
     this.prefsCache = prefs || {};
     this.prefsSnap = prefs;
@@ -253,16 +254,36 @@ export class PlayerView {
 
   renderLyrics() {
     const s = this.song;
+    this._clock = null;
+    const off = (s.prefs.offset || 0) / 1000; // temps des paroles = temps audio + décalage
+    this.applyWrittenBars(off);
     this.timeline = chordTimeline(s.doc, s.duration || this.engine.duration, s.detectedChords);
+    // accords du texte : posés sur le temps le plus proche de l'horloge maître
+    {
+      const bt = this.masterClock().beats;
+      if (bt.length > 4) {
+        const beatLen = (this.masterClock().gap || 2) / (this.masterClock().bpb || 4);
+        let k = 0;
+        for (const c of this.timeline) {
+          if (c.t == null || c.fixed) continue;
+          const a = c.t - off;
+          while (k + 1 < bt.length && bt[k + 1] <= a) k++;
+          const cand = [bt[k], bt[k + 1]].filter((x) => x != null);
+          const near = cand.reduce((m, x) => (Math.abs(x - a) < Math.abs(m - a) ? x : m), cand[0]);
+          if (Math.abs(near - a) < beatLen * 0.45) c.t = near + off;
+        }
+      }
+    }
     // accords écrits dans la partition (calée) : prioritaires pour le temps ; on les relie aux accords du texte
     if (s.score?.chords?.length && s.score.useChords !== false) {
       const txt = this.timeline.filter((c) => c.t != null && c.li >= 0);
       const used = new Set();
-      this.timeline = s.score.chords.map((c) => {
+      this.timeline = s.score.chords.map((c0) => {
+        const c = { ...c0, t: c0.t + off }; // temps audio → temps des paroles
         let m = null;
         for (const x of txt) if (!used.has(x) && Math.abs(x.t - c.t) < 2.5 && sameChord(x.name, c.name) && (!m || Math.abs(x.t - c.t) < Math.abs(m.t - c.t))) m = x;
         if (m) used.add(m);
-        return { name: m ? m.name : c.name, t: c.t, li: m ? m.li : -1, ci: m ? m.ci : -1 };
+        return { name: m ? m.name : c.name, t: c.t, li: m ? m.li : -1, ci: m ? m.ci : -1, fixed: true };
       });
       this.timeline.forEach((c, i) => { c.e = this.timeline[i + 1]?.t ?? (s.duration || c.t + 4); });
     }
@@ -306,19 +327,47 @@ export class PlayerView {
   }
 
   /** Débuts de mesure (temps audio, secondes). */
-  barTimes() {
-    if (this._bars) return this._bars;
-    const s = this.song;
-    let downs = s.downbeats?.length ? s.downbeats : null;
-    if (!downs && s.beats?.length > 8) downs = s.beats.filter((_, i) => i % 4 === 0);
-    if (!downs && s.bpm && this.hasTimedChords) {
-      const period = (60 / s.bpm) * 4;
-      const t0 = this.timeline.find((c) => c.t != null)?.t || 0;
-      downs = [];
-      for (let t = t0 % period; t < (s.duration || this.engine.duration || 0); t += period) downs.push(t);
+  /**
+   * Horloge maître : UNE grille de mesures et de temps (temps de l'audio) que tout suit —
+   * grille d'accords, traits de mesure, métronome, accords calés sur les temps.
+   * Source : la partition calée si elle existe, sinon les mesures détectées dans l'audio (corrigées ×2 / ½ / décalage).
+   */
+  masterClock() {
+    if (this._clock) return this._clock;
+    const s = this.song, c = s.clock || {};
+    const dur = s.duration || this.engine.duration || 0;
+    let bars = null, src = 'audio';
+    if (s.score?.bars?.length > 4) { bars = s.score.bars.slice(); src = 'partition'; }
+    else {
+      let d = s.downbeats?.length ? s.downbeats.slice() : null;
+      if (!d && s.beats?.length > 8) d = s.beats.filter((_, i) => i % 4 === 0);
+      if (!d && s.bpm && dur) { const per = (60 / s.bpm) * (c.bpb || 4); d = []; for (let t = (c.start || 0); t < dur; t += per) d.push(t); }
+      if (d?.length) {
+        if (c.scale === 2) d = d.filter((_, i) => i % 2 === 0);
+        else if (c.scale === 0.5) { const o = []; d.forEach((x, i) => { o.push(x); if (d[i + 1] != null) o.push((x + d[i + 1]) / 2); }); d = o; }
+        bars = d.map((x) => x + (c.offset || 0));
+      }
     }
-    this._bars = downs || [];
-    return this._bars;
+    if (!bars?.length) return (this._clock = { bars: [], beats: [], bpb: 4, src: null });
+    // prolonge jusqu'à la fin du morceau
+    const gaps = bars.slice(1).map((x, i) => x - bars[i]).sort((a, b) => a - b);
+    const g = gaps[gaps.length >> 1] || 2;
+    while (dur && bars[bars.length - 1] + g < dur - 0.2 && bars.length < 2000) bars.push(bars[bars.length - 1] + g);
+    const bpb = (src === 'partition' ? s.score.bpb : c.bpb) || 4;
+    const beats = [];
+    bars.forEach((a, i) => { const z = bars[i + 1] ?? a + g; for (let k = 0; k < bpb; k++) beats.push(a + (k * (z - a)) / bpb); });
+    return (this._clock = { bars, beats, bpb, src, gap: g });
+  }
+
+  barTimes() { return this.masterClock().bars; }
+
+  /** L'horloge a changé : tout se recale dessus. */
+  applyClock() {
+    this._clock = null; this._bars = null; this._gsAuto = null;
+    const ck = this.masterClock();
+    this.engine.setBeats(ck.beats.length ? ck.beats : (this.song.beats?.length ? this.song.beats : beatsFromBpm(this.song)), ck.bars.length ? ck.bars : this.song.downbeats);
+    this.renderLyrics();
+    this.curBar = -2; this.frame(true);
   }
 
   /** Traits discrets au début de chaque mesure, posés sur les paroles sans décaler le texte. */
@@ -405,50 +454,115 @@ export class PlayerView {
     }
   }
 
-  // grille de mesures (temps forts → mesures de 4 temps)
+  // grille d'accords, posée sur l'horloge maître
   renderGrid() {
-    const s = this.song;
-    let downs = s.downbeats?.length ? s.downbeats : null;
-    if (!downs && s.beats?.length > 8) downs = s.beats.filter((_, i) => i % 4 === 0);
-    if (!downs && s.bpm && this.hasTimedChords) {
-      const period = (60 / s.bpm) * 4;
-      const t0 = this.timeline.find((c) => c.t != null)?.t || 0;
-      downs = [];
-      for (let t = t0 % period; t < (s.duration || this.engine.duration || 0); t += period) downs.push(t);
-    }
+    const s = this.song, ck = this.masterClock(), off = (s.prefs.offset || 0) / 1000;
     this.bars = [];
-    if (!downs || !this.hasTimedChords) {
-      this.$grid.innerHTML = `<p class="note" style="font-size:16px;max-width:40ch">La grille par mesure a besoin du tempo et des accords datés. Prépare le morceau avec le Studio, ou indique le tempo dans <b>Éditer → Infos</b>.</p>`;
+    const G = this.$grid;
+    const lyrMode = this.prefsCache?.gridLyrics || 'off';
+    const tools = this.gridTools(ck);
+    if (!ck.bars.length || !this.hasTimedChords) {
+      G.innerHTML = `${tools}<p class="note" style="font-size:16px;max-width:44ch">${this.writtenGrid && !ck.bars.length
+        ? 'Ta grille est écrite en mesures, mais le tempo du morceau est inconnu : lance « Tout préparer » (étape Tempo et accords), ou indique le tempo dans <b>Éditer → Infos</b>.'
+        : 'La grille par mesure a besoin du tempo et des accords datés. Prépare le morceau avec « Tout préparer », ou indique le tempo dans <b>Éditer → Infos</b>.'}</p>`;
       return;
     }
-    const tl = this.timeline.filter((c) => c.t != null);
-    let ci = 0;
-    let lastName = null;
-    let secI = 0;
-    const html = [];
-    for (let b = 0; b < downs.length; b++) {
-      const a = downs[b];
-      const z = downs[b + 1] ?? a + (downs[b] - (downs[b - 1] ?? a - 2));
-      const names = [];
-      while (ci < tl.length && tl[ci].t < z - 0.12) {
-        if (tl[ci].t >= a - 0.12 || !names.length) {
-          if (tl[ci].t >= a - 0.12) names.push(tl[ci].name);
-        }
-        ci++;
-      }
-      let sec = '';
-      while (secI < this.sections.length && this.sections[secI].t < z - 0.1) {
-        if (this.sections[secI].t >= a - 0.5 || b === 0) sec = this.sections[secI].label;
-        secI++;
-      }
-      const shown = names.length ? names : lastName ? [lastName] : [];
-      if (names.length) lastName = names[names.length - 1];
-      this.bars.push({ a, z });
-      html.push(`<div class="mbar${names.length ? '' : ' cont'}" data-t="${a}">${sec ? `<span class="sec">${esc(sec)}</span>` : ''}${shown.map((n) => `<b>${esc(this.display(n))}</b>`).join('') || '<b>–</b>'}<span class="n">${b + 1}</span></div>`);
+    const bars = ck.bars, bpb = ck.bpb || 4, n = bars.length;
+    const end = (k) => bars[k + 1] ?? bars[k] + (ck.gap || 2);
+    const barOf = (ta, tol) => { let lo = 0, hi = n - 1, r = 0; while (lo <= hi) { const m = (lo + hi) >> 1; if (bars[m] <= ta + tol) { r = m; lo = m + 1; } else hi = m - 1; } return r; };
+    const cells = Array.from({ length: n }, () => ({ ch: [], sec: null, ly: [] }));
+    // accords → mesure + temps (un accord joué un demi-temps en avance appartient à la mesure suivante)
+    for (const c of this.timeline) {
+      if (c.t == null) continue;
+      const ta = c.t - off, k = barOf(ta, (end(barOf(ta, 0)) - bars[barOf(ta, 0)]) / bpb * 0.5);
+      const bl = (end(k) - bars[k]) / bpb;
+      const slot = Math.max(0, Math.min(bpb - 1, Math.round((ta - bars[k]) / bl)));
+      const cell = cells[k].ch;
+      const same = cell.findIndex((x) => x.slot === slot);
+      if (same >= 0) cell[same] = { name: c.name, slot }; else cell.push({ name: c.name, slot });
     }
-    this.$grid.innerHTML = `<div class="bars">${html.join('')}</div>`;
-    this.barEls = [...this.$grid.querySelectorAll('.mbar')];
+    // parties (intro, couplet, refrain…)
+    for (const sec of this.sections) {
+      if (sec.t == null) continue;
+      const ta = sec.t - off, k = barOf(ta, (ck.gap || 2) / bpb);
+      if (!cells[k].sec) cells[k].sec = { label: sec.label, kind: sec.kind };
+    }
+    // paroles de chaque mesure (mot par mot si possible)
+    s.doc.lines.forEach((l) => {
+      if (l.type !== 'lyric' || l.s == null) return;
+      const toks = tokenize(l.text);
+      if (l.words?.length === toks.length) toks.forEach((tk, i) => cells[barOf(l.words[i].s - off, 0.15)].ly.push(tk.w));
+      else cells[barOf(l.s - off, 0.15)].ly.push(l.text);
+    });
+    const used = cells.map((c) => c.ch.length || c.sec);
+    const first = used.findIndex(Boolean);
+    let last = n - 1; while (last > 0 && !cells[last].ch.length) last--;
+    if (first < 0) { G.innerHTML = tools; return; }
+    const perRow = this.prefsCache?.gridPerRow || 4;
+    let html = '', row = [], prev = null, sec = null, secOpen = false;
+    const flush = () => { if (row.length) html += `<div class="g-row">${row.join('')}</div>`; row = []; };
+    for (let k = first; k <= last + 0; k++) {
+      const c = cells[k];
+      if (c.sec) {
+        flush(); if (secOpen) html += '</section>';
+        html += `<section class="g-sec k-${esc(c.sec.kind || 'verse')}"><h4 class="g-sec-h">${esc(c.sec.label)}</h4>`;
+        secOpen = true; sec = c.sec;
+      } else if (row.length >= perRow) flush();
+      if (!secOpen) { html += '<section class="g-sec">'; secOpen = true; }
+      const ch = c.ch.sort((x, y) => x.slot - y.slot);
+      let inner;
+      if (!ch.length) inner = prev ? `<b class="cont" title="${esc(this.display(prev))} (continue)">${esc(this.display(prev))}</b>` : '<b class="cont">–</b>';
+      else if (ch.length === 1 && ch[0].slot === 0) inner = `<b>${esc(this.display(ch[0].name))}</b>`;
+      else if (ch.length === 1) inner = `<span class="split"><b class="c1 cont">${esc(this.display(prev || '–'))}</b><b class="c2">${esc(this.display(ch[0].name))}</b></span>`;
+      else if (ch.length === 2) inner = `<span class="split"><b class="c1">${esc(this.display(ch[0].name))}</b><b class="c2">${esc(this.display(ch[1].name))}</b></span>`;
+      else inner = `<span class="many">${ch.map((x) => `<b>${esc(this.display(x.name))}</b>`).join('')}</span>`;
+      if (ch.length) prev = ch[ch.length - 1].name;
+      const ly = c.ly.join(' ');
+      this.bars.push({ a: bars[k] + off, z: end(k) + off, k });
+      row.push(`<div class="mbar${ch.length ? '' : ' nochg'}" data-t="${bars[k].toFixed(3)}" data-i="${this.bars.length - 1}">${lyrMode !== 'off' ? `<span class="ly">${esc(ly)}</span>` : ''}<span class="chs">${inner}</span><span class="n">${k + 1}</span></div>`);
+    }
+    flush(); if (secOpen) html += '</section>';
+    G.innerHTML = `${tools}<div class="gridx ly-${lyrMode}">${html}</div>`;
+    this.barEls = [...G.querySelectorAll('.mbar')];
+    this.curBar = -2;
   }
+
+  /** Barre d'outils de la grille : paroles, horloge maître (mesures, calage), métronome. */
+  gridTools(ck) {
+    const lyr = this.prefsCache?.gridLyrics || 'off', c = this.song.clock || {};
+    const bpm = ck.gap ? Math.round((60 * (ck.bpb || 4)) / ck.gap) : null;
+    const seg = (k, v, label) => `<button data-g="${k}:${v}" class="${String((k === 'ly' ? lyr : k === 'scale' ? (c.scale || 1) : k === 'row' ? (this.prefsCache?.gridPerRow || 4) : '')) === String(v) ? 'on' : ''}">${label}</button>`;
+    const open = this._gToolsOpen ?? (window.innerWidth > 700);
+    return `<details class="g-tools-d"${open ? ' open' : ''}><summary>Réglages de la grille</summary><div class="g-tools">
+      <span class="g-grp"><span class="note">Paroles</span><span class="seg">${seg('ly', 'off', 'Non')}${seg('ly', 'cur', 'Ligne en cours')}${seg('ly', 'all', 'Toutes')}</span></span>
+      <span class="g-grp"><span class="note">Par ligne</span><span class="seg">${seg('row', 4, '4')}${seg('row', 8, '8')}</span></span>
+      <span class="g-grp" title="Horloge maître : la grille, le métronome et les accords se calent dessus"><span class="note">Horloge ${ck.src === 'partition' ? '(partition)' : ck.src ? '(audio)' : ''}${bpm ? ` · ${bpm} bpm` : ''}</span>
+        ${ck.src === 'audio' ? `<span class="seg" title="Si une case dure une demi-mesure ou deux mesures">${seg('scale', 0.5, '×2')}${seg('scale', 1, 'normal')}${seg('scale', 2, '÷2')}</span>` : ''}
+        <span class="seg" title="Décaler la grille d’un temps"><button data-g="shift:-1">◀ 1 temps</button><button data-g="shift:1">1 temps ▶</button></span>
+        <button class="btn small ghost${this.engine.metronome.on ? ' on' : ''}" data-act="metro" title="Entendre l'horloge pour vérifier qu'elle tombe sur la musique">Métronome</button></span>
+      ${this.writtenGrid ? `<span class="g-grp"><span class="note">Ta grille démarre à la mesure</span><span class="stepper"><button data-g="start:-1">−</button><output>${(c.gridStart ?? this._gsAuto ?? 0) + 1}</output><button data-g="start:1">+</button></span></span>` : ''}
+    </div></details>`;
+  }
+
+  gridAction(k, v) {
+    const s = this.song, c = (s.clock ||= {}), ck = this.masterClock();
+    if (k === 'ly') { this.app.setPref('gridLyrics', v); (this.prefsCache ||= {}).gridLyrics = v; this.renderGrid(); return; }
+    if (k === 'row') { this.app.setPref('gridPerRow', +v); (this.prefsCache ||= {}).gridPerRow = +v; this.renderGrid(); return; }
+    if (k === 'scale') c.scale = +v === 1 ? undefined : +v;
+    if (k === 'start') c.gridStart = Math.max(0, (c.gridStart ?? this._gsAuto ?? 0) + +v);
+    if (k === 'shift') {
+      const beat = (ck.gap || 2) / (ck.bpb || 4), d = +v * beat;
+      if (ck.src === 'partition') {
+        s.score.bars = s.score.bars.map((x) => Math.round((x + d) * 1000) / 1000);
+        s.score.sync = { ...(s.score.sync || {}), offset: Math.round(((s.score.sync?.offset || 0) + d) * 100) / 100 };
+        if (this.scoreView) { this.scoreView.cfg.sync.offset = s.score.sync.offset; this.scoreView.applySync(); }
+      } else c.offset = Math.round(((c.offset || 0) + d) * 1000) / 1000;
+      toast(`Grille décalée d'un temps ${+v > 0 ? 'plus tard' : 'plus tôt'}`);
+    }
+    this.saveSong();
+    this.applyClock();
+  }
+
 
   renderOptions() {
     const p = this.song.prefs;
@@ -643,7 +757,7 @@ export class PlayerView {
     this.engine.setMaster(s.master ?? 1);
     this.engine.setRate(s.prefs.rate || 1);
     this.engine.setSemitones(s.prefs.audioPitch ? s.prefs.transpose : 0);
-    this.engine.setBeats(s.beats?.length ? s.beats : beatsFromBpm(s), s.downbeats);
+    { const ck = this.masterClock(); this.engine.setBeats(ck.beats.length ? ck.beats : (s.beats?.length ? s.beats : beatsFromBpm(s)), ck.bars.length ? ck.bars : s.downbeats); }
     this.engine.setMetronome(false);
     this.engine.addEventListener('time', this._onTime);
     this._engineH = {};
@@ -1117,14 +1231,61 @@ export class PlayerView {
     finally { this._autoBusy = false; }
   }
 
+  /**
+   * Grilles écrites en mesures (« | Am | F G | % | ») sans minutage : chaque mesure écrite prend,
+   * dans l'ordre, une mesure de l'horloge maître à partir de la mesure de départ (réglable).
+   */
+  applyWrittenBars(off) {
+    const s = this.song, lines = s.doc.lines.filter((l) => l.bars?.length);
+    if (!lines.length) { this.writtenGrid = false; return; }
+    const timed = lines.some((l) => l.chords.some((c) => c.t != null && !c.auto));
+    this.writtenGrid = !timed;
+    if (timed) return;
+    const bars = this.masterClock().bars;
+    if (!bars.length) return;
+    const bpb = this.masterClock().bpb || 4;
+    let k = s.clock?.gridStart ?? this.autoGridStart(lines, bars);
+    for (const l of lines) {
+      let ci = 0;
+      l.bars.forEach((names) => {
+        const a = bars[k], z = bars[k + 1] ?? (a + (this.masterClock().gap || 2));
+        names.forEach((n, j) => {
+          const slot = names.length === 1 ? 0 : Math.round((j * bpb) / names.length);
+          const c = l.chords[ci++];
+          if (c && a != null) { c.t = a + (slot * (z - a)) / bpb + off; c.auto = true; }
+        });
+        k++;
+      });
+    }
+  }
+
+  /** Mesure de départ d'une grille écrite : celle où ses accords collent le mieux aux accords entendus dans l'audio. */
+  autoGridStart(lines, bars) {
+    const det = this.song.detectedChords;
+    if (this._gsAuto != null) return this._gsAuto;
+    if (!det?.length) return (this._gsAuto = 0);
+    const seq = lines.flatMap((l) => l.bars.map((b) => b[0])).slice(0, 48);
+    const at = (t) => { for (const d of det) if (d.s <= t + 0.05 && t < d.e) return d.name; return null; };
+    let best = 0, bestScore = -1;
+    for (let st = 0; st < Math.min(40, bars.length - seq.length); st++) {
+      let sc = 0;
+      seq.forEach((n, i) => { const d = at(bars[st + i] + 0.1); if (d && sameChord(d, n)) sc += /m(?!aj)/.test(d) === /m(?!aj)/.test(n) ? 1 : 0.5; });
+      if (sc > bestScore) { bestScore = sc; best = st; }
+    }
+    return (this._gsAuto = best);
+  }
+
   /** Relève les accords de la partition (après chaque calage) et les garde avec le morceau. */
   takeScoreChords() {
     const sc = this.song.score;
     if (!sc || !this.scoreView) return;
     const ch = this.scoreView.scoreChords?.() || [];
-    const sig = JSON.stringify(ch);
-    if (sig === JSON.stringify(sc.chords || [])) return;
-    sc.chords = ch;
+    const bars = (this.scoreView._downs || []).map((d) => Math.round((d + (this.scoreView._off || 0)) * 1000) / 1000);
+    const bpb = this.scoreView.score?.masterBars?.[0]?.timeSignatureNumerator || 4;
+    const sig = JSON.stringify([ch, bars, bpb]);
+    if (sig === JSON.stringify([sc.chords || [], sc.bars || [], sc.bpb || 4])) return;
+    sc.chords = ch; sc.bars = bars; sc.bpb = bpb;
+    this.applyClock();
     this.saveSong();
     if (sc.useChords !== false) { this.renderLyrics(); this.lastChordIdx = -2; this.frame(true); }
     if (ch.length && !this._scChordToast) { this._scChordToast = true; toast(`Accords pris dans la partition (${ch.length} changements) : leur moment suit la tablature`, 5000); }
@@ -1594,14 +1755,16 @@ export class PlayerView {
 
   syncGrid(t) {
     if (!this.bars?.length) return;
-    let i = -1;
-    for (let k = 0; k < this.bars.length; k++) if (this.bars[k].a <= t + 0.05) i = k; else break;
+    let lo = 0, hi = this.bars.length - 1, i = -1;
+    while (lo <= hi) { const m = (lo + hi) >> 1; if (this.bars[m].a <= t + 0.03) { i = m; lo = m + 1; } else hi = m - 1; }
+    if (i >= 0 && t > this.bars[i].z + 0.05) i = -1; // trou (mesures vides non affichées)
     if (i === this.curBar) return;
-    this.barEls?.[this.curBar]?.classList.remove('cur');
+    const old = this.barEls?.[this.curBar];
+    old?.classList.remove('cur'); old?.parentElement?.classList.remove('cur');
     this.curBar = i;
     const b = this.barEls?.[i];
     if (b) {
-      b.classList.add('cur');
+      b.classList.add('cur'); b.parentElement.classList.add('cur');
       const G = this.$grid;
       const target = b.offsetTop - G.clientHeight * 0.3;
       if (Math.abs(G.scrollTop - target) > 40) G.scrollTo({ top: target, behavior: 'smooth' });
@@ -1733,6 +1896,9 @@ export class PlayerView {
       }
       const line = e.target.closest('.lyrics .ln.lyric');
       if (line && line.dataset.s) { this.engine.seek(Math.max(0, +line.dataset.s - 0.25)); this.userScrollAt = 0; return; }
+      if (e.target.closest('.g-tools-d > summary')) { setTimeout(() => { this._gToolsOpen = this.$grid.querySelector('.g-tools-d')?.open; }, 0); return; }
+      const gb = e.target.closest('[data-g]');
+      if (gb) { const [k, v] = gb.dataset.g.split(':'); this.gridAction(k, v); return; }
       const bar = e.target.closest('.mbar[data-t]');
       if (bar) { this.engine.seek(+bar.dataset.t); return; }
       const dg = e.target.closest('[data-r="diagram"], [data-r="mini"]');
@@ -1911,6 +2077,7 @@ export class PlayerView {
         await this.engine.ensureContext();
         this.engine.setMetronome(on);
         this.el.querySelector('.t-right [data-act="metro"]').classList.toggle('changed', on);
+        this.$grid?.querySelector('[data-act="metro"]')?.classList.toggle('on', on);
         this.el.querySelectorAll('[data-act="metro-switch"]').forEach((i) => { i.checked = on; });
         toast(on ? 'Métronome activé' : 'Métronome coupé');
         break;
