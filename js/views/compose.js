@@ -218,6 +218,8 @@ export class ComposeView {
     const inst = c.instrument === 'piano' ? 'piano' : 'guitar';
     const head = `<header class="topbar cp-top">
       <button class="icon-btn" data-a="back" aria-label="Retour à mes compositions" title="Mes compositions">${icon('back')}</button>
+      <a class="brand cp-brand" href="#/" aria-label="MusiMix, accueil"><img src="assets/icons/icon-192.png" alt=""><b>MusiMix</b></a>
+      <span class="cp-hsep"></span>
       <span class="cp-title">${icon('folder')}<input class="cp-name" data-f="name" value="${esc(c.name)}" aria-label="Nom de la composition"></span>
       <div class="spacer"></div>
       <span class="cp-saved${this._saved === false ? ' busy' : ''}">${this._saved === false ? '<span>Enregistrement…</span>' : `${icon('check')}<span>Enregistré</span>`}</span>

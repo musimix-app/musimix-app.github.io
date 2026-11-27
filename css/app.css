@@ -1556,3 +1556,7 @@ body.noselect, body.noselect * { user-select: none !important; -webkit-user-sele
   .compose .cp-top .spacer { display: none; }
   .compose .cp-name { font-size: 17px; width: 100%; }
 }
+
+.cp-brand { flex: none; }
+@media (max-width: 1100px) { .cp-brand b { display: none; } }
+@media (max-width: 600px) { .cp-brand + .cp-hsep { display: none; } }
