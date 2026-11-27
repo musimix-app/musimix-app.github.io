@@ -1075,3 +1075,31 @@ body.noselect, body.noselect * { user-select: none !important; -webkit-user-sele
   .cp-dg svg { width: 34px; }
   .cp-sec-acts .btn { padding: 0 6px; }
 }
+/* atelier : manche et clavier à dessiner */
+.cp-vos.piano { grid-template-columns: repeat(2, 1fr); }
+.cp-vos.piano svg { width: 130px; }
+.nk { overflow-x: auto; padding: 4px 0 8px; }
+.nk-rows { display: grid; gap: 0; min-width: 330px; }
+.nk-row { display: grid; grid-template-columns: 26px 26px repeat(12, minmax(20px, 1fr)); align-items: center; position: relative; }
+.nk-row:not(.nk-m)::before { content: ''; position: absolute; left: 52px; right: 0; top: 50%; height: 1px; background: var(--ink-3); opacity: .55; pointer-events: none; }
+.nk-l { font-size: 10px; color: var(--ink-3); text-align: right; padding-right: 4px; }
+.nk-open { height: 24px; border: 0; background: none; font: 700 13px var(--font-ui); color: var(--ink-2, var(--ink)); cursor: pointer; border-right: 3px solid var(--ink); }
+.nk-open.mute { color: var(--ink-3); }
+.nk-c { position: relative; height: 24px; border: 0; border-right: 1px solid var(--line-2); background: none; cursor: pointer; padding: 0; z-index: 1; }
+.nk-c:hover::after { content: ''; position: absolute; inset: 5px 25%; border-radius: 50%; background: color-mix(in srgb, var(--chord) 35%, transparent); }
+.nk-c.on::after { content: ''; position: absolute; left: 50%; top: 50%; width: 16px; height: 16px; margin: -8px 0 0 -8px; border-radius: 50%; background: var(--chord); }
+.nk-m span { font-size: 10px; color: var(--ink-3); text-align: center; }
+.nk-m span:first-of-type { visibility: hidden; }
+.pk svg { width: 100%; height: auto; display: block; }
+.pk-w { fill: #fff; stroke: var(--ink-3); stroke-width: .8; cursor: pointer; }
+.pk-b { fill: #222; cursor: pointer; }
+.pk-w.on, .pk-b.on { fill: var(--chord); }
+.pk-t { font-size: 8px; fill: var(--ink-3); pointer-events: none; }
+.cp-draw-res { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-top: 8px; }
+.cp-draw-res > span { flex: 1 1 100%; font-size: 15px; }
+.cp-draw-res b { color: var(--chord); font-size: 20px; }
+.cp-sec-sel { font: 12px var(--font-ui); color: var(--ink-2, var(--ink)); background: var(--bg); border: 1px solid var(--line-2); border-radius: 8px; padding: 4px 6px; max-width: 190px; }
+.cp-tabs button { padding: 0 6px; font-size: 13px; min-width: 0; }
+@media (max-width: 960px) { .cp-sec-sel { max-width: 46%; } }
+.cp-tabs { flex-wrap: wrap; border-radius: 12px; height: auto; }
+.cp-tabs button { flex: 1 1 auto; white-space: nowrap; padding: 0 10px; }

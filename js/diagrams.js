@@ -125,7 +125,7 @@ function validVoicing(frets, ch) {
 }
 
 /** Générateur de doigtés jouables (≤ 4 doigts, barré possible, basse correcte). */
-function generate(ch, tuning) {
+function generate(ch, tuning, limit = 5) {
   const pcs = new Set(chordPcs(ch));
   const bass = ch.bass !== null ? ch.bass : ch.root;
   if (ch.bass !== null) pcs.add(ch.bass);
@@ -162,7 +162,7 @@ function generate(ch, tuning) {
     // évite deux doigtés quasi identiques dans la même position
     if (out.some((o) => Math.abs(o.pos - r.pos) <= 1 && o.frets.filter((f, i) => f === r.frets[i]).length >= n - 1)) continue;
     out.push(r);
-    if (out.length >= 5) break;
+    if (out.length >= limit) break;
   }
   return out;
 }
@@ -228,9 +228,9 @@ function assignFingers(frets, barre) {
 const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 
 /** Diagramme de manche (guitare ou ukulélé). */
-export function fretboardSVG(name, instrument = 'guitar', index = 0, { showName = false, fingersOn = true } = {}) {
-  const vs = voicings(name, instrument);
-  const v = vs[index % Math.max(1, vs.length)];
+export function fretboardSVG(name, instrument = 'guitar', index = 0, { showName = false, fingersOn = true, frets = null } = {}) {
+  const vs = frets ? [] : voicings(name, instrument);
+  const v = frets ? customVoicing(frets) : vs[index % Math.max(1, vs.length)];
   const n = (TUNINGS[instrument] || TUNINGS.guitar).strings.length;
   const W = 24 + (n - 1) * 18 + 24, top = showName ? 40 : 22, rows = 5, rowH = 22;
   const H = top + rows * rowH + 14;
@@ -303,8 +303,17 @@ export function pianoNotes(name) {
 }
 
 /** Clavier deux octaves (Do3 → Si4) avec les notes de l'accord. */
-export function pianoSVG(name, { showName = false, labels = false } = {}) {
-  const pn = pianoNotes(name);
+export function pianoSVG(name, { showName = false, labels = false, notes = null } = {}) {
+  let pn = pianoNotes(name);
+  if (notes?.length) {
+    // notes imposées (accord dessiné / renversement choisi), ramenées dans les deux octaves affichées
+    let ms = [...notes].sort((a, b) => a - b);
+    while (ms[0] < 48) ms = ms.map((m) => m + 12);
+    while (ms[ms.length - 1] > 71 && ms[0] - 12 >= 36) ms = ms.map((m) => m - 12);
+    ms = ms.filter((m) => m >= 48 && m <= 71);
+    const ch = parseChord(name);
+    pn = { left: ms[0], right: ms.slice(1), pcs: [...new Set(ms.map((m) => m % 12))], bass: ms[0] % 12, root: ch ? ch.root : ms[0] % 12, intervals: ch?.intervals || [], ch, exact: true };
+  }
   const startMidi = 48; // Do3
   const octaves = 2;
   const whites = [0, 2, 4, 5, 7, 9, 11];
@@ -353,6 +362,18 @@ export function pianoSVG(name, { showName = false, labels = false } = {}) {
   s += '</svg>';
   return s;
 }
+
+/** Tous les doigtés trouvés sur le manche (pour choisir une position), classés par position. */
+export function allVoicings(name, instrument = 'guitar') {
+  const ch = parseChord(name);
+  if (!ch) return [];
+  const list = [...voicings(name, instrument)];
+  for (const v of generate(ch, TUNINGS[instrument] || TUNINGS.guitar, 16)) if (!list.some((x) => x.frets.join() === v.frets.join())) list.push(v);
+  const pos = (v) => { const f = v.frets.filter((x) => x > 0); return f.length ? Math.min(...f) : 0; };
+  return list.map((v) => ({ ...v, pos: pos(v) })).sort((a, b) => a.pos - b.pos);
+}
+
+export { customVoicing };
 
 /** Diagramme selon l'instrument choisi. */
 export function diagramSVG(name, instrument, opts = {}) {

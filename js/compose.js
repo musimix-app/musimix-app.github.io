@@ -1,7 +1,7 @@
 // MusiMix — atelier de composition : théorie (suites, transitions, variantes, doigtés enchaînés)
 // et son (accords joués à la guitare ou au piano, grille jouée en boucle avec un rythme du style choisi).
 import { parseChord, guessKeyFromChords, spelling, FLAT, SHARP } from './theory.js';
-import { voicings } from './diagrams.js';
+import { voicings, customVoicing, pianoNotes } from './diagrams.js';
 
 const mod = (n) => ((n % 12) + 12) % 12;
 
@@ -195,13 +195,13 @@ const ZONES = { low: 1.5, mid: 6, high: 10 };
  * (programmation dynamique). locked : { index → numéro de doigté imposé }. zone : 'low' | 'mid' | 'high' | null.
  * Renvoie les numéros de doigté.
  */
-export function chainVoicings(names, instrument = 'guitar', { locked = {}, zone = null } = {}) {
+export function chainVoicings(names, instrument = 'guitar', { locked = {}, zone = null, custom = {} } = {}) {
   if (instrument === 'piano') return names.map(() => 0);
-  const V = names.map((n) => voicings(n, instrument));
+  const V = names.map((n, i) => (custom[i] ? [customVoicing(custom[i])] : voicings(n, instrument)));
   const n = names.length;
   if (!n) return [];
   const zc = zone ? ZONES[zone] : null;
-  const own = (i, k) => (locked[i] != null && locked[i] !== k ? 1e6 : 0) + k * 0.35 + (zc != null ? Math.abs(center(V[i][k]) - zc) * 0.9 : 0);
+  const own = (i, k) => (custom[i] ? 0 : 0) + (locked[i] != null && !custom[i] && locked[i] !== k ? 1e6 : 0) + k * 0.35 + (zc != null ? Math.abs(center(V[i][k]) - zc) * 0.9 : 0);
   const cost = [], from = [];
   for (let i = 0; i < n; i++) {
     cost.push([]); from.push([]);
@@ -253,7 +253,9 @@ function audio() {
 }
 
 /** Notes MIDI d'un accord pour l'instrument (doigté choisi pour la guitare). */
-export function chordMidi(nm, instrument = 'guitar', vIdx = 0) {
+export function chordMidi(nm, instrument = 'guitar', vIdx = 0, { frets = null, notes = null } = {}) {
+  if (notes?.length && instrument === 'piano') return [...notes].sort((a, b) => a - b);
+  if (frets && (instrument === 'guitar' || instrument === 'ukulele')) return frets.map((f, i) => (f >= 0 ? OPEN[instrument][i] + f : null)).filter((x) => x != null);
   const ch = parseChord(nm);
   if (!ch) return [];
   if (instrument === 'guitar' || instrument === 'ukulele') {
@@ -303,36 +305,68 @@ function drum(t, kind, vel = 0.6) {
   }
   const s = c.createBufferSource(), f = c.createBiquadFilter(), g = c.createGain();
   s.buffer = noiseBuf;
-  f.type = kind === 'hat' ? 'highpass' : 'bandpass'; f.frequency.value = kind === 'hat' ? 7000 : 1800;
-  const d = kind === 'hat' ? 0.04 : 0.16;
-  g.gain.setValueAtTime(vel * (kind === 'hat' ? 0.25 : 0.5), t); g.gain.exponentialRampToValueAtTime(0.0001, t + d);
+  const P = { hat: ['highpass', 7000, 0.04, 0.25], open: ['highpass', 6500, 0.22, 0.18], ride: ['bandpass', 5200, 0.35, 0.16], rim: ['bandpass', 2600, 0.03, 0.55], snare: ['bandpass', 1800, 0.16, 0.5] }[kind] || ['bandpass', 1800, 0.16, 0.5];
+  f.type = P[0]; f.frequency.value = P[1];
+  const d = P[2];
+  g.gain.setValueAtTime(vel * P[3], t); g.gain.exponentialRampToValueAtTime(0.0001, t + d);
   s.connect(f).connect(g).connect(master); s.start(t); s.stop(t + d + 0.02);
 }
 
 /** Joue un accord tout de suite (gratté). */
-export function playChord(nm, instrument = 'guitar', vIdx = 0, { dur = 1.8 } = {}) {
-  const c = audio(), notes = chordMidi(nm, instrument, vIdx), t = c.currentTime + 0.02;
+export function playChord(nm, instrument = 'guitar', vIdx = 0, { dur = 1.8, frets = null, notes: own = null } = {}) {
+  const c = audio(), notes = chordMidi(nm, instrument, vIdx, { frets, notes: own }), t = c.currentTime + 0.02;
   const tone = instrument === 'piano' ? 'piano' : 'guitar';
   notes.forEach((m, i) => pluck(t + (tone === 'piano' ? 0 : i * 0.018), m, { dur, vel: 0.55, tone }));
 }
 
-// rythmes : [temps dans la mesure (en noires), type] — d = coup vers le bas, u = vers le haut, b = basse, a = arpège
+// rythmes : [temps dans la mesure (en noires), type] — d = coup vers le bas, u = vers le haut, p = étouffé,
+// s = coup bref, l = accord tenu, b / b5 = basse (fondamentale / quinte), aN = note N de l'accord (du grave à l'aigu)
 const RHYTHMS = {
   pop: [[0, 'b'], [0, 'd'], [1, 'd'], [1.5, 'u'], [2.5, 'u'], [3, 'd'], [3.5, 'u']],
   folk: [[0, 'b'], [0.5, 'd'], [1, 'd'], [1.5, 'u'], [2, 'b5'], [2.5, 'u'], [3, 'd'], [3.5, 'u']],
   rock: [[0, 'b'], [0, 'p'], [0.5, 'p'], [1, 'p'], [1.5, 'p'], [2, 'p'], [2.5, 'p'], [3, 'p'], [3.5, 'p']],
+  whole: [[0, 'b'], [0, 'l']],
+  half: [[0, 'b'], [0, 'd'], [2, 'b5'], [2, 'd']],
+  quarters: [[0, 'b'], [0, 'd'], [1, 'd'], [2, 'b5'], [2, 'd'], [3, 'd']],
   shuffle: [[0, 'b'], [0, 'p'], [0.67, 'p'], [1, 'p'], [1.67, 'p'], [2, 'b5'], [2, 'p'], [2.67, 'p'], [3, 'p'], [3.67, 'p']],
   jazz: [[0, 'b'], [1, 'b5'], [2, 'b'], [3, 'b5'], [0, 's'], [1.67, 's'], [3, 's']],
+  pompe: [[0, 'b'], [1, 's'], [2, 'b5'], [3, 's']],
   bossa: [[0, 'b'], [1.5, 'b5'], [2, 'b'], [3.5, 'b5'], [0, 's'], [0.75, 's'], [1.5, 's'], [2.5, 's'], [3.25, 's']],
   funk: [[0, 'b'], [0, 's'], [0.75, 's'], [1.5, 's'], [2.25, 's'], [2.5, 'b5'], [3, 's'], [3.5, 's']],
-  arpeggio: [[0, 'b'], [0, 'a0'], [0.5, 'a1'], [1, 'a2'], [1.5, 'a3'], [2, 'a4'], [2.5, 'a3'], [3, 'a2'], [3.5, 'a1']],
   reggae: [[0, 'b'], [0.5, 's'], [1.5, 's'], [2, 'b5'], [2.5, 's'], [3.5, 's']],
+  arpeggio: [[0, 'b'], [0, 'a0'], [0.5, 'a1'], [1, 'a2'], [1.5, 'a3'], [2, 'a4'], [2.5, 'a3'], [3, 'a2'], [3.5, 'a1']],
+  arpUp: [[0, 'a0'], [0.5, 'a1'], [1, 'a2'], [1.5, 'a3'], [2, 'a4'], [2.5, 'a5'], [3, 'a3'], [3.5, 'a4']],
+  travis: [[0, 'a0'], [0.5, 'a4'], [1, 'a2'], [1.5, 'a5'], [2, 'a1'], [2.5, 'a4'], [3, 'a2'], [3.5, 'a5']],
+  arp16: [[0, 'a0'], [0.25, 'a2'], [0.5, 'a3'], [0.75, 'a4'], [1, 'a5'], [1.25, 'a4'], [1.5, 'a3'], [1.75, 'a2'], [2, 'a1'], [2.25, 'a2'], [2.5, 'a3'], [2.75, 'a4'], [3, 'a5'], [3.25, 'a4'], [3.5, 'a3'], [3.75, 'a2']],
+  block: [[0, 'b'], [0, 'l'], [2, 'a3'], [2.5, 'a4'], [3, 'a5'], [3.5, 'a4']],
 };
+/** Jeux proposés : rythmiques et arpèges. */
+export const PATTERNS = [
+  ['', 'Selon le style'],
+  ['pop', 'Gratté pop (B · B H · H B H)'], ['folk', 'Gratté folk (basse + gratté)'], ['quarters', 'Noires'], ['half', 'Blanches (2 par mesure)'], ['whole', 'Accord tenu (1 par mesure)'],
+  ['rock', 'Rock : croches étouffées'], ['shuffle', 'Shuffle blues'], ['funk', 'Funk : coups brefs'], ['reggae', 'Reggae : contretemps'],
+  ['jazz', 'Jazz : comping'], ['pompe', 'Pompe manouche'], ['bossa', 'Bossa nova'],
+  ['arpeggio', 'Arpège aller-retour'], ['arpUp', 'Arpège montant'], ['travis', 'Picking folk (Travis)'], ['arp16', 'Arpège rapide (doubles)'], ['block', 'Accord + arpège'],
+];
+const STYLE_PATTERN = { pop: 'pop', rock: 'rock', blues: 'shuffle', jazz: 'jazz', bossa: 'bossa', folk: 'folk', funk: 'funk', chanson: 'arpeggio', reggae: 'reggae' };
+const H8 = [0, 0.5, 1, 1.5, 2, 2.5, 3, 3.5], H16 = [...Array(16)].map((_, i) => i / 4), SW = [0, 0.67, 1, 1.67, 2, 2.67, 3, 3.67];
 const DRUMS = {
-  straight: [[0, 'kick'], [1, 'snare'], [2, 'kick'], [3, 'snare'], ...[0, 0.5, 1, 1.5, 2, 2.5, 3, 3.5].map((x) => [x, 'hat'])],
-  swing: [[0, 'kick'], [1, 'snare'], [2, 'kick'], [3, 'snare'], ...[0, 0.67, 1, 1.67, 2, 2.67, 3, 3.67].map((x) => [x, 'hat'])],
-  reggae: [[2, 'kick'], [2, 'snare'], ...[0, 0.5, 1, 1.5, 2, 2.5, 3, 3.5].map((x) => [x, 'hat'])],
+  pop: [[0, 'kick'], [1, 'snare'], [2, 'kick'], [2.5, 'kick'], [3, 'snare'], ...H8.map((x) => [x, 'hat'])],
+  rock: [[0, 'kick'], [1, 'snare'], [1.5, 'kick'], [2, 'kick'], [3, 'snare'], ...H8.map((x) => [x, 'open'])],
+  shuffle: [[0, 'kick'], [1, 'snare'], [2, 'kick'], [3, 'snare'], ...SW.map((x) => [x, 'hat'])],
+  jazz: [[0, 'kick'], [1, 'hat'], [3, 'hat'], ...[0, 1, 1.67, 2, 3, 3.67].map((x) => [x, 'ride'])],
+  bossa: [[0, 'kick'], [1.5, 'kick'], [2, 'kick'], [3.5, 'kick'], [0, 'rim'], [0.75, 'rim'], [1.5, 'rim'], [2.5, 'rim'], [3.25, 'rim'], ...H8.map((x) => [x, 'hat'])],
+  funk: [[0, 'kick'], [0.75, 'kick'], [1, 'snare'], [2.5, 'kick'], [3, 'snare'], [3.75, 'snare'], ...H16.map((x) => [x, 'hat'])],
+  reggae: [[2, 'kick'], [2, 'rim'], ...H8.map((x) => [x, 'hat'])],
+  disco: [[0, 'kick'], [1, 'kick'], [2, 'kick'], [3, 'kick'], [1, 'snare'], [3, 'snare'], ...[0.5, 1.5, 2.5, 3.5].map((x) => [x, 'open'])],
+  ballad: [[0, 'kick'], [2, 'rim'], ...[0, 1, 2, 3].map((x) => [x, 'hat'])],
+  half: [[0, 'kick'], [2, 'snare'], ...H8.map((x) => [x, 'hat'])],
 };
+export const DRUM_STYLES = [
+  ['', 'Selon le style'], ['off', 'Sans batterie'], ['pop', 'Pop'], ['rock', 'Rock'], ['half', 'Demi-tempo'], ['ballad', 'Ballade (léger)'], ['shuffle', 'Shuffle / blues'],
+  ['jazz', 'Jazz (ride)'], ['bossa', 'Bossa nova'], ['funk', 'Funk'], ['reggae', 'Reggae (one drop)'], ['disco', 'Disco'],
+];
+const STYLE_DRUMS = { pop: 'pop', rock: 'rock', blues: 'shuffle', jazz: 'jazz', bossa: 'bossa', folk: 'ballad', funk: 'funk', chanson: 'ballad', reggae: 'reggae' };
 
 /**
  * Lecteur de grille : events = [{ bar, beat, dur, name, v }] (temps en noires), joue en boucle.
@@ -340,14 +374,14 @@ const DRUMS = {
  */
 export class GridPlayer {
   constructor() { this.on = false; }
-  start(events, { bpm = 100, style = 'pop', instrument = 'guitar', drums = true, loop = true, from = 0, onPos } = {}) {
+  start(events, { bpm = 100, style = 'pop', instrument = 'guitar', drums = true, pattern = '', drumStyle = '', loop = true, from = 0, onPos } = {}) {
     this.stop();
     if (!events.length) return;
     const c = audio();
     this.on = true;
     const st = STYLES[style] || STYLES.pop, spb = 60 / bpm;
-    const rh = RHYTHMS[st.rhythm] || RHYTHMS.pop;
-    const dr = style === 'reggae' ? DRUMS.reggae : st.feel === 'swing' ? DRUMS.swing : DRUMS.straight;
+    const rhOf = (ev) => RHYTHMS[ev.pattern || pattern || STYLE_PATTERN[style]] || RHYTHMS.pop;
+    const drOf = (ev) => { const k = ev.drumStyle || drumStyle || STYLE_DRUMS[style]; return k === 'off' || !drums ? null : DRUMS[k] || DRUMS.pop; };
     const totalBeats = Math.max(...events.map((e) => e.beat0 + e.dur));
     const tone = instrument === 'piano' ? 'piano' : 'guitar';
     let t0 = c.currentTime + 0.1 - (events[from]?.beat0 || 0) * spb, lastBeat = events[from]?.beat0 || 0;
@@ -359,8 +393,9 @@ export class GridPlayer {
         const b0 = lastBeat, b1 = lastBeat + 0.25;
         for (const ev of events) {
           if (ev.beat0 + ev.dur <= b0 || ev.beat0 >= b1 + 1e-6) continue;
-          const notes = chordMidi(ev.name, instrument, ev.v);
+          const notes = chordMidi(ev.name, instrument, ev.v, { frets: ev.frets, notes: ev.notes });
           const ch = parseChord(ev.name);
+          const rh = rhOf(ev), dr = drOf(ev);
           for (const [pos, kind] of rh) {
             // position du coup dans la mesure de l'événement
             const barStart = ev.barBeat0;
@@ -368,14 +403,15 @@ export class GridPlayer {
             if (at < ev.beat0 - 1e-6 || at >= ev.beat0 + ev.dur - 1e-6 || at < b0 - 1e-6 || at >= b1 - 1e-6) continue;
             const t = t0 + at * spb;
             if (kind === 'b' || kind === 'b5') { const r = (ch?.bass ?? ch?.root ?? 0) + (kind === 'b5' ? 7 : 0); pluck(t, 36 + (r % 12) + (r % 12 > 7 ? -12 : 0) + 12, { dur: spb * 1.2, vel: 0.5, tone: 'bass' }); continue; }
-            if (kind[0] === 'a') { const k = +kind.slice(1); const nn = notes.slice(-5); const m = nn[Math.min(k, nn.length - 1)]; if (m) pluck(t, m, { dur: spb * 2.2, vel: 0.45, tone }); continue; }
+            if (kind[0] === 'a') { const k = +kind.slice(1); const m = notes[Math.min(k, notes.length - 1)]; if (m) pluck(t, m, { dur: spb * 2.2, vel: 0.45, tone }); continue; }
+            if (kind === 'l') { notes.forEach((m, i) => pluck(t + (tone === 'piano' ? 0 : i * 0.03), m, { dur: spb * 4, vel: 0.45, tone })); continue; }
             const short = kind === 's' || kind === 'p';
             const seq = kind === 'u' ? [...notes].reverse().slice(0, 4) : notes;
             seq.forEach((m, i) => pluck(t + (tone === 'piano' ? 0 : i * (kind === 'u' ? 0.01 : 0.014)), m, { dur: short ? spb * (kind === 'p' ? 0.35 : 0.5) : spb * 1.4, vel: kind === 'u' ? 0.3 : kind === 'p' ? 0.38 : 0.45, tone }));
           }
-          if (drums) for (const [pos, kind] of dr) {
+          if (dr) for (const [pos, kind] of dr) {
             const at = ev.barBeat0 + pos;
-            if (ev.firstOfBar && at >= b0 - 1e-6 && at < b1 - 1e-6 && at < ev.barBeat0 + 4) drum(t0 + at * spb, kind, kind === 'hat' ? 0.4 : 0.6);
+            if (ev.firstOfBar && at >= b0 - 1e-6 && at < b1 - 1e-6 && at < ev.barBeat0 + 4) drum(t0 + at * spb, kind, kind === 'hat' || kind === 'ride' || kind === 'open' ? 0.4 : 0.6);
           }
         }
         const cur = events.findIndex((e) => b0 >= e.beat0 - 1e-6 && b0 < e.beat0 + e.dur - 1e-6);
@@ -393,3 +429,19 @@ export class GridPlayer {
   }
   stop() { this.on = false; clearTimeout(this.timer); this.onStop?.(); this.onStop = null; }
 }
+
+/** Positions au clavier : renversements et octaves de l'accord. [{ label, notes }] */
+export function pianoOptions(nm) {
+  const pn = pianoNotes(nm);
+  if (!pn) return [];
+  const right = [...pn.right].sort((a, b) => a - b), out = [];
+  const add = (label, rh) => { const notes = [pn.left, ...rh]; if (!out.some((o) => o.notes.join() === notes.join())) out.push({ label, notes }); };
+  let r = right;
+  ['position fondamentale', '1er renversement', '2e renversement', '3e renversement'].slice(0, Math.max(1, right.length)).forEach((lb) => { add(lb, r); r = [...r.slice(1), r[0] + 12]; });
+  add('plus grave', right.map((m) => m - 12).filter((m) => m > pn.left));
+  add('plus aigu', right.map((m) => m + 12));
+  return out;
+}
+
+/** Nom d'accord pour un ensemble de notes MIDI. */
+export { nameChord } from './midi-input.js';
