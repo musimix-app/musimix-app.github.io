@@ -62,6 +62,7 @@ export class PlayerView {
     await loadChordDb();
     setSongShapes(song.doc?.meta?.shapes, song.doc?.meta?.piano);
     this.build();
+    this.applyRail(); this.el.classList.toggle('hud-off', !this.hudOn());
     await this.loadAudio();
     song.playCount = (song.playCount || 0) + 1;
     song.lastPlayedAt = Date.now();
@@ -140,6 +141,7 @@ export class PlayerView {
               <span class="stepper" title="Mesure de l’audio où commence la partition"><button data-sc="bar:-1">−</button><output data-r="sc-bar">mes. 1</output><button data-sc="bar:1">+</button></span>
               <span class="stepper" title="Décalage fin"><button data-sc="off:-0.05">−</button><output data-r="sc-off">0,00 s</output><button data-sc="off:0.05">+</button></span>
               <button class="btn small ghost" data-sc="auto:score" title="Écoute l’audio et pose la 1re note de la partition sur le début de la musique">Auto</button></span>
+            <button class="btn small sc-hud-btn" data-sc="hud:1" title="Afficher l’accord en cours (et le suivant) au-dessus de la partition et en Scène">Accords</button>
             <button class="btn small sc-lyr-btn" data-sc="lyrics:1" aria-pressed="false" title="Afficher les paroles au-dessus de la partition">Paroles</button>
             <span class="sc-loff" hidden><span class="note">Décalage paroles</span>
               <span class="stepper" title="+ : les paroles s'allument plus tôt"><button data-sc="loff:-0.5" title="−0,5 s">«</button><button data-sc="loff:-0.05">−</button><output data-r="sc-loff">0 s</output><button data-sc="loff:0.05">+</button><button data-sc="loff:0.5" title="+0,5 s">»</button></span>
@@ -148,15 +150,18 @@ export class PlayerView {
             <span class="note sc-status" data-r="sc-status"></span>
             <button class="btn small ghost sc-hide" data-sc="bar:toggle" title="Masquer / afficher les réglages de la partition"><span class="when-open">Masquer ▴</span><span class="when-min">Réglages de la partition ▾</span></button>
           </div>
-          <div class="sc-lyrics" hidden aria-live="off"></div>
+          <div class="sc-lyrics" hidden aria-live="off"><div class="hud" data-r="hud"></div><div class="scl-body"></div></div>
           <div class="score-host"></div>
         </div>
         <div class="fs-chords" aria-live="off"><span class="fs-now" data-r="now"></span><span class="fs-next" data-r="next"></span></div>
         <div class="fs-hint">Toucher l’écran : lecture / pause · Pédale : partie suivante · Double-toucher ou Échap : quitter</div>
         <button class="btn small follow-btn" data-act="follow" hidden>${icon('sync')} Suivre la lecture</button>
         <div class="countdown" hidden></div>
+        <div class="hud stage-hud" data-r="hud"></div>
+        <button class="rail-open" data-act="rail-toggle" title="Afficher le panneau Accords et mixage" hidden>◂ Accords et mixage</button>
       </div>
       <aside class="rail" aria-label="Accords et mixage">
+        <button class="rail-close" data-act="rail-toggle" title="Masquer le panneau (plus de place pour les paroles ou la partition)">Masquer ▸</button>
         <div class="rail-resizer" role="separator" aria-orientation="vertical" aria-label="Largeur du panneau" tabindex="0" title="Glisser pour agrandir · double-clic : taille normale"></div>
         <div class="rail-sec" data-r="chords-sec">
           <h3><span>Accord</span>
@@ -606,6 +611,7 @@ export class PlayerView {
       <div class="opt-row"><span>Boucle progressive<br><small class="note">à chaque tour de boucle, la vitesse monte de ${Math.round((p.progStep ?? 0.05) * 100)} % jusqu’à 100 %</small></span><label class="switch"><input type="checkbox" data-act="prog" ${p.progressive ? 'checked' : ''}><i></i></label></div>
       <div class="opt-row prog-opts"${p.progressive ? '' : ' hidden'}><span>Départ</span><span class="stepper"><button data-act="prog-">−</button><output data-r="prog">${Math.round((p.progStart ?? 0.7) * 100)} %</output><button data-act="prog+">+</button></span></div>
       <div class="opt-row"><span>Départ différé<br><small class="note">le temps de lancer REC sur la Zoom (tous les morceaux)</small></span><select data-act="start-delay" class="sel-sm">${[0, 3, 5, 10, 15, 20].map((v) => `<option value="${v}" ${+(this.prefsCache?.startDelay || 0) === v ? 'selected' : ''}>${v ? `${v} s` : 'Non'}</option>`).join('')}</select></div>
+      <div class="opt-row"><span>Accord en cours en Partition et Scène</span><label class="switch"><input type="checkbox" data-act="hud-switch" ${this.hudOn() ? 'checked' : ''}><i></i></label></div>
       <div class="opt-row"><span>Décompte avant lecture</span><label class="switch"><input type="checkbox" data-act="countin" ${p.countIn ? 'checked' : ''}><i></i></label></div>
       <div class="opt-row"><span>Métronome</span><label class="switch"><input type="checkbox" data-act="metro-switch"><i></i></label></div>
       <div class="opt-row"><span>Clavier MIDI<br><small class="note" data-r="midi-st"></small></span><label class="switch"><input type="checkbox" data-act="midi" ${this.midiOn ? 'checked' : ''}><i></i></label></div>
@@ -1063,6 +1069,14 @@ export class PlayerView {
       this.$big.innerHTML = `<div class="tag">Accord</div><div class="now-line big-chord">${esc(shown || '–')}</div>${nextShown ? `<div class="next-line">ensuite ${esc(nextShown)}</div>` : ''}`;
     }
     this.el.querySelectorAll('[data-r="next"]').forEach((e) => { e.innerHTML = nextShown ? `<small>ensuite</small>${esc(nextShown)}` : ''; });
+    if (this.hudOn()) {
+      const hk = shown + '|' + nextShown + '|' + this.instrument + '|' + (this.voicingIdx[shown] || 0);
+      if (hk !== this._hudKey) {
+        this._hudKey = hk;
+        const dg = shown ? diagramSVG(shown, this.instrument, { index: this.voicingIdx[shown] || 0 }) : '';
+        this.el.querySelectorAll('[data-r="hud"]').forEach((e) => { e.innerHTML = shown ? `<div class="hud-txt"><b>${esc(shown)}</b>${nextShown ? `<small>ensuite <i>${esc(nextShown)}</i></small>` : ''}</div><div class="hud-dg">${dg}</div>` : ''; });
+      }
+    }
     const key = shown + '|' + this.instrument + '|' + (this.voicingIdx[shown] || 0) + '|' + nextShown;
     if (key === this._diagKey) return;
     this._diagKey = key;
@@ -1159,6 +1173,7 @@ export class PlayerView {
         if (k === 'zoom') this.scoreView.setScale((this.song.score.scale || 1) + (v === '+' ? 0.1 : -0.1));
         if (k === 'bar') this.scoreView.nudge({ firstBar: +v });
         if (k === 'off') this.scoreView.nudge({ offset: +v });
+        if (k === 'hud') { const on = !this.hudOn(); (this.prefsCache ||= {}).hud = on; this.app.setPref('hud', on); this.applyHud(); this.renderScoreLyrics(true); this.updateScoreBar(); return; }
         if (k === 'auto') { v === 'lyr' ? this.autoLyrics() : v === 'words' ? this.autoWords() : this.autoScore(); return; }
         if (k === 'loff') {
           const p = this.song.prefs;
@@ -1328,9 +1343,11 @@ export class PlayerView {
 
   /** Bandeau de paroles (ligne en cours + suivante, avec accords) au-dessus de la partition. */
   renderScoreLyrics(force = false, idx) {
-    const box = this.el.querySelector('.sc-lyrics');
-    if (!box) return;
-    const on = !!this.song.score?.showLyrics;
+    const wrap = this.el.querySelector('.sc-lyrics');
+    if (!wrap) return;
+    const on = !!this.song.score?.showLyrics, hud = this.hudOn();
+    wrap.hidden = !on && !hud;
+    const box = wrap.querySelector('.scl-body');
     box.hidden = !on;
     if (!on) return;
     if (!this.synced) { box.innerHTML = '<p class="note">Paroles non calées sur l’audio : lance « Tout préparer » ou importe un .lrc pour les voir défiler ici.</p>'; return; }
@@ -1347,6 +1364,21 @@ export class PlayerView {
     box.querySelectorAll('.cur,.past,.sung,.singing,.now').forEach((e) => e.classList.remove('cur', 'past', 'sung', 'singing', 'now'));
     this.markScoreChord(this.timeline?.[this.lastChordIdx]);
   }
+
+  applyHud() {
+    this._hudKey = null;
+    this.el.classList.toggle('hud-off', !this.hudOn());
+    const c = this.timeline?.[this.lastChordIdx];
+    this.lastChordIdx = -2; this.frame(true);
+  }
+
+  applyRail() {
+    const off = !!this.prefsCache?.railOff;
+    this.el.classList.toggle('rail-off', off);
+    this.el.querySelector('.rail-open').hidden = !off;
+  }
+
+  hudOn() { return this.prefsCache?.hud !== false; }
 
   markScoreChord(c) {
     const box = this.el.querySelector('.sc-lyrics');
@@ -1368,6 +1400,7 @@ export class PlayerView {
     v.querySelectorAll('[data-sc^="layout:"]').forEach((b) => b.classList.toggle('on', b.dataset.sc === `layout:${sc.layout || 'both'}`));
     const s = sc.sync || {};
     v.querySelector('.score-bar').classList.toggle('min', !!this.prefsCache?.scoreBarMin);
+    const hb = v.querySelector('.sc-hud-btn'); hb.classList.toggle('on', this.hudOn()); hb.setAttribute('aria-pressed', String(this.hudOn()));
     const lb = v.querySelector('.sc-lyr-btn');
     lb.classList.toggle('on', !!sc.showLyrics); lb.setAttribute('aria-pressed', String(!!sc.showLyrics));
     v.querySelector('.sc-loff').hidden = !sc.showLyrics;
@@ -1979,6 +2012,7 @@ export class PlayerView {
       if (a === 'midi') { this.midiOn = e.target.checked; this.app.setPref('midi', this.midiOn); if (this.midiOn) this.midiStart(true); else this.midiStop(); }
       if (a === 'r20') { this.r20On = e.target.checked; this.app.setPref('r20', this.r20On); if (this.r20On) this.r20Start(true); else this.r20Stop(); }
       if (a === 'midi-follow') { this.midiFollow = e.target.checked; this.app.setPref('midiFollow', this.midiFollow); this.updateMidiUi(); }
+      if (a === 'hud-switch') { (this.prefsCache ||= {}).hud = e.target.checked; this.app.setPref('hud', e.target.checked); this.applyHud(); this.renderScoreLyrics(true); this.updateScoreBar?.(); }
       if (a === 'start-delay') { this.app.setPref('startDelay', +e.target.value); (this.prefsCache ||= {}).startDelay = +e.target.value; this.el.querySelectorAll('[data-act="start-delay"]').forEach((x) => { x.value = e.target.value; }); toast(+e.target.value ? `Play attendra ${e.target.value} s avant de démarrer` : 'Départ immédiat'); }
       if (a === 'countin') { this.song.prefs.countIn = e.target.checked; this.updateOptionOutputs(); this.saveSong(); }
       if (a === 'show-bars') {
@@ -2100,6 +2134,8 @@ export class PlayerView {
         this.engine.setRate(p.rate); this.updateOptionOutputs(); this.saveSong(); break;
       }
       case 'off-auto': this.autoLyrics(); break;
+      case 'rail-toggle': { const off = !this.prefsCache?.railOff; (this.prefsCache ||= {}).railOff = off; this.app.setPref('railOff', off); this.applyRail(); break; }
+      case 'hud-toggle': { const on = !this.hudOn(); (this.prefsCache ||= {}).hud = on; this.app.setPref('hud', on); this.applyHud(); this.renderScoreLyrics(true); this.updateScoreBar?.(); break; }
       case 'off-': case 'off+': p.offset = (p.offset || 0) + (a === 'off+' ? 50 : -50); this.updateOptionOutputs(); this.frame(true); this.renderBarMarks(); this.saveSong(); break;
       case 'rate':
         openMenu(b, [0.5, 0.6, 0.7, 0.75, 0.8, 0.85, 0.9, 1, 1.1, 1.25].map((r) => ({
