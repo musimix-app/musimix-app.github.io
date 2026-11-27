@@ -1139,3 +1139,4 @@ body.noselect, body.noselect * { user-select: none !important; -webkit-user-sele
 .cp-acts .seg button { padding: 0 8px; font-size: 12.5px; }
 .cp-sep { width: 1px; align-self: stretch; background: var(--line-2); margin: 2px 2px; }
 .cp-tabs { margin: 4px 0 8px; }
+.cp-bars { grid-template-columns: repeat(var(--cols, 4), minmax(0, 1fr)); }

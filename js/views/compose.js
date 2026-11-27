@@ -196,6 +196,7 @@ export class ComposeView {
       <span class="seg">${[['guitar', 'Guitare'], ['piano', 'Piano']].map(([k, l]) => `<button data-a="inst" data-v="${k}" class="${c.instrument === k ? 'on' : ''}">${l}</button>`).join('')}</span>
       ${inst === 'guitar' ? `<label>Manche <select data-f="zone"><option value="">Libre</option><option value="low" ${c.zone === 'low' ? 'selected' : ''}>En bas (cordes à vide)</option><option value="mid" ${c.zone === 'mid' ? 'selected' : ''}>Au milieu</option><option value="high" ${c.zone === 'high' ? 'selected' : ''}>En haut</option></select></label>` : ''}
       <label>Son <select data-f="sound"><option value="synth" ${c.sound === 'synth' ? 'selected' : ''}>Synthé (léger)</option>${SOUNDS[inst].map(([k, l]) => `<option value="${k}" ${(c.sound || SOUNDS[inst][0][0]) === k && c.sound !== 'synth' ? 'selected' : ''}>${l}</option>`).join('')}</select></label>
+      <label>Colonnes <select data-f="cols">${[2, 3, 4, 5, 6, 8].map((n) => `<option value="${n}" ${(c.cols || 4) === n ? 'selected' : ''}>${n}</option>`).join('')}</select></label>
       <label>Jeu <select data-f="pattern">${PATTERNS.map(([k, l]) => `<option value="${k}" ${(c.pattern || '') === k ? 'selected' : ''}>${l}</option>`).join('')}</select></label>
       <label>Batterie <select data-f="drumStyle">${DRUM_STYLES.map(([k, l]) => `<option value="${k}" ${(c.drumStyle ?? (c.drums === false ? 'off' : '')) === k ? 'selected' : ''}>${l}</option>`).join('')}</select></label>
       <button class="btn primary cp-play" data-a="play">${this.player.on ? `${icon('pause')} Stop` : `${icon('play')} Écouter la grille`}</button>
@@ -226,7 +227,7 @@ export class ComposeView {
             <button class="btn small ghost" data-a="sec-menu" data-si="${si}" aria-label="Plus">${icon('more')}</button>
           </span>
         </div>
-        <div class="cp-bars">${bars}</div>
+        <div class="cp-bars" style="--cols:${c.cols || 4}">${bars}</div>
       </section>`;
     }).join('');
     const addSec = `<div class="cp-add">${KINDS.map(([k, l]) => `<button class="btn small" data-a="add-sec" data-v="${k}">${icon('plus')} ${l}</button>`).join('')}</div>`;
@@ -632,6 +633,7 @@ export class ComposeView {
     else if (f === 'bpm') { c.bpm = Math.max(40, Math.min(240, +e.target.value || 100)); this._bpmTouched = true; this.save(); this.restartIfPlaying(); }
     else if (f === 'zone') { c.zone = e.target.value || null; this.changed(); }
     else if (f === 'sound') { this._soundReady = false; c.sound = e.target.value; this.applySound(); this.save(); if (c.sound !== 'synth') { toast('Chargement du son…'); prepareSounds(c.instrument).then((ok) => { if (!ok) toast('Son réaliste indisponible (pas de connexion ?) : synthé utilisé'); else playChord('C', c.instrument); this.restartIfPlaying(); }); } else this.restartIfPlaying(); }
+    else if (f === 'cols') { c.cols = +e.target.value; this.save(); this.render(); }
     else if (f === 'pattern' || f === 'drumStyle') { c[f] = e.target.value; this.save(); this.restartIfPlaying(); }
     else if (f === 'sec-pattern' || f === 'sec-drums') { const sct = c.sections[+e.target.dataset.si]; sct[f === 'sec-pattern' ? 'pattern' : 'drumStyle'] = e.target.value || undefined; this.save(); this.restartIfPlaying(); }
     else if (f === 'label') { const s = c.sections[+e.target.dataset.si]; s.label = e.target.value.trim() || s.label; this.save(); }
