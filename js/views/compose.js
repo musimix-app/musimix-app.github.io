@@ -6,6 +6,7 @@ import { parseChord, FLAT, SHARP } from '../theory.js';
 import { diagramSVG, allVoicings, voicings as vList } from '../diagrams.js';
 import { STYLES, nextChords, transitions, variations, chainVoicings, voicingOptions, voicingOf, playChord, GridPlayer, guessKey, roman, degree, pianoOptions, nameChord, chordMidi, PATTERNS, DRUM_STYLES, SOUNDS, setSounds, prepareSounds } from '../compose.js';
 import { newSong } from '../songs.js';
+import { autofill, slotAlternatives } from '../autofill.js';
 import { parseSheet } from '../sheet.js';
 
 const KINDS = [['intro', 'Intro'], ['verse', 'Couplet'], ['prechorus', 'Pré-refrain'], ['chorus', 'Refrain'], ['bridge', 'Pont'], ['solo', 'Solo'], ['outro', 'Final']];
@@ -62,7 +63,13 @@ export class ComposeView {
   changed({ snap = true } = {}) { if (snap) this.snap(); this.save(); this.render(); }
 
   // ───────────────────────────────────────────────── données dérivées ──
-  key() { return this.c.key || guessKey(this.flat().map((x) => x.name)); }
+  key() {
+    if (this.c.key) return this.c.key;
+    const own = this.flat().filter((x) => !this.c.sections[x.si].bars[x.bi].s?.[x.h]).map((x) => x.name);
+    return own.length ? guessKey(own) : { pc: 0, minor: false };
+  }
+
+  sugCount() { let n = 0; for (const s of this.c.sections) for (const b of s.bars) b.c.forEach((nm, h) => { if (nm && b.s?.[h]) n++; }); return n; }
 
   /** Suite des accords, dans l'ordre : [{ si, bi, h, name }] (h = moitié 0/1). */
   flat() {
@@ -199,6 +206,7 @@ export class ComposeView {
       <label>Colonnes <select data-f="cols">${[2, 3, 4, 5, 6, 8].map((n) => `<option value="${n}" ${(c.cols || 4) === n ? 'selected' : ''}>${n}</option>`).join('')}</select></label>
       <label>Jeu <select data-f="pattern">${PATTERNS.map(([k, l]) => `<option value="${k}" ${(c.pattern || '') === k ? 'selected' : ''}>${l}</option>`).join('')}</select></label>
       <label>Batterie <select data-f="drumStyle">${DRUM_STYLES.map(([k, l]) => `<option value="${k}" ${(c.drumStyle ?? (c.drums === false ? 'off' : '')) === k ? 'selected' : ''}>${l}</option>`).join('')}</select></label>
+      <button class="btn cp-fill-btn" data-a="fill" title="Compléter les cases vides selon tes accords, la tonalité et le style">${icon('sparkle')} Remplir les cases vides</button>
       <button class="btn primary cp-play" data-a="play">${this.player.on ? `${icon('pause')} Stop` : `${icon('play')} Écouter la grille`}</button>
       ${sel ? `<button class="btn small" data-a="play-sec" title="Écouter seulement cette partie en boucle">${icon('loop')} Cette partie</button>` : ''}
     </div>`;
@@ -207,12 +215,15 @@ export class ComposeView {
         const isSel = sel && sel.si === si && sel.bi === bi;
         const cs = b.c.filter(Boolean);
         let inner;
+        const sg = (h) => (b.s?.[h] && b.c[h] ? ' sug' : '');
         if (!b.c.length || !cs.length) inner = '<span class="cp-empty">+</span>';
-        else if (b.c.length === 1) inner = `<b class="cp-ch">${esc(b.c[0])}</b>`;
-        else inner = `<span class="cp-split"><b class="c1${sel && isSel && sel.h === 0 ? ' hsel' : ''}">${esc(b.c[0] || '·')}</b><b class="c2${sel && isSel && sel.h === 1 ? ' hsel' : ''}">${esc(b.c[1] || '·')}</b></span>`;
+        else if (b.c.length === 1) inner = `<b class="cp-ch${sg(0)}">${esc(b.c[0])}</b>`;
+        else inner = `<span class="cp-split"><b class="c1${sg(0)}${sel && isSel && sel.h === 0 ? ' hsel' : ''}">${esc(b.c[0] || '·')}</b><b class="c2${sg(1)}${sel && isSel && sel.h === 1 ? ' hsel' : ''}">${esc(b.c[1] || '·')}</b></span>`;
+        const hasSug = b.c.some((nm, h) => nm && b.s?.[h]);
+        if (hasSug) inner += `<button class="cp-ok" data-a="ok" data-si="${si}" data-bi="${bi}" title="Valider ${b.c.length > 1 ? 'ces accords' : 'cet accord'}" aria-label="Valider">${icon('check')}</button>`;
         const dg = cs.length ? `<span class="cp-dg">${b.c.map((nm, h) => (nm ? diagramSVG(nm, inst, { index: this.vAt(si, bi, h), ...this.own(si, bi, h) }) : '')).join('')}</span>` : '';
         const rm = cs.length && b.c.length === 1 ? `<i class="cp-rn">${esc(roman(b.c[0], key))}</i>` : '';
-        return `<div class="cp-bar${isSel ? ' cp-sel' : ''}${this.inRange(si, bi) ? ' cp-rng' : ''}${this.playing === `${si}.${bi}` ? ' cp-now' : ''}" data-si="${si}" data-bi="${bi}">${inner}${rm}${dg}<span class="n">${bi + 1}</span></div>`;
+        return `<div class="cp-bar${hasSug ? ' has-sug' : ''}${isSel ? ' cp-sel' : ''}${this.inRange(si, bi) ? ' cp-rng' : ''}${this.playing === `${si}.${bi}` ? ' cp-now' : ''}" data-si="${si}" data-bi="${bi}">${inner}${rm}${dg}<span class="n">${bi + 1}</span></div>`;
       }).join('');
       return `<section class="cp-sec k-${s.kind}" data-si="${si}">
         <div class="cp-sec-h">
@@ -231,7 +242,7 @@ export class ComposeView {
       </section>`;
     }).join('');
     const addSec = `<div class="cp-add">${KINDS.map(([k, l]) => `<button class="btn small" data-a="add-sec" data-v="${k}">${icon('plus')} ${l}</button>`).join('')}</div>`;
-    this.el.innerHTML = `${head}<div class="cp-wrap"><main class="cp-main">${opts}<div class="cp-grid">${secs}</div>${addSec}
+    this.el.innerHTML = `${head}<div class="cp-wrap"><main class="cp-main">${opts}${this.fillBar()}<div class="cp-grid">${secs}</div>${addSec}
       <p class="note cp-help">Touche une case pour y mettre un accord · deux accords par case : « Couper la mesure » · les doigtés s’enchaînent tout seuls (le moins de déplacements possible). · Sons réalistes : banque FluidR3 GM (Frank Wen, licence CC BY 3.0).</p></main>
       ${this.panel(key)}</div>`;
     if (sel && this._scrollSel !== `${sel.si}.${sel.bi}`) {
@@ -243,6 +254,56 @@ export class ComposeView {
         if (r.bottom > limit || r.top < 60) bar.scrollIntoView({ block: 'start', behavior: 'smooth' });
       });
     }
+  }
+
+  // ───────────────────────────────────────────── remplissage intelligent ──
+  fillBar() {
+    const n = this.sugCount();
+    if (!n) { this.fill = null; return ''; }
+    const f = this.fill;
+    return `<div class="cp-fillbar"><span class="cp-fb-t">${icon('sparkle')} <b>${n} accord${n > 1 ? 's' : ''} proposé${n > 1 ? 's' : ''}</b> <span class="note">en violet</span></span>
+      ${f?.sets.length > 1 ? `<span class="seg cp-fb-nav"><button data-a="fill-prev" aria-label="Proposition précédente">◀</button><output>Proposition ${f.idx + 1} / ${f.sets.length}</output><button data-a="fill-next" aria-label="Proposition suivante">▶</button></span>` : ''}
+      <button class="btn small" data-a="fill-again" title="Tirer de nouvelles propositions">Autres idées</button>
+      <button class="btn small primary" data-a="fill-ok">${icon('check')} Tout valider</button>
+      <button class="btn small ghost" data-a="fill-no">Tout retirer</button></div>`;
+  }
+
+  /** Lance le remplissage sur la portée choisie : 'all', 'section' ou 'range'. */
+  runFill(scope, seed = Date.now()) {
+    const c = this.c, key = this.key();
+    const rk = scope === 'range' ? new Set(this.rangeBars().map(({ si, bi }) => `${si}.${bi}`)) : null;
+    const sec = scope === 'section' ? this.sel?.si : null;
+    const inScope = (si, bi) => (scope === 'all' ? true : scope === 'section' ? si === sec : rk.has(`${si}.${bi}`));
+    const res = autofill(c, key, { inScope, count: 3, seed });
+    if (!res.sets.length) { toast('Aucune case vide à remplir ici'); return; }
+    if (!this.fill || this.fill.scope !== scope) this.snap();
+    this.fill = { scope, sets: res.sets, idx: 0, seed };
+    this.applyFillSet();
+    const n = res.sets[0].length;
+    toast(`${n} accord${n > 1 ? 's' : ''} proposé${n > 1 ? 's' : ''} en ${keyLabel(key)} · ${res.sets.length} proposition${res.sets.length > 1 ? 's' : ''}`);
+  }
+
+  applyFillSet() {
+    const f = this.fill;
+    if (!f) return;
+    for (const x of f.sets[f.idx]) {
+      const b = this.c.sections[x.si]?.bars[x.bi];
+      if (!b) continue;
+      const cur = b.c[x.h] || '';
+      if (cur && (!b.s?.[x.h] || b.s[x.h] === 2)) continue; // case remplie ou choisie à la main entre-temps
+      if (!b.c.length) b.c = [''];
+      b.c[x.h] = x.name;
+      (b.s ||= [])[x.h] = true;
+      if (b.v) b.v[x.h] = null; if (b.g) b.g[x.h] = null; if (b.p) b.p[x.h] = null;
+    }
+    this.save(); this.render();
+    if (this.player.on) this.restartIfPlaying();
+  }
+
+  validate(pred) {
+    this.snap();
+    for (const [si, s] of this.c.sections.entries()) s.bars.forEach((b, bi) => b.c.forEach((nm, h) => { if (nm && b.s?.[h] && pred(si, bi, h)) b.s[h] = false; }));
+    this.save(); this.render();
   }
 
   panel(key) {
@@ -293,6 +354,9 @@ export class ComposeView {
     }
     return `<aside class="cp-panel">
       <div class="cp-p-head"><b>${esc(s.label)} · mesure ${sel.bi + 1}${b.c.length > 1 ? ` · ${sel.h ? '2e' : '1re'} moitié` : ''}</b><button class="icon-btn sm" data-a="unsel" aria-label="Fermer">${icon('close')}</button></div>
+      ${cur && b.s?.[sel.h] ? `<div class="cp-sugbox"><div class="cp-sug-h">${icon('sparkle')} <b>Proposé par MusiMix</b>
+          <button class="btn small primary" data-a="ok-slot">${icon('check')} Valider</button><button class="btn small ghost" data-a="ok-sec" title="Valider tous les accords proposés de cette partie">Toute la partie</button></div>
+          <div class="cp-sug-alts"><span class="note">Ou plutôt :</span>${slotAlternatives(c, key, sel.si, sel.bi, sel.h, cur).map((nm) => `<button class="cp-alt" data-a="alt" data-v="${esc(nm)}" title="Essayer ${esc(nm)} (reste proposé)">${esc(nm)}</button>`).join('')}</div></div>` : ''}
       <div class="cp-entry">
         <input class="cp-in" data-f="chord" value="${esc(cur)}" placeholder="Accord (ex. Am7, F/A, G)" autocomplete="off" spellcheck="false">
         ${cur ? `<button class="icon-btn" data-a="hear" data-v="${esc(cur)}" aria-label="Écouter">${icon('play')}</button>` : ''}
@@ -404,6 +468,7 @@ export class ComposeView {
     if (b.v) b.v[sel.h] = null;
     if (b.g) b.g[sel.h] = null;
     if (b.p) b.p[sel.h] = null;
+    if (b.s || keep?.suggested) (b.s ||= [])[sel.h] = keep?.suggested ? 2 : false; // 2 = proposition choisie à la main (pas remplacée)
     if (keep?.frets) { (b.g ||= [])[sel.h] = keep.frets; }
     if (keep?.notes) { (b.p ||= [])[sel.h] = keep.notes; }
     if (play && nm) { this.voicingsAuto(); this.hearSlot(sel.si, sel.bi, sel.h); }
@@ -548,6 +613,33 @@ export class ComposeView {
         break;
       }
       case 'add-sec': { const [k, l] = KINDS.find((x) => x[0] === v); this.snap(); c.sections.push({ id: uid(), kind: k, label: l, repeat: 1, bars: Array.from({ length: k === 'intro' || k === 'outro' ? 4 : 8 }, () => ({ c: [] })) }); this.changed({ snap: false }); break; }
+      case 'fill': {
+        const items = [{ icon: 'sparkle', label: 'Toute la grille', action: () => this.runFill('all') }];
+        if (this.sel) items.push({ label: `Seulement « ${c.sections[this.sel.si].label} »`, action: () => this.runFill('section') });
+        if (this.rangeBars().length > 1) items.push({ label: `Seulement la sélection (${this.rangeBars().length} mesures)`, action: () => this.runFill('range') });
+        if (items.length === 1) this.runFill('all'); else openMenu(t, items);
+        break;
+      }
+      case 'fill-next': case 'fill-prev': { const f = this.fill; if (!f) break; f.idx = (f.idx + (a === 'fill-next' ? 1 : f.sets.length - 1)) % f.sets.length; this.applyFillSet(); break; }
+      case 'fill-again': {
+        // retire les propositions puis en tire de nouvelles sur la même portée
+        const scope = this.fill?.scope || 'all';
+        for (const sct of c.sections) for (const b of sct.bars) b.c.forEach((nm, h) => { if (b.s?.[h]) { b.c[h] = ''; b.s[h] = false; } });
+        for (const sct of c.sections) for (const b of sct.bars) if (b.c.length && !b.c.some(Boolean)) b.c = [];
+        this.fill = { scope, sets: [], idx: 0 };
+        this.runFill(scope, Date.now());
+        break;
+      }
+      case 'fill-ok': this.validate(() => true); this.fill = null; toast('Accords validés'); break;
+      case 'fill-no': {
+        this.snap();
+        for (const sct of c.sections) for (const b of sct.bars) { b.c.forEach((nm, h) => { if (b.s?.[h]) { b.c[h] = ''; b.s[h] = false; } }); if (b.c.length && !b.c.some(Boolean)) b.c = []; }
+        this.fill = null; this.save(); this.render(); break;
+      }
+      case 'ok': { e.stopPropagation(); const si = +t.dataset.si, bi = +t.dataset.bi; this.validate((x, y) => x === si && y === bi); break; }
+      case 'ok-slot': { const { si, bi, h } = this.sel; this.validate((x, y, z) => x === si && y === bi && z === h); break; }
+      case 'ok-sec': { const si = this.sel.si; this.validate((x) => x === si); break; }
+      case 'alt': this.setChord(v, { keep: { suggested: true } }); break;
       case 'unsel': this.sel = null; this.range = null; this.multi = false; this.render(); break;
       case 'multi': this.multi = !this.multi; if (this.multi) toast('Touche la dernière case à sélectionner'); this.render(); break;
       case 'copy': this.copyRange(false); this.multi = false; break;
@@ -593,11 +685,11 @@ export class ComposeView {
       case 'split': {
         const b = c.sections[this.sel.si].bars[this.sel.bi];
         this.snap();
-        if (b.c.length > 1) { b.c = [b.c[0] || b.c[1]]; b.v = []; this.sel.h = 0; } else { b.c = [b.c[0] || '', '']; this.sel.h = 1; }
+        if (b.c.length > 1) { const k = b.c[0] ? 0 : 1; b.c = [b.c[k]]; b.s = [!!b.s?.[k]]; b.v = []; b.g = []; b.p = []; this.sel.h = 0; } else { b.c = [b.c[0] || '', '']; b.s = [!!b.s?.[0], false]; this.sel.h = 1; }
         this.save(); this.render(); break;
       }
       case 'half': this.sel.h = +v; this.draft = null; this.render(); break;
-      case 'clear': { const b = c.sections[this.sel.si].bars[this.sel.bi]; this.snap(); b.c = []; b.v = []; this.sel.h = 0; this.save(); this.render(); break; }
+      case 'clear': { const b = c.sections[this.sel.si].bars[this.sel.bi]; this.snap(); b.c = []; b.v = []; b.s = []; b.g = []; b.p = []; this.sel.h = 0; this.save(); this.render(); break; }
       case 'copy-prev': { const p = this.neighbors(this.sel.si, this.sel.bi, this.sel.h).prev; if (p) this.setChord(p.name); break; }
       case 'tab': this.tab = v; this.draft = null; this.render(); break;
       case 'vof': { const b = c.sections[this.sel.si].bars[this.sel.bi], fr = v.split(',').map(Number); this.snap(); (b.g ||= [])[this.sel.h] = fr; if (b.v) b.v[this.sel.h] = null; this.save(); this.render(); this.hearSlot(this.sel.si, this.sel.bi, this.sel.h); break; }

@@ -1140,3 +1140,30 @@ body.noselect, body.noselect * { user-select: none !important; -webkit-user-sele
 .cp-sep { width: 1px; align-self: stretch; background: var(--line-2); margin: 2px 2px; }
 .cp-tabs { margin: 4px 0 8px; }
 .cp-bars { grid-template-columns: repeat(var(--cols, 4), minmax(0, 1fr)); }
+/* remplissage intelligent : accords proposés en violet */
+:root { --sug: #7a5af8; }
+.cp-bar .cp-ch.sug, .cp-bar .cp-split b.sug { color: var(--sug); }
+.cp-bar.has-sug { background: color-mix(in srgb, var(--sug) 7%, transparent); }
+.cp-bar.has-sug .cp-dg svg { opacity: .75; }
+.cp-ok { position: absolute; left: 6px; bottom: 4px; width: 26px; height: 26px; border-radius: 50%; border: 1.5px solid var(--sug); background: var(--bg); color: var(--sug); display: grid; place-items: center; cursor: pointer; padding: 0; z-index: 2; }
+.cp-ok .i { width: 15px; height: 15px; stroke-width: 2.6; }
+.cp-ok:hover { background: var(--sug); color: #fff; }
+.cp-fill-btn { border-color: var(--sug); color: var(--sug); }
+.cp-fill-btn:hover { background: color-mix(in srgb, var(--sug) 10%, transparent); }
+.cp-fill-btn .i { color: var(--sug); }
+.cp-fillbar { position: sticky; top: 0; z-index: 5; display: flex; flex-wrap: wrap; align-items: center; gap: 8px 10px; margin: 8px 0 4px; padding: 8px 12px; border: 1px solid color-mix(in srgb, var(--sug) 45%, transparent); border-radius: 12px; background: color-mix(in srgb, var(--sug) 9%, var(--bg)); }
+.cp-fb-t { display: inline-flex; align-items: center; gap: 6px; flex: 1 1 auto; color: var(--sug); }
+.cp-fb-t .i { width: 18px; height: 18px; }
+.cp-fb-t .note { font-size: 12px; }
+.cp-fb-nav output { padding: 0 8px; font-size: 13px; font-weight: 600; white-space: nowrap; }
+.cp-fillbar .btn.primary { background: var(--sug); border-color: var(--sug); }
+.cp-sugbox { margin: 0 0 8px; padding: 8px 10px; border-radius: 10px; border: 1px solid color-mix(in srgb, var(--sug) 45%, transparent); background: color-mix(in srgb, var(--sug) 8%, var(--bg)); }
+.cp-sug-h { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; color: var(--sug); }
+.cp-sug-h b { margin-right: auto; }
+.cp-sug-h .i { width: 16px; height: 16px; }
+.cp-sug-h .btn.primary { background: var(--sug); border-color: var(--sug); }
+.cp-sug-alts { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; margin-top: 6px; }
+.cp-alt { border: 1px solid color-mix(in srgb, var(--sug) 40%, transparent); background: var(--bg); color: var(--sug); border-radius: 8px; padding: 3px 9px; font: 700 14px var(--font-ui); cursor: pointer; }
+.cp-alt:hover { background: var(--sug); color: #fff; }
+.cp-panel .cp-in { transition: color .1s; }
+.cp-ok { left: auto; right: 6px; bottom: auto; top: 50%; transform: translateY(-50%); }
