@@ -944,3 +944,10 @@ dialog.diag-dlg { width: min(560px, calc(100vw - 20px)); }
 @media (max-width: 860px) { .rail-close, .rail-open { display: none !important; } }
 @media (max-width: 600px) { .hud-txt b { font-size: 26px; } .hud-dg svg { width: 48px; } .sc-lyrics { gap: 10px; } .sc-lyrics .hud { padding-right: 10px; } }
 @media (max-width: 860px) { .sc-lyrics .hud, .stage-hud { display: none !important; } }
+/* Scène : accord en grand, centré */
+.stage.stage-mode .stage-hud { left: 50%; transform: translateX(-50%); top: 14px; padding: 10px 22px; gap: 18px; }
+.stage.stage-mode .stage-hud .hud-txt { justify-items: center; text-align: center; }
+.stage.stage-mode .stage-hud .hud-txt b { font-size: clamp(56px, 7vw, 96px); }
+.stage.stage-mode .stage-hud .hud-txt small { font-size: 16px; }
+.stage.stage-mode .stage-hud .hud-dg svg { width: clamp(80px, 8vw, 120px); }
+.stage.stage-mode .stage-hud .hud-dg svg.piano { width: 180px; }
