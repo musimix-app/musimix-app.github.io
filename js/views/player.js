@@ -264,6 +264,23 @@ export class PlayerView {
     const off = (s.prefs.offset || 0) / 1000; // temps des paroles = temps audio + décalage
     this.applyWrittenBars(off);
     this.timeline = chordTimeline(s.doc, s.duration || this.engine.duration, s.detectedChords);
+    // un accord écrit au-dessus d'un mot tombe sur le mot, pas forcément sur le changement joué :
+    // s'il existe tout près le même accord entendu dans l'audio, on prend le moment entendu
+    if (s.detectedChords?.length) {
+      const det = s.detectedChords, win = Math.min(1.6, (this.masterClock().gap || 2) * 0.55);
+      for (const c of this.timeline) {
+        if (c.t == null || c.fixed) continue;
+        const a = c.t - off;
+        let best = null;
+        for (const d of det) {
+          if (d.s > a + win) break;
+          if (d.s < a - win || !sameChord(d.name, c.name)) continue;
+          if (!best || Math.abs(d.s - a) < Math.abs(best.s - a)) best = d;
+        }
+        if (best) c.t = best.s + off;
+      }
+      for (let i = 1; i < this.timeline.length; i++) if (this.timeline[i].t != null && this.timeline[i - 1].t != null && this.timeline[i].t <= this.timeline[i - 1].t) this.timeline[i].t = this.timeline[i - 1].t + 0.05;
+    }
     // horloge de l'audio : on cherche sur quel temps tombent la plupart des changements d'accords → c'est le 1er temps
     this._autoPhase = 0; this._clock = null;
     {
