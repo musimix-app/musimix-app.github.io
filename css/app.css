@@ -874,3 +874,10 @@ dialog.diag-dlg { width: min(560px, calc(100vw - 20px)); }
 .sc-lyr-btn.on { background: var(--chord); color: #fff; border-color: var(--chord); }
 @media (max-width: 600px) { .sc-lyrics { font-size: 16px; padding: 4px 10px 6px; } }
 .row-r { display: inline-flex; align-items: center; gap: 6px; }
+
+/* Départ différé */
+.delay-ov { position: fixed; inset: 0; z-index: 60; display: grid; place-content: center; justify-items: center; gap: 10px; background: color-mix(in srgb, var(--bg) 82%, transparent); backdrop-filter: blur(3px); text-align: center; }
+.delay-n { font: 600 clamp(96px, 22vw, 220px)/1 var(--font-display); color: var(--playhead); font-variant-numeric: tabular-nums; }
+.delay-ov p { margin: 0; color: var(--muted); font-size: 18px; }
+.delay-acts { display: flex; gap: 10px; margin-top: 14px; flex-wrap: wrap; justify-content: center; }
+.sel-sm { min-width: 84px; }

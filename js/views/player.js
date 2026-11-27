@@ -45,6 +45,7 @@ export class PlayerView {
     this.song = song;
     this.ctx = ctx;
     const prefs = await this.app.prefs();
+    this.prefsCache = prefs || {};
     this.prefsSnap = prefs;
     this.instrument = prefs.instrument || 'guitar';
     this.mode = prefs.viewMode === 'score' && !this.song?.score ? 'lyrics' : (prefs.viewMode || 'lyrics');
@@ -69,6 +70,7 @@ export class PlayerView {
   }
 
   close() {
+    this.cancelDelay?.();
     if (this.take) { this.take.rec.cancel(); this.endTakeUi(); this.take = null; }
     this.midiStop(false);
     this.scoreView?.destroy(); this.scoreView = null;
@@ -460,6 +462,7 @@ export class PlayerView {
       <div class="opt-row"><span>Vitesse</span><span class="stepper"><button data-act="rate-">−</button><output data-r="rate">${Math.round(p.rate * 100)} %</output><button data-act="rate+">+</button></span></div>
       <div class="opt-row"><span>Boucle progressive<br><small class="note">à chaque tour de boucle, la vitesse monte de ${Math.round((p.progStep ?? 0.05) * 100)} % jusqu’à 100 %</small></span><label class="switch"><input type="checkbox" data-act="prog" ${p.progressive ? 'checked' : ''}><i></i></label></div>
       <div class="opt-row prog-opts"${p.progressive ? '' : ' hidden'}><span>Départ</span><span class="stepper"><button data-act="prog-">−</button><output data-r="prog">${Math.round((p.progStart ?? 0.7) * 100)} %</output><button data-act="prog+">+</button></span></div>
+      <div class="opt-row"><span>Départ différé<br><small class="note">le temps de lancer REC sur la Zoom (tous les morceaux)</small></span><select data-act="start-delay" class="sel-sm">${[0, 3, 5, 10, 15, 20].map((v) => `<option value="${v}" ${+(this.prefsCache?.startDelay || 0) === v ? 'selected' : ''}>${v ? `${v} s` : 'Non'}</option>`).join('')}</select></div>
       <div class="opt-row"><span>Décompte avant lecture</span><label class="switch"><input type="checkbox" data-act="countin" ${p.countIn ? 'checked' : ''}><i></i></label></div>
       <div class="opt-row"><span>Métronome</span><label class="switch"><input type="checkbox" data-act="metro-switch"><i></i></label></div>
       <div class="opt-row"><span>Clavier MIDI<br><small class="note" data-r="midi-st"></small></span><label class="switch"><input type="checkbox" data-act="midi" ${this.midiOn ? 'checked' : ''}><i></i></label></div>
@@ -683,7 +686,11 @@ export class PlayerView {
   }
 
   async togglePlay() {
+    if (this._delay) { this.cancelDelay(); return; } // 2e appui pendant l'attente : on annule
     if (this.engine.playing) { this.engine.pause(); return; }
+    const d = +(this.prefsCache?.startDelay || 0);
+    if (d > 0 && !this._delaySkip) { this.startDelay(d); return; }
+    this._delaySkip = false;
     const p = this.song.prefs;
     if (p.countIn) {
       const bpm = this.song.bpm || 100;
@@ -692,6 +699,36 @@ export class PlayerView {
     } else {
       await this.engine.play();
     }
+  }
+
+  /** Départ différé : laisse le temps de lancer l'enregistrement de la Zoom et de se placer. */
+  startDelay(sec) {
+    const ov = document.createElement('div');
+    ov.className = 'delay-ov';
+    ov.innerHTML = `<div class="delay-n"></div><p>Départ dans…</p><div class="delay-acts"><button class="btn primary" data-d="now">Démarrer maintenant</button><button class="btn" data-d="stop">Annuler</button></div>`;
+    this.el.querySelector('.player-main, main, .lyrics-wrap')?.appendChild(ov) || this.el.appendChild(ov);
+    const end = performance.now() + sec * 1000;
+    const tick = () => {
+      const left = Math.ceil((end - performance.now()) / 1000);
+      if (left <= 0) { this.cancelDelay(); this._delaySkip = true; this.togglePlay(); return; }
+      ov.querySelector('.delay-n').textContent = left;
+      this._delay.raf = setTimeout(tick, 100);
+    };
+    this._delay = { ov };
+    ov.addEventListener('click', (e) => {
+      const b = e.target.closest('[data-d]');
+      if (!b) return;
+      this.cancelDelay();
+      if (b.dataset.d === 'now') { this._delaySkip = true; this.togglePlay(); }
+    });
+    tick();
+  }
+
+  cancelDelay() {
+    if (!this._delay) return;
+    clearTimeout(this._delay.raf);
+    this._delay.ov.remove();
+    this._delay = null;
   }
 
   showCountdown(bpm) {
@@ -1740,6 +1777,7 @@ export class PlayerView {
       if (a === 'midi') { this.midiOn = e.target.checked; this.app.setPref('midi', this.midiOn); if (this.midiOn) this.midiStart(true); else this.midiStop(); }
       if (a === 'r20') { this.r20On = e.target.checked; this.app.setPref('r20', this.r20On); if (this.r20On) this.r20Start(true); else this.r20Stop(); }
       if (a === 'midi-follow') { this.midiFollow = e.target.checked; this.app.setPref('midiFollow', this.midiFollow); this.updateMidiUi(); }
+      if (a === 'start-delay') { this.app.setPref('startDelay', +e.target.value); (this.prefsCache ||= {}).startDelay = +e.target.value; this.el.querySelectorAll('[data-act="start-delay"]').forEach((x) => { x.value = e.target.value; }); toast(+e.target.value ? `Play attendra ${e.target.value} s avant de démarrer` : 'Départ immédiat'); }
       if (a === 'countin') { this.song.prefs.countIn = e.target.checked; this.updateOptionOutputs(); this.saveSong(); }
       if (a === 'show-bars') {
         this.showBars = e.target.checked;
