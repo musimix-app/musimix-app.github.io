@@ -1167,3 +1167,8 @@ body.noselect, body.noselect * { user-select: none !important; -webkit-user-sele
 .cp-alt:hover { background: var(--sug); color: #fff; }
 .cp-panel .cp-in { transition: color .1s; }
 .cp-ok { left: auto; right: 6px; bottom: auto; top: 50%; transform: translateY(-50%); }
+.cp-impro { display: grid; gap: 8px; margin: 8px 0 4px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 12px; background: var(--surface, var(--bg-2)); }
+.cp-impro .im-board { max-height: 44vh; overflow: auto; }
+.cp-impro .im-keys { max-width: 620px; }
+.cp-impro-btn.on { background: var(--ink); color: var(--bg); border-color: var(--ink); }
+.cp-impro .seg button.on { background: var(--ink); color: var(--bg); }

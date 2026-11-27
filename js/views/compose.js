@@ -7,6 +7,7 @@ import { diagramSVG, allVoicings, voicings as vList } from '../diagrams.js';
 import { STYLES, nextChords, transitions, variations, chainVoicings, voicingOptions, voicingOf, playChord, GridPlayer, guessKey, roman, degree, pianoOptions, nameChord, chordMidi, PATTERNS, DRUM_STYLES, SOUNDS, setSounds, prepareSounds } from '../compose.js';
 import { newSong } from '../songs.js';
 import { autofill, slotAlternatives } from '../autofill.js';
+import { improLayers, neckSvg, keysSvg, SCALES } from '../impro.js';
 import { parseSheet } from '../sheet.js';
 
 const KINDS = [['intro', 'Intro'], ['verse', 'Couplet'], ['prechorus', 'Pré-refrain'], ['chorus', 'Refrain'], ['bridge', 'Pont'], ['solo', 'Solo'], ['outro', 'Final']];
@@ -206,6 +207,7 @@ export class ComposeView {
       <label>Colonnes <select data-f="cols">${[2, 3, 4, 5, 6, 8].map((n) => `<option value="${n}" ${(c.cols || 4) === n ? 'selected' : ''}>${n}</option>`).join('')}</select></label>
       <label>Jeu <select data-f="pattern">${PATTERNS.map(([k, l]) => `<option value="${k}" ${(c.pattern || '') === k ? 'selected' : ''}>${l}</option>`).join('')}</select></label>
       <label>Batterie <select data-f="drumStyle">${DRUM_STYLES.map(([k, l]) => `<option value="${k}" ${(c.drumStyle ?? (c.drums === false ? 'off' : '')) === k ? 'selected' : ''}>${l}</option>`).join('')}</select></label>
+      <button class="btn${c.impro?.on ? ' on' : ''} cp-impro-btn" data-a="impro" title="Afficher les notes qui sonnent juste, sur le manche ou le clavier">${icon('impro')} Notes justes</button>
       <button class="btn cp-fill-btn" data-a="fill" title="Compléter les cases vides selon tes accords, la tonalité et le style">${icon('sparkle')} Remplir les cases vides</button>
       <button class="btn primary cp-play" data-a="play">${this.player.on ? `${icon('pause')} Stop` : `${icon('play')} Écouter la grille`}</button>
       ${sel ? `<button class="btn small" data-a="play-sec" title="Écouter seulement cette partie en boucle">${icon('loop')} Cette partie</button>` : ''}
@@ -242,7 +244,7 @@ export class ComposeView {
       </section>`;
     }).join('');
     const addSec = `<div class="cp-add">${KINDS.map(([k, l]) => `<button class="btn small" data-a="add-sec" data-v="${k}">${icon('plus')} ${l}</button>`).join('')}</div>`;
-    this.el.innerHTML = `${head}<div class="cp-wrap"><main class="cp-main">${opts}${this.fillBar()}<div class="cp-grid">${secs}</div>${addSec}
+    this.el.innerHTML = `${head}<div class="cp-wrap"><main class="cp-main">${opts}${this.fillBar()}${this.improPanel()}<div class="cp-grid">${secs}</div>${addSec}
       <p class="note cp-help">Touche une case pour y mettre un accord · deux accords par case : « Couper la mesure » · les doigtés s’enchaînent tout seuls (le moins de déplacements possible). · Sons réalistes : banque FluidR3 GM (Frank Wen, licence CC BY 3.0).</p></main>
       ${this.panel(key)}</div>`;
     if (sel && this._scrollSel !== `${sel.si}.${sel.bi}`) {
@@ -254,6 +256,50 @@ export class ComposeView {
         if (r.bottom > limit || r.top < 60) bar.scrollIntoView({ block: 'start', behavior: 'smooth' });
       });
     }
+  }
+
+  // ─────────────────────────────────────────────── notes justes (impro) ──
+  improChord() {
+    if (this.player.on && this._playChord) return this._playChord;
+    const sel = this.sel;
+    return sel ? this.c.sections[sel.si]?.bars[sel.bi]?.c[sel.h] || null : null;
+  }
+
+  improBoard() {
+    const o = this.c.impro, key = this.key(), chord = o.mode === 'chord' ? this.improChord() : null;
+    const L = improLayers(key, chord, { current: o.mode === 'chord', penta: o.penta !== false, scale: o.scale !== false, blues: !!o.blues });
+    const board = this.c.instrument === 'piano' ? keysSvg(L, key, { names: o.names || 'notes' }) : neckSvg(L, key, { instrument: 'guitar', names: o.names || 'notes', frets: 15 });
+    const now = o.mode === 'chord' ? (chord ? `Accord : <b>${esc(chord)}</b>${this.player.on ? ' <small>(suit la lecture)</small>' : ''}` : '<span class="note">Touche une case (ou lance l’écoute) pour voir ses notes</span>') : `Tonalité : <b>${esc(keyLabel(key))}</b>`;
+    return { board, now };
+  }
+
+  improPanel() {
+    const o = this.c.impro;
+    if (!o?.on) return '';
+    const key = this.key(), S = SCALES[key.minor ? 'minor' : 'major'];
+    const { board, now } = this.improBoard();
+    const chip = (k, label, on) => `<button type="button" class="im-chip ${on ? 'on' : ''}" data-a="im" data-v="${k}">${label}</button>`;
+    return `<div class="cp-impro">
+      <div class="im-head"><b>Notes justes</b>
+        <span class="seg"><button data-a="im-mode" data-v="song" class="${o.mode !== 'chord' ? 'on' : ''}">Tout le morceau</button><button data-a="im-mode" data-v="chord" class="${o.mode === 'chord' ? 'on' : ''}">Accord choisi</button></span>
+        <span class="im-now">${now}</span><span class="im-sp"></span>
+        <button type="button" class="icon-btn im-x" data-a="impro" aria-label="Fermer">✕</button></div>
+      <div class="im-legend">
+        ${o.mode === 'chord' ? '<span class="im-chip on plain"><i class="sw chord"></i>Notes de l’accord</span>' : ''}
+        ${chip('penta', '<i class="sw penta"></i>Toujours bonnes <small>(pentatonique)</small>', o.penta !== false)}
+        ${chip('scale', `<i class="sw scale"></i>Reste de la gamme ${S.label}`, o.scale !== false)}
+        ${chip('blues', '<i class="sw blues"></i>Note blues', !!o.blues)}
+        ${chip('names', o.names === 'degrees' ? 'Noms : degrés' : 'Noms : notes', true)}
+      </div>
+      <div class="im-board">${board}</div></div>`;
+  }
+
+  updateImpro() {
+    const el = this.el.querySelector('.cp-impro');
+    if (!el || this.c.impro?.mode !== 'chord') return;
+    const { board, now } = this.improBoard();
+    el.querySelector('.im-board').innerHTML = board;
+    el.querySelector('.im-now').innerHTML = now;
   }
 
   // ───────────────────────────────────────────── remplissage intelligent ──
@@ -521,6 +567,8 @@ export class ComposeView {
       bpm: this.c.bpm, style: this.c.style, instrument: this.c.instrument, drums: true, pattern: this.c.pattern || '', drumStyle: this.c.drumStyle ?? (this.c.drums === false ? 'off' : ''), loop: true,
       onPos: (i) => {
         this.playing = i >= 0 ? ev[i].key : null;
+        const pc = i >= 0 ? ev[i].name : null;
+        if (pc !== this._playChord) { this._playChord = pc; this.updateImpro(); }
         this.el.querySelectorAll('.cp-bar.cp-now').forEach((x) => x.classList.remove('cp-now'));
         if (this.playing) { const [si, bi] = this.playing.split('.'); this.el.querySelector(`.cp-bar[data-si="${si}"][data-bi="${bi}"]`)?.classList.add('cp-now'); }
       },
@@ -613,6 +661,9 @@ export class ComposeView {
         break;
       }
       case 'add-sec': { const [k, l] = KINDS.find((x) => x[0] === v); this.snap(); c.sections.push({ id: uid(), kind: k, label: l, repeat: 1, bars: Array.from({ length: k === 'intro' || k === 'outro' ? 4 : 8 }, () => ({ c: [] })) }); this.changed({ snap: false }); break; }
+      case 'impro': { c.impro = { mode: 'chord', ...(c.impro || {}), on: !c.impro?.on }; this.save(); this.render(); break; }
+      case 'im-mode': c.impro.mode = v; this.save(); this.render(); break;
+      case 'im': { const o = c.impro; if (v === 'names') o.names = o.names === 'degrees' ? 'notes' : 'degrees'; else o[v] = v === 'blues' ? !o.blues : o[v] === false; this.save(); this.render(); break; }
       case 'fill': {
         const items = [{ icon: 'sparkle', label: 'Toute la grille', action: () => this.runFill('all') }];
         if (this.sel) items.push({ label: `Seulement « ${c.sections[this.sel.si].label} »`, action: () => this.runFill('section') });
