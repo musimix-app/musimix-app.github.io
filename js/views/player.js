@@ -265,8 +265,9 @@ export class PlayerView {
       if (ck.src === 'audio' && ck.beats.length > 16 && !s.clock?.phaseOff) {
         const bpb = ck.bpb || 4, cnt = new Array(bpb).fill(0);
         let k = 0, n = 0;
-        for (const c of this.timeline) {
-          if (c.t == null || c.fixed) continue;
+        const evs = (s.score?.chords?.length && s.score.useChords !== false) ? s.score.chords.map((c) => ({ t: c.t + off })) : this.timeline;
+        for (const c of evs) {
+          if (c.t == null) continue;
           const a = c.t - off;
           while (k + 1 < ck.beats.length && ck.beats[k + 1] <= a) k++;
           const j = ck.beats[k + 1] != null && ck.beats[k + 1] - a < a - ck.beats[k] ? k + 1 : k;
