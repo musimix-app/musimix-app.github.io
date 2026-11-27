@@ -566,8 +566,6 @@ export class ComposeView {
     const { prev, next } = this.neighbors(sel.si, sel.bi, sel.h);
     const inst = c.instrument === 'piano' ? 'piano' : 'guitar';
     const chip = (nm, why, extra = '') => `<span class="cp-chip"><button class="cp-use" data-a="use" data-v="${esc(nm)}" ${extra} title="${esc(why || '')}"><b>${esc(nm)}</b>${why ? `<small>${esc(why)}</small>` : ''}</button><button class="cp-hear" data-a="hear" data-v="${esc(nm)}" aria-label="Écouter ${esc(nm)}">${icon('play')}</button></span>`;
-    const od = (this.openD ||= new Set(['acts']));
-    const det = (k, title, body, ic = '') => `<details class="cp-det" data-d="${k}"${od.has(k) ? ' open' : ''}><summary>${ic ? icon(ic) : ''}<span>${title}</span><i class="cp-chev">▾</i></summary><div class="cp-det-b">${body}</div></details>`;
     // contenus
     const sugg = nextChords(prev?.name || '', key, c.style).slice(0, 6);
     const transBody = (() => {
@@ -602,6 +600,7 @@ export class ComposeView {
         <button data-a="copy">Copier</button>
         ${CLIP?.length ? `<button data-a="paste" title="Coller ${CLIP.length} mesure(s) ici">Coller</button><button data-a="paste-ins" title="Insérer ici sans rien écraser">Insérer</button>` : ''}</div>`;
     const rn = cur ? roman(cur, key) : '';
+    const tabs = [['acts', 'grid', 'Mesure'], ['trans', 'next', 'Transitions'], ['var', 'sparkle', 'Variantes'], ['vo', inst === 'piano' ? 'piano' : 'neck', inst === 'piano' ? 'Positions' : 'Doigtés'], ['key', 'tuner', 'Tonalité']];
     return `<aside class="cp-panel">
       <div class="cp-p-head">
         <button class="cp-pbtn" data-a="panel" title="Masquer le panneau" aria-label="Masquer le panneau">»</button>
@@ -618,19 +617,15 @@ export class ComposeView {
         <button class="cp-in-play" data-a="${cur ? 'hear-slot' : 'noop'}" aria-label="Écouter" ${cur ? '' : 'disabled'}>${icon('play')}</button>
       </div>
       <div class="cp-dcard">
-        ${inst === 'piano' ? this.drawPiano(cur, b) : this.drawNeck(cur, b)}
-        ${cur ? `<div class="cp-dname"><span><b>${esc(cur)}</b><small>${esc(frChord(cur))}</small></span>${rn ? `<i class="cp-rnb">${esc(rn)}</i>` : ''}</div>` : ''}
+        ${(() => { const lab = cur ? `<span class="cp-dname"><small>${esc(frChord(cur))}</small>${rn ? `<i class="cp-rnb">${esc(rn)}</i>` : ''}</span>` : ''; return inst === 'piano' ? this.drawPiano(cur, b, lab) : this.drawNeck(cur, b, lab); })()}
       </div>
       <div class="cp-lbl">Construire un accord</div>
       <div class="cp-roots">${(([1, 3, 5, 8, 10].includes(key.pc) && !key.minor) || [0, 2, 5, 7, 10].includes(key.pc) && key.minor ? FLAT : ['C', 'Db', 'D', 'Eb', 'E', 'F', 'F#', 'G', 'Ab', 'A', 'Bb', 'B']).map((n) => `<button data-a="root" data-v="${n}" class="${(this.root || parseChord(cur)?.rootName) === n ? 'on' : ''}">${n}</button>`).join('')}</div>
       <div class="cp-quals">${QUAL.map(([q, l]) => `<button data-a="qual" data-v="${q}" class="${cur && parseChord(cur)?.suffix === q && !parseChord(cur)?.bassName ? 'on' : ''}">${l}</button>`).join('')}</div>
-      <div class="cp-lbl">Accords suggérés ${prev ? `<span>après ${esc(prev.name)}</span>` : `<span>(${esc(keyLabel(key))})</span>`}</div>
+      <div class="cp-lbl">Suggérés ${prev ? `<span>après ${esc(prev.name)}</span>` : `<span>(${esc(keyLabel(key))})</span>`}</div>
       <div class="cp-sugg">${sugg.map((x) => `<button data-a="use" data-v="${esc(x.name)}" title="${esc(x.why)}">${esc(x.name)}</button>`).join('')}</div>
-      ${det('acts', 'Mesure et copier-coller', actsBody, 'grid')}
-      ${det('trans', 'Transitions vers l’accord suivant', transBody, 'next')}
-      ${det('var', 'Variantes et substitutions', varBody, 'sparkle')}
-      ${det('vo', inst === 'piano' ? 'Positions au clavier' : 'Doigtés alternatifs', voBody, inst === 'piano' ? 'piano' : 'guitar')}
-      ${det('key', `Accords de la tonalité (${esc(keyLabel(key))})`, keyBody, 'tuner')}
+      <div class="cp-ptabs">${tabs.map(([k, ic, l]) => `<button data-a="ptab" data-v="${k}" class="${this.ptab === k ? 'on' : ''}">${icon(ic)}<span>${l}</span></button>`).join('')}</div>
+      ${this.ptab ? `<div class="cp-pvolet">${({ acts: actsBody, trans: transBody, var: varBody, vo: voBody, key: keyBody })[this.ptab]}</div>` : ''}
     </aside>`;
   }
 
@@ -661,7 +656,7 @@ export class ComposeView {
     else { this.draft = { kind, key: this.slotKey(), [kind === 'g' ? 'frets' : 'notes']: shape }; this.render(); }
   }
 
-  drawNeck(cur, b) {
+  drawNeck(cur, b, label = '') {
     const sel = this.sel;
     const fr = this.shownFrets(cur, b), names = ['Mi', 'La', 'Ré', 'Sol', 'Si', 'Mi'];
     const midi = chordMidi('', 'guitar', 0, { frets: fr });
@@ -676,12 +671,12 @@ export class ComposeView {
     const pending = this.draft?.key === this.slotKey();
     return `<div class="cp-draw">
       <div class="nk"><div class="nk-rows">${rows}<div class="nk-row nk-m"><span class="nk-l"></span>${marks}</div></div></div>
-      <div class="cp-draw-res"><span class="note" title="Touche une case par corde · o / × : corde à vide / étouffée">${pending ? (midi.length >= 2 ? 'Non reconnu : ajoute ou enlève une note' : 'Pose au moins deux notes') : cur ? 'Touche le manche pour modifier' : 'Pose tes doigts pour créer un accord'}</span>
-        <button class="btn small ghost" data-a="nk-hear" ${midi.length ? '' : 'disabled'} aria-label="Écouter">${icon('play')}</button>
-        <button class="btn small ghost" data-a="nk-clear">Vider</button></div></div>`;
+      <div class="cp-draw-res" title="Touche une case par corde · o / × : corde à vide / étouffée">${!pending && cur && label ? label : `<span class="note">${pending ? (midi.length >= 2 ? 'Non reconnu : ajoute ou enlève une note' : 'Pose au moins deux notes') : 'Pose tes doigts pour créer un accord'}</span>`}
+        ${pending && midi.length ? `<button class="cp-mini" data-a="nk-hear" aria-label="Écouter">${icon('play')}</button>` : ''}
+        <button class="cp-mini" data-a="nk-clear" title="Vider le manche" aria-label="Vider">${icon('close')}</button></div></div>`;
   }
 
-  drawPiano(cur, b) {
+  drawPiano(cur, b, label = '') {
     const set = new Set(this.shownNotes(cur, b));
     const nm = set.size >= 2 ? nameChord([...set]) : null;
     const lo = 36, hi = 72, wW = 22, wH = 92, bW = 14, bH = 58;
@@ -696,9 +691,9 @@ export class ComposeView {
     const pending = this.draft?.key === this.slotKey();
     return `<div class="cp-draw">
       <div class="pk"><svg viewBox="-1 -1 ${x + 2} ${wH + 2}">${whites}${blacks}</svg></div>
-      <div class="cp-draw-res"><span class="note" title="La note la plus grave est la basse">${pending ? (set.size >= 2 ? 'Non reconnu : ajoute ou enlève une note' : 'Choisis au moins deux notes') : cur ? 'Touche le clavier pour modifier' : 'Touche les notes pour créer un accord'}</span>
-        <button class="btn small ghost" data-a="pk-hear" ${set.size ? '' : 'disabled'} aria-label="Écouter">${icon('play')}</button>
-        <button class="btn small ghost" data-a="nk-clear">Vider</button></div></div>`;
+      <div class="cp-draw-res" title="Touche les notes · la plus grave est la basse">${!pending && cur && label ? label : `<span class="note">${pending ? (set.size >= 2 ? 'Non reconnu : ajoute ou enlève une note' : 'Choisis au moins deux notes') : 'Touche les notes pour créer un accord'}</span>`}
+        ${pending && set.size ? `<button class="cp-mini" data-a="pk-hear" aria-label="Écouter">${icon('play')}</button>` : ''}
+        <button class="cp-mini" data-a="nk-clear" title="Vider le clavier" aria-label="Vider">${icon('close')}</button></div></div>`;
   }
 
   renderList() {
@@ -1013,6 +1008,7 @@ export class ComposeView {
       case 'qual': { const r = this.root || parseChord(this.c.sections[this.sel.si].bars[this.sel.bi].c[this.sel.h])?.rootName || 'C'; this.setChord(r + v); break; }
       case 'use': this.setChord(v); break;
       case 'hear': playChord(v, c.instrument); break;
+      case 'ptab': this.ptab = this.ptab === v ? null : v; this.render(); break;
       case 'hear-slot': this.hearSlot(this.sel.si, this.sel.bi, this.sel.h); break;
       case 'noop': break;
       case 'hear-seq': { const ns = v.split(' '); ns.forEach((nm, i) => setTimeout(() => playChord(nm, c.instrument, 0, { dur: 0.9 }), i * 700)); break; }
