@@ -207,7 +207,7 @@ export class ComposeView {
       <label>Colonnes <select data-f="cols">${[2, 3, 4, 5, 6, 8].map((n) => `<option value="${n}" ${(c.cols || 4) === n ? 'selected' : ''}>${n}</option>`).join('')}</select></label>
       <label>Jeu <select data-f="pattern">${PATTERNS.map(([k, l]) => `<option value="${k}" ${(c.pattern || '') === k ? 'selected' : ''}>${l}</option>`).join('')}</select></label>
       <label>Batterie <select data-f="drumStyle">${DRUM_STYLES.map(([k, l]) => `<option value="${k}" ${(c.drumStyle ?? (c.drums === false ? 'off' : '')) === k ? 'selected' : ''}>${l}</option>`).join('')}</select></label>
-      <button class="btn${c.impro?.on ? ' on' : ''} cp-impro-btn" data-a="impro" title="Afficher les notes qui sonnent juste, sur le manche ou le clavier">${icon('impro')} Notes justes</button>
+      <button class="btn${c.impro?.on ? ' on' : ''} cp-impro-btn" data-a="impro" title="Impro : les notes qui sonnent juste, sur le manche ou le clavier">${icon('impro')} Impro</button>
       <button class="btn cp-fill-btn" data-a="fill" title="Compléter les cases vides selon tes accords, la tonalité et le style">${icon('sparkle')} Remplir les cases vides</button>
       <button class="btn primary cp-play" data-a="play">${this.player.on ? `${icon('pause')} Stop` : `${icon('play')} Écouter la grille`}</button>
       ${sel ? `<button class="btn small" data-a="play-sec" title="Écouter seulement cette partie en boucle">${icon('loop')} Cette partie</button>` : ''}
@@ -280,7 +280,7 @@ export class ComposeView {
     const { board, now } = this.improBoard();
     const chip = (k, label, on) => `<button type="button" class="im-chip ${on ? 'on' : ''}" data-a="im" data-v="${k}">${label}</button>`;
     return `<div class="cp-impro">
-      <div class="im-head"><b>Notes justes</b>
+      <div class="im-head"><b>Impro</b>
         <span class="seg"><button data-a="im-mode" data-v="song" class="${o.mode !== 'chord' ? 'on' : ''}">Tout le morceau</button><button data-a="im-mode" data-v="chord" class="${o.mode === 'chord' ? 'on' : ''}">Accord choisi</button></span>
         <span class="im-now">${now}</span><span class="im-sp"></span>
         <button type="button" class="icon-btn im-x" data-a="impro" aria-label="Fermer">✕</button></div>
