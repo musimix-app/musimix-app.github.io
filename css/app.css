@@ -1596,3 +1596,7 @@ body.noselect, body.noselect * { user-select: none !important; -webkit-user-sele
 @media (min-width: 961px) { .compose .cp-panel { min-height: calc(100vh - 62px - var(--tp-h)); } }
 .mk-snd { display: inline-flex; align-items: center; gap: 4px; font-size: 14px; }
 .mk-snd select { font: 600 13px var(--font-ui); padding: 4px 6px; border-radius: 8px; border: 1px solid var(--line); background: var(--surface); color: var(--ink); }
+.cp-tscope.off { display: none; }
+.cp-tsel { display: inline-flex; align-items: center; gap: 6px; height: 32px; padding: 0 6px 0 12px; border-radius: 8px; background: color-mix(in srgb, var(--chord) 22%, transparent); border: 1px solid var(--chord); color: #fff; font: 600 13px var(--font-ui); white-space: nowrap; }
+.cp-tsel button { width: 22px; height: 22px; border: 0; border-radius: 50%; background: rgba(255,255,255,.15); color: #fff; cursor: pointer; font-size: 11px; }
+@media (max-width: 960px) { .cp-tsel { font-size: 12px; padding-left: 8px; } }

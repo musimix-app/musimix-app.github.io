@@ -749,14 +749,15 @@ export class ComposeView {
     else if (sel.si + 1 < this.c.sections.length) this.sel = { si: sel.si + 1, bi: 0, h: 0 };
   }
 
-  events(onlySi = null) {
-    // événements pour le lecteur (en noires), parties répétées
+  events(onlySi = null, keys = null) {
+    // événements pour le lecteur (en noires), parties répétées (sauf pour une sélection de mesures)
     const ev = [];
     let beat = 0;
     this.c.sections.forEach((s, si) => {
       if (onlySi != null && si !== onlySi) return;
-      for (let r = 0; r < (onlySi != null ? 1 : s.repeat); r++) {
+      for (let r = 0; r < (onlySi != null || keys ? 1 : s.repeat); r++) {
         s.bars.forEach((b, bi) => {
+          if (keys && !keys.has(`${si}.${bi}`)) return;
           const cs = b.c.length ? b.c : [''];
           let last = null;
           cs.forEach((nm, h) => {
@@ -774,7 +775,24 @@ export class ComposeView {
     return ev.filter((e) => e.name || e.rest).map((e) => (e.rest ? { ...e, name: 'C', silent: true } : e)).filter((e) => !e.silent);
   }
 
-  async play(onlySi = null, from = 0) {
+  /** Ce que joue le bouton ▶ : la sélection de mesures, sinon la partie choisie en bas, sinon tout. */
+  playSet() {
+    const rb = this.rangeBars();
+    if (rb.length > 1) return { ev: this.events(null, new Set(rb.map(({ si, bi }) => `${si}.${bi}`))), range: rb.length };
+    return { ev: this.events(this.scopeSi ?? null), range: 0 };
+  }
+
+  /** Indice de départ : l'accord sélectionné s'il est dans ce qui est joué, sinon 0. */
+  startIndex(ev) {
+    const sel = this.sel;
+    if (!sel || this.rangeBars().length > 1) return 0;
+    const k = `${sel.si}.${sel.bi}`, hits = ev.map((e, i) => [e, i]).filter(([e]) => e.key === k);
+    if (!hits.length) return 0;
+    const first = hits.filter(([e]) => e.barBeat0 === hits[0][0].barBeat0);
+    return (first[sel.h] || first[0])[1];
+  }
+
+  async play(onlySi = null, from = null) {
     if (this.player.on) { this.player.stop(); this.playing = null; this._posBeat = 0; this.render(); return; }
     this._only = onlySi;
     if (this.c.sound !== 'synth' && !this._soundReady) {
@@ -782,9 +800,10 @@ export class ComposeView {
       this._soundReady = await Promise.race([prepareSounds(this.c.instrument), new Promise((r) => setTimeout(() => r(false), 8000))]);
       if (!this._soundReady) toast('Sons réalistes indisponibles pour l’instant : synthé utilisé');
     }
-    const ev = this.events(onlySi);
+    const ev = onlySi != null ? this.events(onlySi) : this.playSet().ev;
     if (!ev.length) { toast('Mets au moins un accord dans la grille'); this.render(); return; }
     this._evs = ev;
+    if (from == null) from = onlySi != null ? 0 : this.startIndex(ev);
     from = Math.max(0, Math.min(ev.length - 1, from));
     this._posBeat = ev[from].beat0; this._posAt = performance.now();
     this.player.start(ev, {
@@ -804,7 +823,7 @@ export class ComposeView {
 
   /** Barre de lecture (en bas). */
   transport() {
-    const c = this.c, ev = this.events(this.scopeSi ?? null);
+    const c = this.c, { ev, range } = this.playSet();
     const total = ev.length ? Math.max(...ev.map((e) => e.beat0 + e.dur)) * 60 / c.bpm : 0;
     this._total = total;
     const on = this.player.on, loop = c.loop !== false;
@@ -816,7 +835,8 @@ export class ComposeView {
       <button class="cp-tplay${on ? ' on' : ''}" data-a="play" title="${on ? 'Pause' : 'Écouter (Espace)'}" aria-label="${on ? 'Pause' : 'Écouter'}">${icon(on ? 'pause' : 'play')}</button>
       <button class="cp-tbtn" data-a="t-stop" title="Arrêter" aria-label="Arrêter"><i class="cp-sq"></i></button>
       <button class="cp-tbtn${loop ? ' on' : ''}" data-a="t-loop" title="Boucle ${loop ? 'activée' : 'désactivée'}" aria-label="Boucle">${icon('loop')}</button>
-      <label class="cp-tscope" title="Ce qui est joué"><select data-f="scope"><option value="">Tout le morceau</option>${c.sections.map((x, i) => `<option value="${i}" ${this.scopeSi === i ? 'selected' : ''}>${esc(x.label)}</option>`).join('')}</select></label>
+      ${range ? `<span class="cp-tsel" title="Seules les mesures sélectionnées sont jouées">Sélection · ${range} mesures<button data-a="unsel" aria-label="Tout rejouer">✕</button></span>` : ''}
+      <label class="cp-tscope${range ? ' off' : ''}" title="Ce qui est joué"><select data-f="scope"><option value="">Tout le morceau</option>${c.sections.map((x, i) => `<option value="${i}" ${this.scopeSi === i ? 'selected' : ''}>${esc(x.label)}</option>`).join('')}</select></label>
       <div class="cp-prog" data-a="seek" title="Aller à…"><i data-r="tbar"></i><b data-r="tknob"></b></div>
       <span class="cp-tsep"></span>
       <label class="cp-tbpm" title="Tempo">♩<input type="number" min="40" max="240" data-f="bpm" value="${c.bpm}"></label>
@@ -842,18 +862,20 @@ export class ComposeView {
   }
 
   seekTo(frac) {
-    const ev = this.events(this.scopeSi ?? null);
+    const { ev } = this.playSet();
     if (!ev.length) return;
     const tot = Math.max(...ev.map((e) => e.beat0 + e.dur)), target = frac * tot;
     let i = 0; ev.forEach((e, k) => { if (e.beat0 <= target + 1e-6) i = k; });
     if (this.player.on) this.player.stop();
-    this.play(this.scopeSi ?? null, i);
+    this.play(null, i);
   }
 
   restartIfPlaying() {
     if (!this.player.on) return;
-    const only = this._only ?? null;
-    this.player.stop(); this.play(only);
+    const only = this._only ?? null, pos = this._posBeat || 0;
+    const ev = only != null ? this.events(only) : this.playSet().ev;
+    let i = 0; ev.forEach((e, k) => { if (e.beat0 <= pos + 1e-6) i = k; });
+    this.player.stop(); this.play(only, i);
   }
 
   /** Change d'onglet de travail : Composition, Improvisation, Clavier MIDI, Micro. */
@@ -931,8 +953,8 @@ export class ComposeView {
         { icon: 'edit', label: 'Dupliquer la composition', action: async () => { const x = JSON.parse(JSON.stringify(c)); x.id = uid(); x.name += ' (copie)'; this.list.unshift(x); await db.set('compos', this.list); this.app.go(`#/compo/${x.id}`); } },
       ]); break;
       case 'inst': this._soundReady = false; c.instrument = v; if (c.sound !== 'synth') c.sound = undefined; this.changed(); break;
-      case 'play': this.play(this.player.on ? null : (this.scopeSi ?? null)); break;
-      case 't-start': if (this.player.on) { this.player.stop(); this.play(this.scopeSi ?? null, 0); } else { this._posBeat = 0; this.tickTransport(); } break;
+      case 'play': this.play(); break;
+      case 't-start': if (this.player.on) { this.player.stop(); this.play(null, 0); } else { this._posBeat = 0; this.tickTransport(); } break;
       case 't-stop': this.player.stop(); this.playing = null; this._posBeat = 0; this.render(); break;
       case 't-loop': c.loop = c.loop === false; this.save(); this.render(); this.restartIfPlaying(); break;
       case 'seek': { const r = t.getBoundingClientRect(); this.seekTo(Math.max(0, Math.min(1, (e.clientX - r.left) / r.width))); break; }
@@ -1011,16 +1033,7 @@ export class ComposeView {
         this.sel = { si: last.si, bi: last.bi + 1, h: 0 };
         this.save(); this.render(); break;
       }
-      case 'hear-rng': {
-        if (this.player.on) this.player.stop();
-        const keys = new Set(this.rangeBars().map(({ si, bi }) => `${si}.${bi}`));
-        const ev = this.events().filter((x) => keys.has(x.key));
-        if (!ev.length) break;
-        const off = ev[0].barBeat0;
-        const evs = ev.map((x) => ({ ...x, beat0: x.beat0 - off, barBeat0: x.barBeat0 - off }));
-        this.player.start(evs, { bpm: c.bpm, style: c.style, instrument: c.instrument, drums: true, pattern: c.pattern || '', drumStyle: c.drumStyle ?? '', loop: false, onPos: (i) => { this.el.querySelectorAll('.cp-bar.cp-now').forEach((x) => x.classList.remove('cp-now')); if (i >= 0) { const [si, bi] = evs[i].key.split('.'); this.el.querySelector(`.cp-bar[data-si="${si}"][data-bi="${bi}"]`)?.classList.add('cp-now'); } } });
-        break;
-      }
+      case 'hear-rng': if (this.player.on) this.player.stop(); this.play(null, 0); break;
       case 'root': this.root = v; this.render(); break;
       case 'qual': { const r = this.root || parseChord(this.c.sections[this.sel.si].bars[this.sel.bi].c[this.sel.h])?.rootName || 'C'; this.setChord(r + v); break; }
       case 'use': this.setChord(v); break;
@@ -1085,7 +1098,7 @@ export class ComposeView {
     else if (f === 'sound') { this._soundReady = false; c.sound = e.target.value; this.applySound(); this.save(); if (c.sound !== 'synth') { toast('Chargement du son…'); prepareSounds(c.instrument).then((ok) => { if (!ok) toast('Son réaliste indisponible (pas de connexion ?) : synthé utilisé'); else playChord('C', c.instrument); this.restartIfPlaying(); }); } else this.restartIfPlaying(); }
     else if (f === 'instsound') { const [ins, snd] = e.target.value.split('|'); this._soundReady = false; c.instrument = ins; c.sound = snd; this.applySound(); this.save(); this.render(); if (snd !== 'synth') prepareSounds(ins).then((ok) => { if (ok) playChord('C', ins); this.restartIfPlaying(); }); else this.restartIfPlaying(); }
     else if (f === 'rep') { const sct = c.sections[+e.target.dataset.si]; this.snap(); sct.repeat = +e.target.value; this.save(); this.render(); }
-    else if (f === 'scope') { this.scopeSi = e.target.value === '' ? null : +e.target.value; this.render(); if (this.player.on) { this.player.stop(); this.play(this.scopeSi); } }
+    else if (f === 'scope') { this.scopeSi = e.target.value === '' ? null : +e.target.value; this.render(); if (this.player.on) { this.player.stop(); this.play(null, 0); } }
     else if (f === 'midisound') { try { localStorage.setItem('mm-midi-sound', e.target.value); } catch { /* */ } allNotesOff(); const lt = this.liveTone(); if (lt) prepareLive(lt); }
     else if (f === 'vol') { setVolume(+e.target.value); try { localStorage.setItem('mm-compo-vol', e.target.value); } catch { /* */ } }
     else if (f === 'cols') { c.cols = +e.target.value; this.save(); this.render(); }
