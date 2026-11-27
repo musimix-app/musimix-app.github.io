@@ -292,7 +292,8 @@ export function loadBank(name, kind) {
   const bank = { buf: new Map() };
   bank.ready = (async () => {
     const txt = await (await fetch(`${SF_URL}${name}-mp3.js`)).text();
-    const i = txt.indexOf('{'), j = txt.lastIndexOf('}');
+    const m0 = /Soundfont\.\w+\s*=\s*\{/.exec(txt);
+    const i = m0 ? m0.index + m0[0].length - 1 : txt.indexOf('{'), j = txt.lastIndexOf('}');
     const data = JSON.parse(txt.slice(i, j + 1).replace(/,\s*}$/, '}'));
     const c = audio(), [lo, hi] = RANGE[kind] || [30, 90];
     const jobs = [];
