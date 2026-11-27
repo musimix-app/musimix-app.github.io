@@ -153,7 +153,7 @@ export class PlayerView {
           <div class="sc-lyrics" hidden aria-live="off"><div class="hud" data-r="hud"></div><div class="scl-body"></div><div class="sc-grip" title="Glisser vers le bas pour agrandir, vers le haut pour réduire" role="separator" aria-orientation="horizontal" aria-label="Taille du bandeau"></div></div>
           <div class="score-host"></div>
         </div>
-        <div class="fs-chords" aria-live="off"><span class="fs-now" data-r="now"></span><span class="fs-next" data-r="next"></span></div>
+        <div class="fs-chords" aria-live="off"><span class="fs-now" data-r="now"></span><span class="fs-dg" data-r="fs-dg"></span><span class="fs-next" data-r="next"></span></div>
         <div class="fs-hint">Toucher l’écran : lecture / pause · Pédale : partie suivante · Double-toucher ou Échap : quitter</div>
         <button class="btn small follow-btn" data-act="follow" hidden>${icon('sync')} Suivre la lecture</button>
         <div class="countdown" hidden></div>
@@ -1129,7 +1129,8 @@ export class PlayerView {
     const dg = this.el.querySelector('[data-r="diagram"]');
     const fm = this.el.querySelector('[data-r="formula"]');
     const mini = this.el.querySelector('[data-r="mini"]');
-    if (!shown) { dg.innerHTML = ''; fm.textContent = ''; mini.innerHTML = ''; return; }
+    const fsd = this.el.querySelector('[data-r="fs-dg"]');
+    if (!shown) { dg.innerHTML = ''; fm.textContent = ''; mini.innerHTML = ''; if (fsd) fsd.innerHTML = ''; return; }
     const idx = this.voicingIdx[shown] || 0;
     const nv = this.instrument === 'piano' ? 0 : voicings(shown, this.instrument).length;
     const main = diagramSVG(shown, this.instrument, { index: idx });
@@ -1138,6 +1139,7 @@ export class PlayerView {
     const f = chordFormula(shown);
     fm.textContent = f ? f.notes.join(' · ') + (f.bass ? ` / basse ${f.bass}` : '') : '';
     mini.innerHTML = diagramSVG(shown, this.instrument, { index: idx });
+    if (fsd) fsd.innerHTML = main;
   }
 
   /** Va au début d'un accord : juste après son temps, pour que ce soit bien lui qui s'affiche

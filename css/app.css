@@ -982,3 +982,9 @@ dialog.diag-dlg { width: min(560px, calc(100vw - 20px)); }
 .sc-grip::after { top: 6px; }
 body.noselect, body.noselect * { user-select: none !important; -webkit-user-select: none !important; }
 .player.fullstage .stage-hud { display: none !important; }
+.fs-dg { display: none; }
+.player.fullstage .fs-chords { align-items: center; }
+.player.fullstage .fs-dg { display: block; align-self: center; }
+.player.fullstage .fs-dg svg { width: clamp(90px, 10vw, 170px); height: auto; display: block; }
+.player.fullstage .fs-dg svg.piano { width: clamp(160px, 20vw, 320px); }
+.player.fullstage .rail-open { display: none !important; }
