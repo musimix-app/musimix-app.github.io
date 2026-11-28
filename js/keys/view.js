@@ -484,7 +484,7 @@ export function mountKeys(root, { soundsBase = 'sounds/' } = {}) {
   midi.skipSurface = true; // le Zoom R20 (surface de contrôle) ne joue pas de notes ici
   midi.addEventListener('noteon', (e) => keyDown(e.detail.note, e.detail.vel, e.detail.ts));
   midi.addEventListener('noteoff', (e) => keyUp(e.detail.note));
-  midi.addEventListener('sustain', (e) => synth?.setSustain(e.detail.down));
+  midi.addEventListener('sustain', (e) => { synth?.setSustain(e.detail.down); el.midiPill.classList.toggle('ped-on', e.detail.down); });
   midi.addEventListener('devices', midiStatus);
   function midiStatus() {
     const d = midi.devices;

@@ -160,6 +160,7 @@ export class KeysSynth {
   // ─────────────────────────────────────────────── touches jouées en direct ──
   liveOn(pitch, vel) {
     this.liveOff(pitch, true);
+    this.sustained.delete(pitch); // touche refrappée et tenue : le relâchement de la pédale ne doit pas la couper
     const when = this.ctx.currentTime; // tout de suite : pas de retard ajouté
     const I = this.bank.get(this.liveInst);
     const v = I?.zones.length ? I.noteOn(this.ctx, this.liveBus, pitch, vel, when) : this._tone(pitch, vel, when, 30, 0, this.liveBus);

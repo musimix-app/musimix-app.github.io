@@ -378,6 +378,8 @@ details.adv summary::after{content:'+';font-size:20px;color:var(--ink-3)}details
 .seg .alt{display:none}
 @media (max-width:1000px){.seg .pre{display:none}.seg .alt{display:inline}.seg button{padding-inline:8px}.seg{width:290px}}
 @media (max-width:900px) and (min-width:641px){#time{display:none}}
+#midi-pill .ped{display:none;margin-left:8px;padding:2px 7px;border-radius:99px;font-size:11px;font-weight:800;letter-spacing:.02em;color:#1a1208;background:#ffd98a;box-shadow:0 0 12px rgba(255,200,90,.6)}
+#midi-pill.ped-on .ped{display:inline-block}
 </style>
 </head>
 <body>
@@ -387,7 +389,7 @@ details.adv summary::after{content:'+';font-size:20px;color:var(--ink-3)}details
     <div class="song"><b id="song-title">Aucun morceau</b><small id="song-artist">Dépose un MIDI, un pack MusiMix ou une grille</small></div>
     <div class="tools">
       <span class="pill" id="sound-pill" data-state="idle">Sons</span>
-      <button class="pill" id="midi-pill" data-state="off" title="Activer le clavier MIDI"><span>Clavier MIDI</span></button>
+      <button class="pill" id="midi-pill" data-state="off" title="Activer le clavier MIDI"><span>Clavier MIDI</span><b class="ped" title="Pédale de sustain enfoncée">Péd.</b></button>
       <button class="pill school-btn" id="btn-school" title="Parcours, bibliothèque et formation musicale"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"><path d="M2 9l10-5 10 5-10 5z"/><path d="M6 11v5c0 1.5 2.7 3 6 3s6-1.5 6-3v-5"/></svg><span>École</span></button>
       <button class="ib" id="btn-open" title="Ouvrir un morceau" aria-label="Ouvrir un morceau"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><path d="M12 11v6M9 14l3-3 3 3"/></svg></button>
       <button class="ib" data-open="mix" title="Pistes et mixage" aria-label="Pistes et mixage"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M6 4v16M12 4v16M18 4v16"/><rect x="3.5" y="13" width="5" height="3" rx="1.5" fill="currentColor"/><rect x="9.5" y="7" width="5" height="3" rx="1.5" fill="currentColor"/><rect x="15.5" y="10" width="5" height="3" rx="1.5" fill="currentColor"/></svg></button>
