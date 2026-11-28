@@ -23,6 +23,7 @@ export class LibraryView {
         <button class="studio-pill" data-act="studio"><i></i><span>Studio</span></button>
         <button class="icon-btn" data-act="compo" aria-label="Composer" title="Composer (grille d’accords avec suggestions)">${icon('sparkle')}</button>
         <button class="icon-btn" data-act="setlists" aria-label="Setlists" title="Setlists">${icon('list')}</button>
+        <a class="icon-btn" href="piano.html" aria-label="Piano : parcours, bibliothèque, formation musicale" title="Piano : parcours, bibliothèque, formation musicale">${icon('piano')}</a>
         <button class="icon-btn" data-act="tuner" aria-label="Accordeur" title="Accordeur">${icon('tuner')}</button>
         <button class="icon-btn" data-act="settings" aria-label="Réglages" title="Réglages">${icon('settings')}</button>
       </header>

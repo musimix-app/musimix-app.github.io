@@ -87,31 +87,34 @@ function interpret({ division, tracks }) {
     const programs = {};
     const open = {};
     const notes = [];
+    const pedal = []; // pédale de sustain (CC 64)
+    let seq = 0; // ordre des notes dans le fichier (repères .synthesia)
     for (const ev of events) {
       if (ev.meta === 0x03 && !name) name = text(ev.bytes).trim();
       else if (ev.meta === 0x05) out.lyrics.push({ t: toSec(ev.tick), text: text(ev.bytes), track: ti });
       else if (ev.meta === 0x01) out.texts.push({ t: toSec(ev.tick), text: text(ev.bytes), track: ti });
       else if (ev.type === 0xc) programs[ev.ch] = programs[ev.ch] ?? ev.a;
+      else if (ev.type === 0xb && ev.a === 64) pedal.push({ t: toSec(ev.tick), down: ev.v >= 64, ch: ev.ch });
       else if (ev.type === 0x9 && ev.v > 0) {
-        (open[ev.ch * 128 + ev.a] ||= []).push({ tick: ev.tick, vel: ev.v });
+        (open[ev.ch * 128 + ev.a] ||= []).push({ tick: ev.tick, vel: ev.v, seq: seq++ });
       } else if (ev.type === 0x8 || (ev.type === 0x9 && ev.v === 0)) {
         const st = open[ev.ch * 128 + ev.a]?.shift();
         if (st) {
           const t = toSec(st.tick), e = toSec(ev.tick);
-          notes.push({ t, d: Math.max(0.02, e - t), pitch: ev.a, vel: st.vel / 127, ch: ev.ch, program: programs[ev.ch] ?? 0 });
+          notes.push({ t, d: Math.max(0.02, e - t), pitch: ev.a, vel: st.vel / 127, ch: ev.ch, program: programs[ev.ch] ?? 0, seq: st.seq });
         }
       }
     }
     if (notes.length) {
       notes.sort((a, b) => a.t - b.t);
-      out.tracks.push({ index: ti, name, notes, channels: [...new Set(notes.map((n) => n.ch))] });
+      out.tracks.push({ index: ti, name, notes, pedal, channels: [...new Set(notes.map((n) => n.ch))] });
       out.duration = Math.max(out.duration, ...notes.slice(-50).map((n) => n.t + n.d));
     }
   });
   // morceau en piste unique (format 0) : on sépare par canal
   if (out.tracks.length === 1 && out.tracks[0].channels.length > 1) {
     const tr = out.tracks[0];
-    out.tracks = tr.channels.map((ch) => ({ index: tr.index, name: '', notes: tr.notes.filter((n) => n.ch === ch), channels: [ch] }));
+    out.tracks = tr.channels.map((ch) => ({ index: tr.index, name: '', notes: tr.notes.filter((n) => n.ch === ch), pedal: (tr.pedal || []).filter((p) => p.ch === ch), channels: [ch] }));
   }
   const bpm = 60e6 / (tmap.find((t) => t.tick > 0 || tmap.length === 1)?.us || tmap[0].us);
   out.bpm = Math.round(60e6 / tmap[tmap.length > 1 && tmap[0].tick === 0 && tmap[1].tick === 0 ? 1 : 0].us * 10) / 10 || Math.round(bpm);

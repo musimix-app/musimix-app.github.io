@@ -2,6 +2,7 @@
 // et son (accords joués à la guitare ou au piano, grille jouée en boucle avec un rythme du style choisi).
 import { parseChord, guessKeyFromChords, spelling, FLAT, SHARP } from './theory.js';
 import { voicings, customVoicing, pianoNotes } from './diagrams.js';
+import { sharedBank } from './keys/sounds.js';
 
 const mod = (n) => ((n % 12) + 12) % 12;
 
@@ -272,70 +273,43 @@ export function chordMidi(nm, instrument = 'guitar', vIdx = 0, { frets = null, n
 
 const hz = (m) => 440 * Math.pow(2, (m - 69) / 12);
 
-// ─────────────────────────────── sons réalistes (échantillons FluidR3 GM, CC BY 3.0) ──
-const SF_URL = 'https://gleitz.github.io/midi-js-soundfonts/FluidR3_GM/';
+// ───────────────── sons réalistes : banque MusiMix (js/keys/sounds.js, assets/sounds/) ──
+// Piano à queue Salamander (Yamaha C5, 8 nuances), guitares Iowa / Karoryfer, etc.
 export const SOUNDS = {
-  guitar: [['acoustic_guitar_steel', 'Guitare folk (cordes acier)'], ['acoustic_guitar_nylon', 'Guitare classique (nylon)'], ['electric_guitar_clean', 'Guitare électrique (clean)'], ['electric_guitar_jazz', 'Guitare jazz'], ['overdriven_guitar', 'Guitare saturée']],
-  piano: [['acoustic_grand_piano', 'Piano à queue'], ['bright_acoustic_piano', 'Piano brillant'], ['electric_piano_1', 'Piano électrique (Rhodes)'], ['electric_piano_2', 'Piano électrique (FM)'], ['rock_organ', 'Orgue']],
+  guitar: [['steel', 'Guitare folk (cordes acier)'], ['nylon', 'Guitare classique (nylon)'], ['eguitar', 'Guitare électrique (clean)'], ['distguitar', 'Guitare saturée'], ['harp', 'Harpe']],
+  piano: [['grand', 'Piano à queue (Yamaha C5)'], ['epiano', 'Piano électrique (Rhodes)'], ['dx', 'Piano électrique (FM)'], ['organ', 'Orgue Hammond'], ['church', 'Grand orgue'], ['harpsichord', 'Clavecin'], ['strings', 'Cordes'], ['pad', 'Nappe synthé']],
 };
-const SOUND = { real: true, guitar: 'acoustic_guitar_steel', piano: 'acoustic_grand_piano', bass: 'acoustic_bass' };
-const BANKS = new Map(); // nom → { buf: Map(midi → AudioBuffer), ready: Promise }
-const NOTE_NAMES = ['C', 'Db', 'D', 'Eb', 'E', 'F', 'Gb', 'G', 'Ab', 'A', 'Bb', 'B'];
-const RANGE = { guitar: [36, 90], piano: [21, 108], bass: [26, 62] };
+const SOUND = { real: true, guitar: 'steel', piano: 'grand', bass: 'ebass' };
 
 export function setSounds(o) { Object.assign(SOUND, o); }
 export function soundsReal() { return SOUND.real; }
 
 function bankFor(tone) { return tone === 'piano' ? SOUND.piano : tone === 'bass' ? SOUND.bass : SOUND.guitar; }
 
-/** Charge (une fois) et décode les notes utiles d'un instrument échantillonné. */
-export function loadBank(name, kind) {
-  if (BANKS.has(name)) return BANKS.get(name).ready;
-  const bank = { buf: new Map() };
-  bank.ready = (async () => {
-    const txt = await (await fetch(`${SF_URL}${name}-mp3.js`)).text();
-    const m0 = /Soundfont\.\w+\s*=\s*\{/.exec(txt);
-    const i = m0 ? m0.index + m0[0].length - 1 : txt.indexOf('{'), j = txt.lastIndexOf('}');
-    const data = JSON.parse(txt.slice(i, j + 1).replace(/,\s*}$/, '}'));
-    const c = audio(), [lo, hi] = RANGE[kind] || [30, 90];
-    const jobs = [];
-    for (let m = lo; m <= hi; m++) {
-      const uri = data[NOTE_NAMES[m % 12] + (Math.floor(m / 12) - 1)];
-      if (!uri) continue;
-      const b64 = uri.slice(uri.indexOf(',') + 1), bin = atob(b64), u8 = new Uint8Array(bin.length);
-      for (let k = 0; k < bin.length; k++) u8[k] = bin.charCodeAt(k);
-      jobs.push(c.decodeAudioData(u8.buffer).then((ab) => bank.buf.set(m, ab)).catch(() => {}));
-    }
-    await Promise.all(jobs);
-    return bank;
-  })().catch((e) => { BANKS.delete(name); throw e; });
-  BANKS.set(name, bank);
-  return bank.ready;
+/** Charge (une fois) un instrument de la banque. */
+export async function loadBank(name) {
+  const inst = await sharedBank().load(name);
+  if (!inst?.zones.length) throw new Error('Son indisponible : ' + name);
+  return inst;
 }
 
 /** Prépare les sons réalistes de l'instrument (et de la basse) avant de jouer. Renvoie false si indisponibles. */
 export async function prepareSounds(instrument) {
   if (!SOUND.real) return false;
   try {
-    await Promise.all([loadBank(bankFor(instrument === 'piano' ? 'piano' : 'guitar'), instrument === 'piano' ? 'piano' : 'guitar'), loadBank(SOUND.bass, 'bass')]);
+    await Promise.all([loadBank(bankFor(instrument === 'piano' ? 'piano' : 'guitar')), loadBank(SOUND.bass), loadBank('drums').catch(() => null)]);
     return true;
   } catch { return false; }
 }
 
 function sample(t, midi, { dur, vel, tone, out }) {
   if (!SOUND.real) return false;
-  const bank = BANKS.get(bankFor(tone));
-  const ab = bank?.buf.get(midi);
-  if (!ab) return false;
-  const c = audio(), src = c.createBufferSource(), g = c.createGain();
-  src.buffer = ab;
-  const v = Math.min(1, vel * (tone === 'bass' ? 1.6 : tone === 'piano' ? 1.5 : 1.7));
-  g.gain.setValueAtTime(v, t);
-  const end = t + Math.min(dur, ab.duration);
-  g.gain.setValueAtTime(v, Math.max(t, end - 0.02));
-  g.gain.exponentialRampToValueAtTime(0.0001, end + 0.18);
-  src.connect(g).connect(out);
-  src.start(t); src.stop(end + 0.25);
+  const inst = sharedBank().get(bankFor(tone));
+  if (!inst?.zones.length) return false;
+  const c = audio();
+  const v = inst.noteOn(c, out, midi, Math.min(1, vel * (tone === 'bass' ? 1.5 : 1.35)), t);
+  if (!v) return false;
+  inst.noteOff(c, v, t + dur, out);
   return true;
 }
 
@@ -364,8 +338,12 @@ function pluck(t, midi, { dur = 1.6, vel = 0.5, tone = 'guitar', out = master })
   o1.start(t); o2.start(t); o1.stop(t + dur + 0.05); o2.stop(t + dur + 0.05);
 }
 
+const DRUM_NOTE = { kick: 36, snare: 38, rim: 37, hat: 42, open: 46, ride: 42 };
 function drum(t, kind, vel = 0.6) {
   const c = audio();
+  // batterie échantillonnée (banque MusiMix) si elle est chargée
+  const kit = SOUND.real ? sharedBank().get('drums') : null;
+  if (kit?.zones.length && DRUM_NOTE[kind]) { if (kit.noteOn(c, master, DRUM_NOTE[kind], Math.min(1, vel * (kind === 'ride' || kind === 'hat' ? 0.7 : 1.1)), t)) return; }
   if (kind === 'kick') {
     const o = c.createOscillator(), g = c.createGain();
     o.frequency.setValueAtTime(120, t); o.frequency.exponentialRampToValueAtTime(45, t + 0.12);
@@ -386,25 +364,18 @@ function drum(t, kind, vel = 0.6) {
 const LIVE = new Map(); // note → voix
 let liveSustain = false;
 const liveHeldBySustain = new Set();
-function nearestSample(bank, m) {
-  if (!bank) return null;
-  if (bank.buf.has(m)) return [bank.buf.get(m), 1];
-  for (let d = 1; d <= 12; d++) for (const n of [m - d, m + d]) if (bank.buf.has(n)) return [bank.buf.get(n), 2 ** ((m - n) / 12)];
-  return null;
-}
 /** Enfonce une note (tone : 'piano' ou 'guitar'). */
 export function noteOn(m, vel = 0.7, tone = 'piano') {
   const c = audio();
   noteRelease(m, true);
   liveHeldBySustain.delete(m);
   const t = c.currentTime, g = c.createGain(), v = Math.max(0.05, Math.min(1, vel)) ** 1.3;
-  const smp = SOUND.real ? nearestSample(BANKS.get(bankFor(tone)), m) : null;
+  const inst = SOUND.real ? sharedBank().get(bankFor(tone)) : null;
   let srcs;
-  if (smp) {
-    const src = c.createBufferSource(); src.buffer = smp[0]; src.playbackRate.value = smp[1];
-    g.gain.setValueAtTime(v * (tone === 'piano' ? 1.4 : 1.6), t);
-    src.connect(g).connect(master); src.start(t);
-    srcs = [src];
+  if (inst?.zones.length) {
+    const voice = inst.noteOn(c, master, m, Math.min(1, vel), t);
+    LIVE.set(m, { inst, voice });
+    return;
   } else {
     const f = c.createBiquadFilter(), o1 = c.createOscillator(), o2 = c.createOscillator();
     f.type = 'lowpass'; f.frequency.setValueAtTime(hz(m) * 8, t); f.frequency.exponentialRampToValueAtTime(Math.max(400, hz(m) * 2.5), t + 1.2);
@@ -419,6 +390,7 @@ function noteRelease(m, fast = false) {
   const v = LIVE.get(m); if (!v) return;
   LIVE.delete(m);
   const c = audio(), t = c.currentTime, r = fast ? 0.03 : 0.28;
+  if (v.inst) { if (fast) { try { v.voice.g.gain.setTargetAtTime(0, t, 0.01); v.voice.src.stop(t + 0.05); } catch { /* */ } } else v.inst.noteOff(c, v.voice, t, master); return; }
   v.g.gain.cancelScheduledValues(t); v.g.gain.setValueAtTime(Math.max(0.0001, v.g.gain.value), t); v.g.gain.exponentialRampToValueAtTime(0.0001, t + r);
   v.srcs.forEach((s) => { try { s.stop(t + r + 0.02); } catch { /* déjà arrêtée */ } });
 }
@@ -432,7 +404,7 @@ export function allNotesOff() { [...LIVE.keys()].forEach((m) => noteRelease(m, t
 /** Prépare un son pour le jeu en direct. */
 export async function prepareLive(tone) {
   if (!SOUND.real) return false;
-  try { await loadBank(bankFor(tone), tone); return true; } catch { return false; }
+  try { await loadBank(bankFor(tone)); return true; } catch { return false; }
 }
 
 /** Joue un accord tout de suite (gratté). */

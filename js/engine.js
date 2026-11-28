@@ -26,7 +26,7 @@ export class Engine extends EventTarget {
   async ensureContext() {
     if (!this.ctx) {
       const AC = window.AudioContext || window.webkitAudioContext;
-      this.ctx = new AC({ latencyHint: 'playback' });
+      this.ctx = new AC({ latencyHint: this.latencyHint || 'playback' }); // MusiMix Piano : 'interactive' (jeu en direct)
       try { if (navigator.audioSession) navigator.audioSession.type = 'playback'; } catch { /* Safari seulement */ }
       this.masterGain = this.ctx.createGain();
       this.limiter = this.ctx.createDynamicsCompressor();

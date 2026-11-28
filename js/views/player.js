@@ -2347,6 +2347,7 @@ export class PlayerView {
       case 'menu':
         openMenu(b, [
           { icon: 'stage', label: 'Scène plein écran', action: () => this.enterFullStage() },
+          { icon: 'piano', label: 'Jouer au piano (notes qui tombent)', action: () => { location.href = `piano.html#song-${encodeURIComponent(this.song.id)}`; } },
           { icon: 'tuner', label: 'Accordeur', action: () => import('../tuner.js').then((m) => m.tunerDialog(this.app)) },
           { icon: 'edit', label: 'Modifier ici (accords, doigtés, texte)', action: () => { if (this.mode !== 'lyrics') this.setMode('lyrics'); this.editing.toggle(true); } },
           { icon: 'edit', label: 'Paroles et accords (éditeur)', action: () => this.app.go(`#/edit/${this.song.id}`) },

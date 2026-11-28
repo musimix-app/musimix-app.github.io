@@ -61,6 +61,7 @@ export const db = {
   async deleteSongRaw(id) {
     const song = await this.getSong(id);
     if (song) for (const st of song.stems || []) if (st.blobId) await this.deleteBlob(st.blobId);
+    if (song?.midi?.blobId) await this.deleteBlob(song.midi.blobId);
     return tx('songs', 'readwrite', (s) => req2p(s.delete(id)));
   },
   async putBlob(blob, id = uid()) { await tx('blobs', 'readwrite', (s) => req2p(s.put(blob, id))); return id; },

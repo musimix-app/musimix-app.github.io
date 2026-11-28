@@ -1,6 +1,6 @@
 // MusiMix — service worker : l'appli fonctionne hors ligne une fois ouverte.
 // Les morceaux sont stockés dans l'appareil (IndexedDB), pas dans ce cache.
-const VERSION = 'musimix-4.44.1';
+const VERSION = 'musimix-4.45.0';
 const SHELL = [
   './',
   'assets/fonts/Atkinson.ttf',
@@ -73,6 +73,19 @@ const SHELL = [
   'js/views/shared.js',
   'js/zip.js',
   'manifest.webmanifest',
+  'piano.html',
+  'js/piano-page.js',
+  'js/keys/drills.js',
+  'js/keys/lessons.js',
+  'js/keys/model.js',
+  'js/keys/practice.js',
+  'js/keys/roll.js',
+  'js/keys/school.js',
+  'js/keys/scores.js',
+  'js/keys/sounds.js',
+  'js/keys/synth.js',
+  'js/keys/synthesia.js',
+  'js/keys/view.js',
 ];
 
 self.addEventListener('install', (e) => {
@@ -92,12 +105,17 @@ self.addEventListener('fetch', (e) => {
     e.respondWith(caches.open('sounds').then((c) => c.match(req).then((hit) => hit || fetch(req).then((res) => { if (res.ok) c.put(req, res.clone()); return res; }))));
     return;
   }
+  // banque de sons MusiMix (piano à queue, guitares…) : gardée une fois téléchargée, même après une mise à jour
+  if (url.origin === location.origin && url.pathname.includes('/assets/sounds/')) {
+    e.respondWith(caches.open('sounds').then((c) => c.match(req).then((hit) => hit || fetch(req).then((res) => { if (res.ok) c.put(req, res.clone()); return res; }))));
+    return;
+  }
   if (url.hostname === 'cdn.jsdelivr.net' && url.pathname.includes('/@coderline/alphatab@')) {
     e.respondWith(caches.open('alphatab').then((c) => c.match(req).then((hit) => hit || fetch(req).then((res) => { if (res.ok) c.put(req, res.clone()); return res; }))));
     return;
   }
   if (url.origin !== location.origin) return;                 // Studio, LRCLIB : jamais en cache
-  if (/\.(mp3|wav|flac|m4a|ogg)$/i.test(url.pathname)) return; // audio de démo : réseau
+  if (/\.(mp3|wav|flac|m4a|ogg)$/i.test(url.pathname) && !url.pathname.includes('/assets/sounds/')) return; // audio de démo : réseau
   if (url.pathname.includes('/api/') || url.pathname.endsWith('/bridge')) return;
   // réseau d'abord (mises à jour immédiates), cache si hors ligne
   e.respondWith(

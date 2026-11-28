@@ -1,7 +1,37 @@
 // MusiMix — synthèse des fichiers MIDI : chaque famille d'instruments est rendue
 // en une piste audio (batterie, basse, guitare, piano, mélodie, autres) qu'on mixe ensuite.
 
+import { sharedBank, instrumentForProgram } from './keys/sounds.js';
+
 const SR = 22050;
+export const HQ_RATE = 48000;
+
+/**
+ * Rendu en qualité maximale avec la banque de sons MusiMix (piano à queue Salamander,
+ * guitares et orchestre réels…) : stéréo 48 kHz. Chaque note prend l'instrument de son
+ * programme General MIDI. Renvoie { channels: [L, R], rate } ou null si les sons manquent.
+ */
+export async function renderFamilyHQ(notes, family, duration) {
+  const bank = sharedBank();
+  const idOf = (n) => (family === 'drums' ? 'drums' : instrumentForProgram(n.program ?? 0));
+  const ids = [...new Set(notes.map(idOf))];
+  await Promise.all(ids.map((id) => bank.load(id).catch(() => null)));
+  if (!ids.every((id) => bank.ready(id))) return null;
+  const OAC = window.OfflineAudioContext || window.webkitOfflineAudioContext;
+  const ctx = new OAC(2, Math.ceil((duration + 3) * HQ_RATE), HQ_RATE);
+  const bus = ctx.createGain();
+  bus.gain.value = 0.8;
+  const comp = ctx.createDynamicsCompressor();
+  comp.threshold.value = -6; comp.knee.value = 6; comp.ratio.value = 6; comp.attack.value = 0.003; comp.release.value = 0.2;
+  bus.connect(comp).connect(ctx.destination);
+  for (const n of notes) {
+    const inst = bank.get(idOf(n));
+    const v = inst.noteOn(ctx, bus, n.pitch, n.vel ?? 0.7, n.t);
+    if (v && family !== 'drums') inst.noteOff(ctx, v, n.t + (n.ring || n.d), bus);
+  }
+  const buf = await ctx.startRendering();
+  return { channels: [buf.getChannelData(0), buf.getChannelData(1)], rate: HQ_RATE };
+}
 
 export async function renderFamily(notes, family, duration) {
   const OAC = window.OfflineAudioContext || window.webkitOfflineAudioContext;

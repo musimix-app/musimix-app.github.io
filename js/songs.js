@@ -4,7 +4,8 @@ import { db, uid } from './db.js';
 import { readZip, writeZip } from './zip.js';
 import { parseSheet, parseLRC, attachTimings, docFromSongJson, docToSongJson, toChordPro, toLRC, fillLineEnds, placeChords, looksLikeLRC } from './sheet.js';
 import { parseMidi, familyOf, karaokeLines, chordsFromNotes, keyNameOf } from './midi.js';
-import { renderFamily, SYNTH_RATE } from './synth.js';
+import { renderFamily, renderFamilyHQ, SYNTH_RATE } from './synth.js';
+import { encodeOpus, opusSupported } from './opus.js';
 import { encodeWav } from './wav.js';
 
 export const STEM_KINDS = {
@@ -342,31 +343,65 @@ export async function importMidi(file, onProgress = () => {}) {
   }
   const groups = {};
   for (const t of mid.tracks) (groups[families.get(t)] ||= []).push(...t.notes);
+  // pédale de sustain du fichier : la note sonne jusqu'au relâchement (rendu réaliste)
+  const pedByCh = {};
+  for (const t of mid.tracks) for (const p of t.pedal || []) (pedByCh[p.ch] ||= []).push(p);
+  for (const list of Object.values(pedByCh)) list.sort((a, b) => a.t - b.t);
+  for (const t of mid.tracks) for (const n of t.notes) {
+    const ps = pedByCh[n.ch];
+    if (!ps) continue;
+    let down = false, k = 0;
+    while (k < ps.length && ps[k].t <= n.t + n.d + 0.001) { down = ps[k].down; k++; }
+    if (!down) continue;
+    while (k < ps.length && ps[k].down) k++;
+    n.ring = Math.min(14, (ps[k]?.t ?? n.t + n.d + 4) - n.t);
+  }
   const order = ['vocals', 'drums', 'bass', 'guitar', 'piano', 'other'];
   const kinds = order.filter((k) => groups[k]?.length);
-  const rendered = [];
-  for (let i = 0; i < kinds.length; i++) {
-    const k = kinds[i];
-    onProgress(`Synthèse : ${STEM_KINDS[k].label.toLowerCase()}…`, 0.05 + 0.8 * (i / kinds.length));
-    rendered.push([k, await renderFamily(groups[k], k, mid.duration)]);
-  }
-  // même gain pour toutes les pistes (garde l'équilibre du fichier)
-  let peak = 0;
-  for (const [, d] of rendered) for (let i = 0; i < d.length; i += 7) peak = Math.max(peak, Math.abs(d[i]));
-  const gain = peak > 0 ? 0.89 / peak : 1;
   const song = newSong({ source: 'midi' });
   Object.assign(song, guessTitleArtist(file.name));
   song.duration = mid.duration + 1;
   song.bpm = mid.bpm;
   song.beats = mid.beats;
   song.downbeats = mid.downbeats;
-  onProgress('Paroles et accords…', 0.9);
-  for (const [k, d] of rendered) {
-    for (let i = 0; i < d.length; i++) d[i] *= gain;
+  // le fichier MIDI d'origine est gardé : la vue Piano (notes qui tombent) s'en sert
+  song.midi = { blobId: await db.putBlob(file), name: file.name };
+  // 1. sons réels de la banque MusiMix (stéréo 48 kHz, Opus 192 kb/s)
+  let hq = true;
+  for (let i = 0; i < kinds.length && hq; i++) {
+    const k = kinds[i];
+    onProgress(`Rendu (sons réels) : ${STEM_KINDS[k].label.toLowerCase()}…`, 0.05 + 0.8 * (i / kinds.length));
+    const r = await renderFamilyHQ(groups[k], k, mid.duration).catch(() => null);
+    if (!r) { hq = false; break; }
     const label = k === 'vocals' ? 'Mélodie' : STEM_KINDS[k].label;
-    await addStem(song, encodeWav([d], SYNTH_RATE, 16), `${label}.wav`, k);
+    let blob = null, ext = 'wav';
+    if (opusSupported()) { try { blob = await encodeOpus(r.channels, r.rate, { bitrate: 192000 }); ext = 'opus'; } catch { blob = null; } }
+    if (!blob) blob = encodeWav(r.channels, r.rate, 16);
+    await addStem(song, blob, `${label}.${ext}`, k);
     song.stems[song.stems.length - 1].label = label;
   }
+  // 2. repli : synthèse simple (sons indisponibles, hors ligne sans les sons…)
+  if (!hq) {
+    for (const st of song.stems) await db.deleteBlob(st.blobId);
+    song.stems = []; song.mix = {};
+    const rendered = [];
+    for (let i = 0; i < kinds.length; i++) {
+      const k = kinds[i];
+      onProgress(`Synthèse : ${STEM_KINDS[k].label.toLowerCase()}…`, 0.05 + 0.8 * (i / kinds.length));
+      rendered.push([k, await renderFamily(groups[k], k, mid.duration)]);
+    }
+    // même gain pour toutes les pistes (garde l'équilibre du fichier)
+    let peak = 0;
+    for (const [, d] of rendered) for (let i = 0; i < d.length; i += 7) peak = Math.max(peak, Math.abs(d[i]));
+    const gain = peak > 0 ? 0.89 / peak : 1;
+    for (const [k, d] of rendered) {
+      for (let i = 0; i < d.length; i++) d[i] *= gain;
+      const label = k === 'vocals' ? 'Mélodie' : STEM_KINDS[k].label;
+      await addStem(song, encodeWav([d], SYNTH_RATE, 16), `${label}.wav`, k);
+      song.stems[song.stems.length - 1].label = label;
+    }
+  }
+  onProgress('Paroles et accords…', 0.9);
   song.detectedChords = chordsFromNotes(mid, families);
   song.key = keyNameOf(mid, families);
   const lines = karaokeLines(mid);

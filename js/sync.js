@@ -15,7 +15,7 @@ import { db, dbEvents } from './db.js';
 // Identifiant client OAuth (Google Cloud → Identifiants). Peut aussi être collé dans Réglages.
 // Clé de lecture publique (restreinte à ce site et à l'API Drive) : lire un dossier partagé sans connexion.
 // fichiers d'un morceau à faire voyager : pistes audio + partition (Guitar Pro / MusicXML)
-const blobsOf = (s) => [...(s?.stems || []), ...(s?.score?.blobId ? [{ blobId: s.score.blobId, mime: s.score.mime }] : [])];
+const blobsOf = (s) => [...(s?.stems || []), ...(s?.score?.blobId ? [{ blobId: s.score.blobId, mime: s.score.mime }] : []), ...(s?.midi?.blobId ? [{ blobId: s.midi.blobId, mime: 'audio/midi' }] : [])];
 
 export const SHARE_API_KEY = 'AIzaSyDbsxDD9xwbEAi6WMmRBzEu4nWWuGbab80';
 
