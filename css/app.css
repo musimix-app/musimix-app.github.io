@@ -884,7 +884,7 @@ dialog.diag-dlg { width: min(560px, calc(100vw - 20px)); }
 .score-bar .seg button { padding: 5px 10px; font-size: 13px; }
 .sc-sync { display: inline-flex; gap: 6px; align-items: center; }
 .sc-status { flex: 1 1 100%; font-size: 12px; }
-.score-host { flex: 1; overflow: auto; background: #fff; color: #111; -webkit-overflow-scrolling: touch; }
+.score-host { flex: 1; position: relative; isolation: isolate; z-index: 0; overflow: auto; background: #fff; color: #111; -webkit-overflow-scrolling: touch; }
 .score-sheet { min-height: 100%; }
 .score-host .at-cursor-bar { background: color-mix(in srgb, var(--chord) 18%, transparent); }
 .score-host .at-cursor-beat { background: var(--chord); width: 3px; }
@@ -1634,3 +1634,6 @@ dialog.cal-d { width: min(560px, calc(100vw - 20px)); }
   .stage-hud .hud-dg svg { width: 48px; }
   .stage-hud .hud-dg svg.piano { width: 86px; }
 }
+/* curseur de partition (alphaTab, z-index 1000) : enfermé dans la partition, ne passe plus au-dessus des menus */
+.score-host .at-cursors { z-index: 2 !important; }
+.menu-bd { z-index: 1099; } .menu { z-index: 1100; }
