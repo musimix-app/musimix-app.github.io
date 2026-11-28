@@ -325,7 +325,7 @@ class App extends EventTarget {
         <textarea name="lrc" rows="2" placeholder="[00:12.34] première ligne…">${esc(pre.lrc || '')}</textarea></label>
       <div class="file-line"><button type="button" class="btn small ghost" data-pick="lrc">${icon('upload')} Ouvrir un .lrc</button><span class="note" data-r="lrc-f">${esc(pre.lrcName || '')}</span></div>
       <div class="opt-row"><span>Séparer les pistes<br><small class="note">voix, batterie, basse, guitare, piano, autres${already ? ' · déjà fait : refaire ?' : ''}</small></span><label class="switch"><input type="checkbox" name="separate" ${already ? '' : 'checked'}><i></i></label></div>
-      <div class="opt-row" data-r="qrow"><span>Qualité</span><span class="seg"><button type="button" data-q="best">Max</button><button type="button" data-q="fast">Rapide</button></span></div>
+      <div class="opt-row" data-r="qrow"><span>Qualité</span><span class="seg"><button type="button" data-q="fast">Rapide</button><button type="button" data-q="best">Max</button><button type="button" data-q="expert">Expert</button></span></div>
       <div class="callout" data-r="info">Vérification de la carte graphique…</div>
       <div class="opt-row"><span>Paroles synchronisées<br><small class="note">trouvées sur LRCLIB${song.doc?.lines?.some((l) => l.type === 'lyric') ? ' · tes paroles sont gardées, seul le minutage est ajouté' : ''}</small></span><label class="switch"><input type="checkbox" name="lyrics" checked><i></i></label></div>
       <div class="opt-row"><span>Caler mot à mot sur l’audio<br><small class="note">chaque mot posé sur la voix, chaque accord sur le bon mot (sans LRC si besoin)</small></span><label class="switch"><input type="checkbox" name="calibrate" checked><i></i></label></div>
@@ -344,8 +344,9 @@ class App extends EventTarget {
       if (!on) return;
       try {
         const m = await modelInfo(quality);
-        if (!m.usable) { box.innerHTML = '<b>Qualité max indisponible ici :</b> ce navigateur n’a pas accès à la carte graphique (WebGPU). Utilise Chrome sur le PC, ou le mode Rapide.'; return; }
-        box.innerHTML = `${QUALITIES[quality].label}. ${m.webgpu ? 'Carte graphique : <b>oui</b>' : 'Carte graphique : <b>non</b> (calcul sur le processeur, plus lent)'}. ${m.cached ? 'Modèle <b>déjà téléchargé</b>.' : `Premier usage : téléchargement du modèle, <b>${m.mb} Mo</b>, une seule fois.`}`;
+        if (!m.usable) { box.innerHTML = '<b>Qualité « Max » et « Expert » indisponibles ici :</b> ce navigateur n’a pas accès à la carte graphique (WebGPU). Utilise Chrome sur le PC, ou le mode Rapide.'; return; }
+        const time = quality === 'expert' ? ' <b>Très long</b> (5 à 10 fois « Max », parfois plus d’une heure) : pour les morceaux que tu travailles vraiment. Voix plus propre, moins d’artefacts, pistes en meilleure qualité.' : quality === 'fast' ? ' Le plus rapide, qualité correcte.' : '';
+        box.innerHTML = `${QUALITIES[quality].label}.${time} ${m.webgpu ? 'Carte graphique : <b>oui</b>' : 'Carte graphique : <b>non</b> (calcul sur le processeur, plus lent)'}. ${m.cached ? 'Modèle <b>déjà téléchargé</b>.' : `Premier usage : téléchargement du modèle, <b>${m.mb} Mo</b>, une seule fois.`}`;
       } catch (e) { box.textContent = 'Moteur de séparation indisponible : ' + e.message; }
     };
     f.separate.addEventListener('change', info);
