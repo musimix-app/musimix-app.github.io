@@ -320,7 +320,7 @@ export class PlayerView {
       }
     }
     // accords écrits dans la partition (calée) : prioritaires pour le temps ; on les relie aux accords du texte
-    if (!this.vdocFromScore && s.score?.chords?.length && s.score.useChords !== false) {
+    if (!this.vdocFromScore && !this.scoreChordsWeak && s.score?.chords?.length && s.score.useChords !== false) {
       const txt = this.timeline.filter((c) => c.t != null && c.li >= 0);
       const used = new Set();
       this.timeline = s.score.chords.map((c0) => {
@@ -1476,7 +1476,7 @@ export class PlayerView {
    */
   viewDoc(off) {
     const s = this.song, sc = s.score;
-    this.vdocFromScore = false;
+    this.vdocFromScore = false; this.scoreChordsWeak = false;
     if (!sc?.chords?.length || sc.useChords === false || this.editing?.on) return s.doc;
     const lines = s.doc.lines.map((l) => ({ ...l, chords: l.type === 'lyric' ? [] : l.chords }));
     const lyr = []; lines.forEach((l, i) => { if (l.type === 'lyric' && l.s != null) lyr.push(i); });
@@ -1498,6 +1498,12 @@ export class PlayerView {
       if (last && last.pos >= pos) { if (last.t + 0.25 > t) { last.name = c0.name; continue; } pos = Math.min(l.text.length, last.pos + 1); }
       ch.push({ pos, name: c0.name, t, fixed: true });
     }
+    // garde-fou : si la partition pose bien moins d'accords sur les paroles que le texte n'en a
+    // (partition sans grille, mal calée, ou seulement quelques accords), on garde les accords du texte
+    const nText = s.doc.lines.reduce((n, l) => n + (l.type === 'lyric' ? (l.chords?.length || 0) : 0), 0);
+    const nPlaced = L.reduce((n, i) => n + lines[i].chords.length, 0);
+    if (nText >= 4 && nPlaced < nText * 0.6) { this.scoreChordsWeak = true; return s.doc; }
+    this.scoreChordsWeak = false;
     // lignes d'accords entre les phrases (après le titre de partie s'il y en a un)
     [...gaps.keys()].sort((a, b) => b - a).forEach((k) => {
       const cs = gaps.get(k);
