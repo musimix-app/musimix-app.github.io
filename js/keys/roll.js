@@ -64,7 +64,7 @@ export class KeysRoll {
   }
 
   resize() {
-    const dpr = Math.min(2, window.devicePixelRatio || 1);
+    const dpr = Math.min(this.lite ? 1.25 : 2, window.devicePixelRatio || 1);
     const r = this.cv.getBoundingClientRect();
     this.W = Math.max(200, r.width); this.H = Math.max(200, r.height);
     this.dpr = dpr;
@@ -236,7 +236,7 @@ export class KeysRoll {
       ctx.fillRect(k.x - k.w * 0.15, this.hitY - bh, k.w * 1.3, bh);
       ctx.globalCompositeOperation = 'source-over';
       // étincelles continues
-      if (hand !== 'B' && Math.random() < 0.45) {
+      if (hand !== 'B' && Math.random() < (this.lite ? 0.15 : 0.45)) {
         this.particles.push({ x: k.x + Math.random() * k.w, y: this.hitY, vx: (Math.random() - 0.5) * 30, vy: -60 - Math.random() * 120, life: 0, max: 0.4 + Math.random() * 0.5, r: 0.8 + Math.random() * 1.6, col: pal.a });
       }
     }
@@ -247,9 +247,11 @@ export class KeysRoll {
       ctx.filter = 'blur(9px)';
       ctx.globalAlpha = 0.75;
       ctx.drawImage(this.glow, 0, 0, W, H);
-      ctx.filter = 'blur(26px)';
-      ctx.globalAlpha = 0.5;
-      ctx.drawImage(this.glow, 0, 0, W, H);
+      if (!this.lite) {
+        ctx.filter = 'blur(26px)';
+        ctx.globalAlpha = 0.5;
+        ctx.drawImage(this.glow, 0, 0, W, H);
+      }
       ctx.filter = 'none';
       ctx.globalAlpha = 1;
       ctx.globalCompositeOperation = 'source-over';

@@ -72,12 +72,12 @@ button{cursor:pointer;border:0;background:none}
 #chord-next{font-weight:600;color:var(--ink-3);font-size:15px}
 
 .hud{position:absolute;right:16px;top:14px;display:flex;align-items:center;gap:14px;padding:10px 14px 10px 10px;border-radius:20px;background:var(--glass);border:1px solid var(--line);backdrop-filter:blur(14px);pointer-events:none}
-.ring{position:relative;width:58px;height:58px}
+.ring{position:relative;width:62px;height:62px}
 .ring svg{width:100%;height:100%;transform:rotate(-90deg)}
 .ring circle{fill:none;stroke-width:3.4}
 .ring .bgc{stroke:rgba(255,255,255,.08)}
 #acc-ring{stroke:url(#gacc);stroke-linecap:round;stroke-dasharray:100;transition:stroke-dashoffset .5s var(--ease);filter:drop-shadow(0 0 4px rgba(93,240,160,.6))}
-#acc{position:absolute;inset:0;display:grid;place-items:center;font-weight:800;font-size:14px}
+#acc{position:absolute;inset:0;display:grid;place-items:center;font-weight:800;font-size:13px;letter-spacing:-.02em}
 .counts{display:grid;grid-template-columns:auto auto;gap:2px 10px;font-size:12.5px;color:var(--ink-2)}
 .counts b{font-size:15px;text-align:right;font-variant-numeric:tabular-nums}
 .counts .ok{color:var(--ok)}.counts .bad{color:var(--bad)}.counts .miss{color:#a3a9c4}
@@ -89,7 +89,7 @@ button{cursor:pointer;border:0;background:none}
 .pop.ok{color:var(--ok)}.pop.big{font-size:38px;color:var(--amber)}
 @keyframes pop{0%{transform:translate(-50%,12px) scale(.6);opacity:0}18%{transform:translate(-50%,0) scale(1.06);opacity:1}70%{opacity:1}100%{transform:translate(-50%,-34px) scale(1);opacity:0}}
 
-#wait-hint{position:absolute;left:50%;top:44%;transform:translate(-50%,-50%);padding:10px 18px;border-radius:99px;background:var(--glass);border:1px solid rgba(255,255,255,.14);font-weight:700;color:var(--ink);backdrop-filter:blur(10px);animation:breathe 1.6s ease-in-out infinite;pointer-events:none}
+#wait-hint{position:absolute;left:50%;top:16px;transform:translateX(-50%);z-index:2;padding:10px 18px;border-radius:99px;background:var(--glass);border:1px solid rgba(255,255,255,.14);font-weight:700;color:var(--ink);backdrop-filter:blur(10px);animation:breathe 1.6s ease-in-out infinite;pointer-events:none}
 @keyframes breathe{50%{box-shadow:0 0 0 8px rgba(63,211,220,.12);border-color:rgba(63,211,220,.5)}}
 
 /* paroles */
@@ -97,7 +97,7 @@ button{cursor:pointer;border:0;background:none}
   padding:10px 22px 8px;text-shadow:0 2px 14px rgba(0,0,0,.95),0 0 3px rgba(0,0,0,.9)}
 #lyrics.in .ly-cur{animation:rise .5s var(--ease)}
 @keyframes rise{from{transform:translateY(12px);opacity:0}}
-.ly-cur{font:700 clamp(20px,2.6vw,30px)/1.9 var(--ui);color:rgba(246,240,232,.5)}
+.ly-cur{font:700 clamp(20px,2.4vw,30px)/1.9 var(--ui);color:rgba(246,240,232,.5);white-space:nowrap;overflow:hidden}
 .ly-cur .w{position:relative;display:inline-block;background:linear-gradient(90deg,#fff 0,var(--pink) calc(var(--p,0)*100%),rgba(246,240,232,.55) calc(var(--p,0)*100%));-webkit-background-clip:text;background-clip:text;color:transparent;text-shadow:none;filter:drop-shadow(0 2px 6px rgba(0,0,0,.9));transition:transform .18s var(--ease)}
 .ly-cur .w.now{transform:translateY(-2px);filter:drop-shadow(0 0 10px rgba(255,98,182,.55))}
 .ly-cur .ch{position:absolute;left:0;bottom:78%;font:700 .56em/1 var(--ui);color:var(--amber);-webkit-text-fill-color:var(--amber);text-shadow:0 0 10px rgba(255,181,46,.5);white-space:nowrap}
@@ -288,7 +288,7 @@ select{height:38px;border-radius:10px;border:1px solid var(--line-2);background:
 .dr-title{flex:1}.dr-title small{display:block;color:var(--ink-3);font-size:12px;font-weight:700}.dr-title b{font:700 20px var(--display)}
 .dr-dots{display:flex;gap:5px}.dr-dots i{width:10px;height:10px;border-radius:50%;background:rgba(255,255,255,.12)}
 .dr-dots i.cur{background:var(--amber);box-shadow:0 0 10px var(--amber)}.dr-dots i.ok{background:var(--ok)}.dr-dots i.bad{background:var(--bad)}
-.dr-card{flex:1;display:flex;flex-direction:column;align-items:center;gap:14px;padding:22px 18px;border-radius:26px;background:linear-gradient(180deg,rgba(255,255,255,.05),rgba(255,255,255,.015));border:1px solid var(--line);overflow:auto;transition:box-shadow .3s,border-color .3s}
+.dr-card{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;padding:22px 18px;border-radius:26px;background:linear-gradient(180deg,rgba(255,255,255,.05),rgba(255,255,255,.015));border:1px solid var(--line);overflow:auto;transition:box-shadow .3s,border-color .3s}
 .dr-card.ok{border-color:rgba(93,240,160,.5);box-shadow:0 0 40px rgba(93,240,160,.12) inset}
 .dr-card.bad{border-color:rgba(255,84,104,.5);box-shadow:0 0 40px rgba(255,84,104,.12) inset;animation:shake .35s}
 @keyframes shake{25%{transform:translateX(-6px)}75%{transform:translateX(6px)}}
@@ -320,9 +320,45 @@ select{height:38px;border-radius:10px;border:1px solid var(--line-2);background:
 .lesson-res{color:var(--ink-2);margin:-6px 0 16px;font-size:14px}
 @media (max-width:760px){.hero2,.fm-intro{grid-template-columns:1fr}.fm-sugg{grid-template-columns:1fr}.lvl{grid-template-columns:36px minmax(0,1fr);gap:10px}.lvl-node{width:36px;height:36px;font-size:15px}.path::before{left:17px}.items{grid-template-columns:1fr}.lvl-head{flex-direction:column;gap:8px}.lvl-prog{align-items:flex-start}.school-btn span{display:none}}
 
+
+/* ── fenêtres surgissantes (vitesse, plus d'options) ── */
+.pop-wrap{position:relative}
+.popover{position:absolute;bottom:calc(100% + 12px);left:50%;transform:translateX(-50%);min-width:240px;padding:14px;border-radius:18px;background:rgba(22,24,36,.97);border:1px solid var(--line-2);box-shadow:0 20px 50px rgba(0,0,0,.55);backdrop-filter:blur(18px);z-index:12;display:flex;flex-direction:column;gap:10px;animation:popin .18s var(--ease)}
+.popover.right{left:auto;right:0;transform:none}
+@keyframes popin{from{opacity:0;transform:translate(-50%,6px)}}
+.popover.right{animation-name:popinr}@keyframes popinr{from{opacity:0;transform:translateY(6px)}}
+.popover b{font-size:13px;color:var(--ink-2)}
+.popover .chips{justify-content:space-between}.popover .chip{flex:1}
+.pop-item{display:flex;align-items:center;gap:10px;height:44px;padding:0 10px;border-radius:12px;font-weight:600;color:var(--ink);text-align:left;white-space:nowrap}
+.pop-item:hover{background:rgba(255,255,255,.06)}
+.pop-item svg{width:20px;height:20px;color:var(--ink-3);flex:none}
+.pop-item .sw{margin-left:auto;width:36px;height:20px;border-radius:20px;background:rgba(255,255,255,.14);position:relative;transition:.2s}
+.pop-item .sw::after{content:'';position:absolute;top:3px;left:3px;width:14px;height:14px;border-radius:50%;background:#fff;transition:.2s}
+.pop-item.on .sw{background:var(--cyan)}.pop-item.on .sw::after{left:19px}
+.pop-item.loop .ab{margin-left:auto;display:flex;gap:4px}
+.pop-item .ab .tg{height:32px;padding:0 12px}
+[data-pop][aria-expanded=true]{color:var(--amber);border-color:rgba(255,181,46,.45)}
+/* ── mixage compact ── */
+.trk-line{display:flex;align-items:center;gap:8px;margin-top:4px}
+.trk-line input[type=range]{flex:1}
+.trk-name{flex:1;display:flex;flex-direction:column;min-width:0}.trk-name b{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.trk-sub{font-size:12px;color:var(--ink-3);font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.trk-x{width:30px;height:28px;border-radius:8px;color:var(--ink-3);display:grid;place-items:center;transition:.2s}
+.trk-x svg{width:16px;height:16px;transition:transform .25s var(--ease)}
+.trk.open .trk-x svg{transform:rotate(180deg)}
+.trk-more{display:none;flex-direction:column;gap:6px;margin-top:8px;padding-top:8px;border-top:1px solid var(--line)}
+.trk.open .trk-more{display:flex}
+.trk-more label{display:grid;grid-template-columns:90px minmax(0,1fr);align-items:center;gap:8px;font-size:12.5px;color:var(--ink-3)}
+details.adv{margin-top:14px;border-top:1px solid var(--line);padding-top:6px}
+details.adv summary{cursor:pointer;list-style:none;display:flex;align-items:center;justify-content:space-between;height:40px;font-weight:700;color:var(--ink-2)}
+details.adv summary::-webkit-details-marker{display:none}
+details.adv summary::after{content:'+';font-size:20px;color:var(--ink-3)}details.adv[open] summary::after{content:'–'}
+
 /* ── petits écrans ── */
 @media (max-width:1100px){.seg{width:380px}}
-@media (max-width:860px){.speed input{width:80px}.hide-m{display:none!important}}
+@media (max-width:920px){.brand b{display:none}#midi-pill span{max-width:130px;overflow:hidden;text-overflow:ellipsis}}
+@media (max-width:860px){.speed input{width:90px}}
+@media (max-width:600px){.hide-m{display:none!important}}
 @media (max-width:640px){
   .top{gap:8px;padding-left:10px;padding-right:8px}.brand b{display:none}.song b{font-size:14px}
   .formats{display:none}.empty{align-items:start;overflow:auto;padding-top:28px}.hero p{font-size:15px}
@@ -330,6 +366,7 @@ select{height:38px;border-radius:10px;border:1px solid var(--line-2);background:
   #midi-pill{width:34px;padding:0;justify-content:center}#midi-pill span{display:none}
   #sound-pill{display:none}
   .brand img{width:30px;height:30px}
+  #btn-wait span{display:none}
   .ctrl{gap:8px}.seg{order:5;width:100%}.seg button{padding:0 4px;font-size:12.5px}
   .counts span{display:none}.counts{grid-template-columns:auto;gap:0;font-size:13px}.counts b{font-size:14px}
   .hud{right:8px;top:8px;padding:6px 10px 6px 6px;gap:8px}.ring{width:46px;height:46px}.counts{font-size:11.5px}
@@ -338,6 +375,9 @@ select{height:38px;border-radius:10px;border:1px solid var(--line-2);background:
   @keyframes sheet{from{transform:translateY(30px);opacity:0}}
 }
 @media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+.seg .alt{display:none}
+@media (max-width:1000px){.seg .pre{display:none}.seg .alt{display:inline}.seg button{padding-inline:8px}.seg{width:290px}}
+@media (max-width:900px) and (min-width:641px){#time{display:none}}
 </style>
 </head>
 <body>
@@ -351,7 +391,6 @@ select{height:38px;border-radius:10px;border:1px solid var(--line-2);background:
       <button class="pill school-btn" id="btn-school" title="Parcours, bibliothèque et formation musicale"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"><path d="M2 9l10-5 10 5-10 5z"/><path d="M6 11v5c0 1.5 2.7 3 6 3s6-1.5 6-3v-5"/></svg><span>École</span></button>
       <button class="ib" id="btn-open" title="Ouvrir un morceau" aria-label="Ouvrir un morceau"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><path d="M12 11v6M9 14l3-3 3 3"/></svg></button>
       <button class="ib" data-open="mix" title="Pistes et mixage" aria-label="Pistes et mixage"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M6 4v16M12 4v16M18 4v16"/><rect x="3.5" y="13" width="5" height="3" rx="1.5" fill="currentColor"/><rect x="9.5" y="7" width="5" height="3" rx="1.5" fill="currentColor"/><rect x="15.5" y="10" width="5" height="3" rx="1.5" fill="currentColor"/></svg></button>
-      <button class="ib" data-open="sounds" title="Sons" aria-label="Sons"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18V5l11-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="17" cy="16" r="3"/></svg></button>
       <button class="ib" data-open="settings" title="Réglages" aria-label="Réglages"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg></button>
     </div>
   </header>
@@ -391,16 +430,28 @@ select{height:38px;border-radius:10px;border:1px solid var(--line-2);background:
     <div class="ctrl">
       <button class="ib" id="btn-back" title="Revenir au début" aria-label="Revenir au début"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M6 5h2v14H6zM20 6v12l-10-6z"/></svg></button>
       <button id="btn-play" aria-label="Lecture / pause"><svg class="i-play" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5.5v13a1 1 0 0 0 1.5.86l10.5-6.5a1 1 0 0 0 0-1.72L9.5 4.64A1 1 0 0 0 8 5.5z"/></svg><svg class="i-pause" viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="5" width="4" height="14" rx="1.2"/><rect x="14" y="5" width="4" height="14" rx="1.2"/></svg></button>
-      <button class="ib" id="btn-rew" title="Reculer de 5 s" aria-label="Reculer de 5 secondes"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 3-6.7"/><path d="M3 4v5h5"/></svg></button>
       <span id="time">0:00 / 0:00</span>
       <div class="seg" id="modes" role="tablist" aria-label="Qui joue">
-        <button data-mode="listen">Écouter</button><button data-mode="R">Main droite</button><button data-mode="L">Main gauche</button><button data-mode="RL">Deux mains</button>
+        <button data-mode="listen">Écouter</button><button data-mode="R"><span class="pre">Main droite</span><span class="alt">Droite</span></button><button data-mode="L"><span class="pre">Main gauche</span><span class="alt">Gauche</span></button><button data-mode="RL"><span class="pre">Deux mains</span><span class="alt">2 mains</span></button>
       </div>
       <span class="grow"></span>
-      <button class="tg" id="btn-wait" title="La musique attend que tu joues la bonne note"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="13" r="8"/><path d="M12 9v4l2.5 2.5M9 2h6"/></svg>Attendre</button>
-      <button class="tg hide-m" id="btn-metro" title="Métronome"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="M9 3h6l4 18H5z"/><path d="M12 15l5-8"/></svg>Métronome</button>
-      <div class="ab hide-m"><button class="tg" id="btn-a" title="Début de boucle">A</button><button class="tg" id="btn-b" title="Fin de boucle">B</button></div>
-      <label class="speed"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 14l4-4"/><path d="M3.3 19a10 10 0 1 1 17.4 0"/></svg><input id="rate" type="range" min="40" max="150" step="5" value="100" aria-label="Vitesse"><span id="rate-val">100 %</span></label>
+      <button class="tg" id="btn-wait" title="La musique attend que tu joues la bonne note"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="13" r="8"/><path d="M12 9v4l2.5 2.5M9 2h6"/></svg><span>Attendre</span></button>
+      <div class="pop-wrap">
+        <button class="tg" data-pop="pop-speed" title="Vitesse" aria-expanded="false"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 14l4-4"/><path d="M3.3 19a10 10 0 1 1 17.4 0"/></svg><span id="rate-val">100 %</span></button>
+        <div class="popover" id="pop-speed" hidden>
+          <b>Vitesse</b>
+          <input id="rate" type="range" min="40" max="150" step="5" value="100" aria-label="Vitesse">
+          <div class="chips"><button class="chip" data-rate="50">50 %</button><button class="chip" data-rate="75">75 %</button><button class="chip" data-rate="100">100 %</button></div>
+        </div>
+      </div>
+      <div class="pop-wrap">
+        <button class="ib" data-pop="pop-more" title="Plus d’options" aria-label="Plus d’options" aria-expanded="false"><svg viewBox="0 0 24 24" fill="currentColor"><circle cx="5" cy="12" r="2"/><circle cx="12" cy="12" r="2"/><circle cx="19" cy="12" r="2"/></svg></button>
+        <div class="popover right" id="pop-more" hidden>
+          <button class="pop-item" id="btn-metro"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="M9 3h6l4 18H5z"/><path d="M12 15l5-8"/></svg>Métronome<i class="sw"></i></button>
+          <div class="pop-item loop"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M17 2l4 4-4 4"/><path d="M3 11V9a3 3 0 0 1 3-3h15M7 22l-4-4 4-4"/><path d="M21 13v2a3 3 0 0 1-3 3H3"/></svg>Boucle<span class="ab"><button class="tg" id="btn-a" title="Début de boucle">A</button><button class="tg" id="btn-b" title="Fin de boucle">B</button></span></div>
+          <button class="pop-item" id="btn-rew"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 3-6.7"/><path d="M3 4v5h5"/></svg>Reculer de 5 secondes</button>
+        </div>
+      </div>
     </div>
   </footer>
 </div>

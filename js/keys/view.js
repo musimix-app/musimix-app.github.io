@@ -20,7 +20,7 @@ const store = {
 
 const DEFAULTS = {
   mode: 'listen', wait: false, rate: 1, look: 3.2, labels: 'c', range: 'auto', tol: 'normal', latency: 0,
-  liveSound: true, noteNames: false, chordsMode: 'auto', liveInst: 'grand', liveVol: 0.9, hearMine: 0.35, metronome: false, metroVol: 0.5, velCurve: 'normal', master: 0.9,
+  liveSound: true, noteNames: false, chordsMode: 'auto', fx: 'auto', liveInst: 'grand', liveVol: 0.9, hearMine: 0.35, metronome: false, metroVol: 0.5, velCurve: 'normal', master: 0.9,
 };
 
 const STEM_COL = { vocals: '#ff62b6', backing: '#ff9bcf', drums: '#ffb52e', bass: '#ff8a4c', guitar: '#3fd3dc', piano: '#7aa7ff', other: '#9aa0ab', instrumental: '#3fd3dc', mix: '#9aa0ab', take: '#e5484d' };
@@ -192,8 +192,18 @@ export function mountKeys(root, { soundsBase = 'sounds/' } = {}) {
 
   // ───────────────────────────────────────────────────── boucle de rendu ──
 
-  function frame() {
+  // qualité des effets : « auto » allège les halos si l'appareil n'arrive pas à suivre (< 45 images/s)
+  let ema = 16, slowFor = 0, lastNow = 0;
+  function quality(now) {
+    if (lastNow) { const dt = Math.min(100, now - lastNow); ema = ema * 0.94 + dt * 0.06; }
+    lastNow = now;
+    if (S.fx !== 'auto') { roll.lite = S.fx === 'low'; return; }
+    if (ema > 22) slowFor++; else slowFor = Math.max(0, slowFor - 2);
+    if (!roll.lite && slowFor > 90) { roll.lite = true; roll.resize(); }
+  }
+  function frame(now) {
     raf = requestAnimationFrame(frame);
+    quality(now || performance.now());
     if (!transport || !song) { roll.draw(0, { keys: pressed, sounding: new Map(), playing: false }); return; }
     // ce qu'on voit = ce qu'on entend : on retire la latence de sortie audio
     const Traw = transport.time;
@@ -302,6 +312,11 @@ export function mountKeys(root, { soundsBase = 'sounds/' } = {}) {
       const line = ls[idx], next = ls[idx + 1];
       el.lyrics.innerHTML = `<div class="ly-cur">${lineHtml(line)}</div><div class="ly-next">${next ? esc(next.text) : ''}</div>`;
       el.lyrics.classList.remove('in'); void el.lyrics.offsetWidth; el.lyrics.classList.add('in');
+      // une seule ligne : la taille du texte s'adapte à la largeur (tablette en portrait comprise)
+      const cur = el.lyrics.querySelector('.ly-cur');
+      cur.style.fontSize = '';
+      let fs = parseFloat(getComputedStyle(cur).fontSize);
+      while (cur.scrollWidth > cur.clientWidth + 1 && fs > 14) { fs -= 1; cur.style.fontSize = fs + 'px'; }
     }
     if (idx < 0) return;
     const line = ls[idx];
@@ -442,16 +457,18 @@ export function mountKeys(root, { soundsBase = 'sounds/' } = {}) {
   // ───────────────────────────────────────── clavier MIDI, écran, ordinateur ──
 
   function curve(v) { return S.velCurve === 'soft' ? v ** 0.7 : S.velCurve === 'hard' ? v ** 1.45 : v; }
-  async function keyDown(pitch, vel = 0.7) {
+  async function keyDown(pitch, vel = 0.7, ts) {
+    // âge du message MIDI : si l'écran était occupé, on juge la note à l'instant où elle a été jouée
+    const age = ts != null ? Math.max(0, Math.min(0.5, (performance.now() - ts) / 1000)) : 0;
     if (pressed.has(pitch)) keyUp(pitch);
-    await audio();
+    if (!ctx || ctx.state !== 'running') await audio();
     vel = curve(vel);
     if (S.liveSound) synth.liveOn(pitch, vel);
     let kind = 'free';
     if (song && S.mode !== 'listen' && (transport.playing || waiting)) {
       // même repère que l'affichage (latence de sortie) + réglage « décalage du clavier »
       const lat = (ctx.outputLatency || ctx.baseLatency || 0) + S.latency / 1000;
-      const T = waiting ? stopAt : transport.time - lat * transport.rate;
+      const T = waiting ? stopAt : transport.time - (lat + age) * transport.rate;
       kind = practice.press(pitch, T, transport.rate);
     }
     noteBus.dispatchEvent(new CustomEvent('note', { detail: { note: pitch, vel } }));
@@ -464,7 +481,8 @@ export function mountKeys(root, { soundsBase = 'sounds/' } = {}) {
     synth?.liveOff(pitch);
   }
 
-  midi.addEventListener('noteon', (e) => keyDown(e.detail.note, e.detail.vel));
+  midi.skipSurface = true; // le Zoom R20 (surface de contrôle) ne joue pas de notes ici
+  midi.addEventListener('noteon', (e) => keyDown(e.detail.note, e.detail.vel, e.detail.ts));
   midi.addEventListener('noteoff', (e) => keyUp(e.detail.note));
   midi.addEventListener('sustain', (e) => synth?.setSustain(e.detail.down));
   midi.addEventListener('devices', midiStatus);
@@ -530,6 +548,16 @@ export function mountKeys(root, { soundsBase = 'sounds/' } = {}) {
   $('#btn-back', root).addEventListener('click', () => seek(loop?.a ?? (transport && !transport.hasAudio ? Math.min(0, (flat.find((n) => !n.hidden)?.t ?? 0) - 2) : 0)));
   $('#btn-rew', root).addEventListener('click', () => seek((transport?.time || 0) - 5));
   el.rate.addEventListener('input', () => setRate(+el.rate.value / 100));
+  // fenêtres surgissantes (vitesse, plus d'options) : une seule ouverte à la fois, fermées au clic ailleurs
+  const closePops = (except) => root.querySelectorAll('[data-pop]').forEach((b) => { if (b === except) return; b.setAttribute('aria-expanded', 'false'); const p = root.querySelector('#' + b.dataset.pop); if (p) p.hidden = true; });
+  root.addEventListener('click', (e) => {
+    const b = e.target.closest('[data-pop]');
+    if (b) { const p = root.querySelector('#' + b.dataset.pop); const open = p.hidden; closePops(b); p.hidden = !open; b.setAttribute('aria-expanded', String(open)); return; }
+    if (!e.target.closest('.popover')) closePops();
+    const r = e.target.closest('[data-rate]');
+    if (r) { setRate(+r.dataset.rate / 100); closePops(); }
+  });
+  window.addEventListener('keydown', (e) => { if (e.key === 'Escape') closePops(); });
   el.rate.value = String(Math.round(S.rate * 100)); el.rateVal.textContent = Math.round(S.rate * 100) + ' %';
   const seekFrom = (e) => { const r = el.seek.getBoundingClientRect(); seek(((e.clientX - r.left) / r.width) * (transport?.duration || 0)); };
   el.seek.addEventListener('pointerdown', (e) => { if (!song) return; el.seek.setPointerCapture(e.pointerId); seekFrom(e); el.seek.dataset.drag = '1'; });
@@ -563,7 +591,8 @@ export function mountKeys(root, { soundsBase = 'sounds/' } = {}) {
   }
   el.drawer.addEventListener('click', (e) => {
     if (e.target.closest('[data-close]')) { el.drawer.hidden = true; root.classList.remove('drawer-open'); }
-    const tab = e.target.closest('[data-tab]')?.dataset.tab;
+    // (le tiroir porte lui-même data-tab : on ne regarde que les onglets)
+    const tab = e.target.closest('.tabs [data-tab]')?.dataset.tab;
     if (tab) { el.drawer.dataset.tab = tab; renderDrawer(); }
   });
 
@@ -582,38 +611,47 @@ export function mountKeys(root, { soundsBase = 'sounds/' } = {}) {
     else body.innerHTML = settingsHtml();
   }
 
+  const CHEV = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"/></svg>';
+  const openTracks = new Set(); // pistes dépliées (rôle, son)
   function mixHtml() {
     if (!song) return '<p class="muted">Ouvre un morceau pour régler ses pistes.</p>';
+    const line = (item, label, sub, more, meter = false) => `
+        <div class="trk-head"><i class="dot"></i><span class="trk-name"><b>${esc(label)}</b>${sub ? `<span class="trk-sub">${esc(sub)}</span>` : ''}</span>${meter ? '<span class="meter"><i></i></span>' : ''}</div>
+        <div class="trk-line">
+          <input type="range" min="0" max="150" value="${Math.round(item.vol * 100)}" data-k="vol" aria-label="Volume ${esc(label)}">
+          <button class="ms ${item.mute ? 'on' : ''}" data-k="mute" title="Couper">M</button><button class="ms solo ${item.solo ? 'on' : ''}" data-k="solo" title="Seul">S</button>
+          ${more ? `<button class="trk-x" data-x="more" aria-label="Plus de réglages">${CHEV}</button>` : ''}
+        </div>`;
     const stems = song.stems.map((st) => `
-      <div class="trk" data-stem="${esc(st.id)}" style="--c:${STEM_COL[st.kind] || '#9aa0ab'}">
-        <div class="trk-head"><i class="dot"></i><b>${esc(st.label)}</b><span class="meter"><i></i></span>
-          <button class="ms ${st.mute ? 'on' : ''}" data-k="mute" title="Couper">M</button><button class="ms solo ${st.solo ? 'on' : ''}" data-k="solo" title="Seul">S</button></div>
-        <input type="range" min="0" max="150" value="${Math.round(st.vol * 100)}" data-k="vol" aria-label="Volume ${esc(st.label)}">
-      </div>`).join('');
+      <div class="trk" data-stem="${esc(st.id)}" style="--c:${STEM_COL[st.kind] || '#9aa0ab'}">${line(st, st.label, '', false, true)}</div>`).join('');
     const roles = (t) => (t.kind === 'grid' ? ['meta', 'right', 'left', 'bg', 'off'] : ['meta', 'right', 'left', 'both', 'bg', 'off'].filter((r) => r !== 'meta' || t.notes.some((n) => n.part)));
     const roleName = (t, r) => (r === 'meta' ? (t.kind === 'grid' ? 'Basse à gauche, accord à droite' : 'Mains du fichier .synthesia') : r === 'both' ? 'Deux mains (partage au Do 3)' : ROLE_LABELS[r]);
-    const tracks = song.tracks.filter((t) => t.notes.length).map((t) => {
+    const instName = (id) => (INSTRUMENTS.find((i) => i.id === id) || DRUM_KITS.find((i) => i.id === id))?.name || '';
+    const tracks = song.tracks.filter((t) => t.notes.length && !(t.kind === 'grid' && t.role === 'off' && !openTracks.has(t.id) && song.tracks.some((x) => x.kind === 'midi'))).map((t) => {
       const col = t.role === 'left' ? PALETTE.L.glow : t.role === 'right' || t.role === 'both' || t.role === 'meta' ? PALETTE.R.glow : PALETTE.B.glow;
+      const roleTxt = t.role === 'meta' ? 'Mains du fichier' : ROLE_LABELS[t.role];
+      const sub = t.isDrum ? instName(t.inst) : [roleTxt === t.name ? '' : roleTxt, instName(t.inst)].filter(Boolean).join(' · ');
       return `
-      <div class="trk" data-track="${esc(t.id)}" style="--c:${col}">
-        <div class="trk-head"><i class="dot"></i><b>${esc(t.name)}</b><small>${t.notes.length} notes</small>
-          <button class="ms ${t.mute ? 'on' : ''}" data-k="mute" title="Couper">M</button><button class="ms solo ${t.solo ? 'on' : ''}" data-k="solo" title="Seul">S</button></div>
-        <input type="range" min="0" max="150" value="${Math.round(t.vol * 100)}" data-k="vol" aria-label="Volume ${esc(t.name)}">
-        <div class="trk-row">
-          ${t.isDrum ? `<select data-k="inst" aria-label="Batterie">${DRUM_KITS.map((k) => `<option value="${k.id}" ${k.id === t.inst ? 'selected' : ''}>${esc(k.name)}</option>`).join('')}</select>` : `<select data-k="role" aria-label="Rôle">${roles(t).map((r) => `<option value="${r}" ${r === t.role ? 'selected' : ''}>${esc(roleName(t, r))}</option>`).join('')}</select>
-          <select data-k="inst" aria-label="Son">${instOptions(t.inst)}</select>`}
-        </div>
-        ${t.kind === 'grid' ? `<div class="trk-row"><select data-k="style" aria-label="Rythme de la grille">
+      <div class="trk ${openTracks.has(t.id) ? 'open' : ''}" data-track="${esc(t.id)}" style="--c:${col}">${line(t, t.name, sub, true)}
+        <div class="trk-more">
+          ${t.isDrum ? `<label>Batterie<select data-k="inst">${DRUM_KITS.map((k) => `<option value="${k.id}" ${k.id === t.inst ? 'selected' : ''}>${esc(k.name)}</option>`).join('')}</select></label>`
+            : `<label>Qui joue<select data-k="role">${roles(t).map((r) => `<option value="${r}" ${r === t.role ? 'selected' : ''}>${esc(roleName(t, r))}</option>`).join('')}</select></label>
+          <label>Son<select data-k="inst">${instOptions(t.inst)}</select></label>`}
+          ${t.kind === 'grid' ? `<label>Rythme<select data-k="style">
             <option value="hold" ${song.gridStyle === 'hold' ? 'selected' : ''}>Accords tenus</option>
             <option value="bar" ${song.gridStyle === 'bar' ? 'selected' : ''}>Un accord par mesure</option>
-            <option value="beat" ${song.gridStyle === 'beat' ? 'selected' : ''}>Un accord par temps</option></select></div>` : ''}
+            <option value="beat" ${song.gridStyle === 'beat' ? 'selected' : ''}>Un accord par temps</option></select></label>` : ''}
+        </div>
       </div>`;
     }).join('');
+    const hiddenGrid = song.tracks.find((t) => t.kind === 'grid' && t.role === 'off' && !openTracks.has(t.id) && song.tracks.some((x) => x.kind === 'midi'));
     return `
       ${stems ? `<h3>Pistes audio</h3>${stems}` : ''}
       ${tracks ? `<h3>Notes</h3>${tracks}` : ''}
-      <h3>Ta partie</h3>
-      <label class="fld"><span>Entendre la partie que tu joues</span><input type="range" min="0" max="100" value="${Math.round(S.hearMine * 100)}" data-set="hearMine"></label>
+      ${hiddenGrid ? '<button class="chip" data-x="showgrid">+ Jouer aussi la grille d’accords</button>' : ''}
+      <details class="adv"><summary>Ta partie</summary>
+        <label class="fld"><span>Entendre la partie que tu joues</span><input type="range" min="0" max="100" value="${Math.round(S.hearMine * 100)}" data-set="hearMine"></label>
+      </details>
       <p class="muted small">Le mixage est gardé pour ce morceau sur cet appareil.</p>`;
   }
 
@@ -624,14 +662,15 @@ export function mountKeys(root, { soundsBase = 'sounds/' } = {}) {
       <p class="muted small">Ta Yamaha a son propre son : coupe ici pour n’entendre que le piano, ou coupe le son du piano (Local Control) pour n’entendre que l’appli.</p>
       <label class="fld"><span>Instrument</span><select data-set="liveInst">${instOptions(S.liveInst)}</select></label>
       <label class="fld"><span>Volume</span><input type="range" min="0" max="130" value="${Math.round(S.liveVol * 100)}" data-set="liveVol"></label>
+      <div class="try">${['grand', 'epiano', 'strings', 'organ', 'nylon', 'choir'].map((id) => `<button class="chip ${S.liveInst === id ? 'on' : ''}" data-try="${id}">${esc(INSTRUMENTS.find((i) => i.id === id).name)}</button>`).join('')}</div>
+      <details class="adv"><summary>Réglages avancés</summary>
       <label class="fld"><span>Toucher</span><select data-set="velCurve">
         <option value="soft" ${S.velCurve === 'soft' ? 'selected' : ''}>Léger (plus fort avec peu de force)</option>
         <option value="normal" ${S.velCurve === 'normal' ? 'selected' : ''}>Normal</option>
         <option value="hard" ${S.velCurve === 'hard' ? 'selected' : ''}>Lourd (nuances plus larges)</option></select></label>
-      <div class="try">${['grand', 'epiano', 'strings', 'organ', 'nylon', 'choir'].map((id) => `<button class="chip" data-try="${id}">${esc(INSTRUMENTS.find((i) => i.id === id).name)}</button>`).join('')}</div>
-      <h3>Général</h3>
       <label class="fld"><span>Volume général</span><input type="range" min="0" max="120" value="${Math.round(S.master * 100)}" data-set="master"></label>
       <label class="fld"><span>Métronome</span><input type="range" min="0" max="100" value="${Math.round(S.metroVol * 100)}" data-set="metroVol"></label>
+      </details>
       <p class="credits">${esc(CREDITS)}</p>`;
   }
 
@@ -642,15 +681,18 @@ export function mountKeys(root, { soundsBase = 'sounds/' } = {}) {
       <label class="fld"><span>Notes visibles à l’avance</span><input type="range" min="15" max="80" value="${Math.round(S.look * 10)}" data-set="look"><em>${S.look.toFixed(1)} s</em></label>
       <label class="fld"><span>Noms sur les touches</span><select data-set="labels">${opt('labels', 'none', 'Aucun')}${opt('labels', 'c', 'Les Do')}${opt('labels', 'all', 'Toutes les touches blanches')}</select></label>
       <label class="switch"><input type="checkbox" data-set="noteNames" ${S.noteNames ? 'checked' : ''}><span>Noms des notes sur les notes qui tombent</span></label>
-      <label class="fld"><span>Grille d’accords</span><select data-set="chordsMode">${opt('chordsMode', 'auto', 'Automatique (cachée si devinée d’après le MIDI)')}${opt('chordsMode', 'on', 'Toujours afficher')}${opt('chordsMode', 'off', 'Cacher')}</select></label>
-      <label class="fld"><span>Clavier</span><select data-set="range">${opt('range', 'auto', 'D’après le morceau')}${opt('range', '61', '61 touches')}${opt('range', '76', '76 touches')}${opt('range', '88', '88 touches (P-95)')}</select></label>
       <h3>Entraînement</h3>
       <label class="fld"><span>Tolérance</span><select data-set="tol">${opt('tol', 'easy', 'Facile (±0,30 s)')}${opt('tol', 'normal', 'Normale (±0,20 s)')}${opt('tol', 'strict', 'Exigeante (±0,12 s)')}</select></label>
-      <label class="fld"><span>Décalage du clavier</span><input type="range" min="-150" max="250" step="5" value="${S.latency}" data-set="latency"><em>${S.latency} ms</em></label>
-      <p class="muted small">Si tes notes justes sont comptées « en retard », augmente le décalage.</p>
-      <h3>Raccourcis</h3>
-      <p class="muted small">Espace : lecture / pause · ← → : 5 s · Touches Q S D F G H J K L (et Z E T Y U au-dessus) : jouer au clavier de l’ordinateur · W / X : octave.</p>`;
+      <details class="adv"><summary>Réglages avancés</summary>
+        <label class="fld"><span>Grille d’accords</span><select data-set="chordsMode">${opt('chordsMode', 'auto', 'Automatique (cachée si devinée d’après le MIDI)')}${opt('chordsMode', 'on', 'Toujours afficher')}${opt('chordsMode', 'off', 'Cacher')}</select></label>
+        <label class="fld"><span>Clavier</span><select data-set="range">${opt('range', 'auto', 'D’après le morceau')}${opt('range', '61', '61 touches')}${opt('range', '76', '76 touches')}${opt('range', '88', '88 touches (P-95)')}</select></label>
+        <label class="fld"><span>Effets lumineux</span><select data-set="fx">${opt('fx', 'auto', 'Automatique (allégés si l’appareil rame)')}${opt('fx', 'high', 'Maximum')}${opt('fx', 'low', 'Légers')}</select></label>
+        <label class="fld"><span>Décalage du clavier</span><input type="range" min="-150" max="250" step="5" value="${S.latency}" data-set="latency"><em>${S.latency} ms</em></label>
+        <p class="muted small">Si tes notes justes sont comptées « en retard », augmente le décalage.</p>
+        <p class="muted small">Raccourcis : Espace = lecture / pause · ← → = 5 s · Q S D F G H J K L (et Z E T Y U) = jouer au clavier de l’ordinateur · W / X = octave.</p>
+      </details>`;
   }
+
 
   // les curseurs montrent leur valeur (remplissage ambre jusqu'au bouton)
   function paintRange(r) { const v = ((+r.value - +r.min) / (+r.max - +r.min)) * 100; r.style.setProperty('--v', v + '%'); }
@@ -670,6 +712,9 @@ export function mountKeys(root, { soundsBase = 'sounds/' } = {}) {
     }
     const tr = e.target.closest('[data-try]');
     if (tr) tryInstrument(tr.dataset.try);
+    const x = e.target.closest('[data-x]')?.dataset.x;
+    if (x === 'more') { const card = e.target.closest('[data-track]'); const id = card.dataset.track; if (openTracks.has(id)) openTracks.delete(id); else openTracks.add(id); card.classList.toggle('open'); }
+    if (x === 'showgrid') { const g = song.tracks.find((t) => t.kind === 'grid'); if (g) { openTracks.add(g.id); renderDrawer(); } }
   });
   function findItem(node) {
     const st = node.closest('[data-stem]')?.dataset.stem, tr = node.closest('[data-track]')?.dataset.track;
@@ -690,8 +735,8 @@ export function mountKeys(root, { soundsBase = 'sounds/' } = {}) {
       const item = findItem(t);
       if (!item) return;
       if (k === 'vol') { item.vol = +t.value / 100; applyGains(); }
-      if (e.type === 'change' && k === 'role') { item.role = t.value; rebuild(); renderDrawer(); }
-      if (e.type === 'change' && k === 'inst') { item.inst = t.value; synth.bank.load(t.value); }
+      if (e.type === 'change' && k === 'role') { item.role = t.value; openTracks.add(item.id); rebuild(); renderDrawer(); }
+      if (e.type === 'change' && k === 'inst') { item.inst = t.value; synth.bank.load(t.value); openTracks.add(item.id); renderDrawer(); }
       if (e.type === 'change' && k === 'style') { song.gridStyle = t.value; regenGrid(); rebuild(); }
       saveMix();
       return;
@@ -710,6 +755,7 @@ export function mountKeys(root, { soundsBase = 'sounds/' } = {}) {
     if (set === 'master') synth.out.gain.setTargetAtTime(v, ctx.currentTime, 0.03);
     if (set === 'metroVol') synth.setBus('click', v);
     if (['look', 'labels', 'range', 'tol', 'noteNames', 'chordsMode'].includes(set)) { rebuild(); lastChord = null; }
+    if (set === 'fx') { roll.lite = v === 'low'; slowFor = 0; roll.resize(); }
   }
 
   // vumètres des pistes audio

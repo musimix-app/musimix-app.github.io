@@ -50,7 +50,10 @@ export function staffSVG(staves, { key = 0, chord = false, width = 340, color = 
     const bottom = top + k * (staffH + between) + staffH;
     const yOf = (d) => bottom - (d - C.ref) * (gap / 2);
     for (let i = 0; i < 5; i++) s += `<line x1="${x0}" x2="${W - 10}" y1="${bottom - i * gap}" y2="${bottom - i * gap}" stroke="${color}" stroke-opacity=".55" stroke-width="1.2"/>`;
-    s += `<text x="${x0 + 4}" y="${bottom - C.gy * (gap / 2) + (st.clef === 'treble' ? 1 : 0)}" font-family="'Noto Music'" font-size="${gap * C.size}" fill="${color}" dominant-baseline="alphabetic">${C.glyph}</text>`;
+    // la clé est ensuite recalée sur la portée d'après sa vraie taille à l'écran (fitClefs), quelle que soit la police
+    const yt = bottom - 4 * gap;
+    const box = { treble: [yt - 1.5 * gap, 7.1 * gap], bass: [yt - 0.05 * gap, 3.15 * gap], alto: [yt, 4 * gap], tenor: [yt - gap, 4 * gap] }[st.clef];
+    s += `<text class="clef" data-x="${x0 + 6}" data-top="${box[0]}" data-h="${box[1]}" x="${x0 + 4}" y="${bottom - C.gy * (gap / 2)}" font-family="'Noto Music', 'Bravura Text', 'Segoe UI Symbol', 'Apple Symbols', serif" font-size="${gap * C.size}" fill="${color}">${C.glyph}</text>`;
     // armure
     let kx = x0 + 44;
     const kind = key > 0 ? SHARPS : FLATS;
@@ -135,6 +138,36 @@ export function rhythmSVG(events, { width = 620, beats = 4, color = 'currentColo
   });
   return s + '</svg>';
 }
+/** Encre réelle d'un glyphe (getBBox ne donne que la boîte de la police) : mesurée une fois sur un canvas. */
+const INK = new Map();
+function inkBox(glyph, family) {
+  const key = glyph + family;
+  if (INK.has(key)) return INK.get(key);
+  const c = document.createElement('canvas'); c.width = 400; c.height = 500;
+  const g = c.getContext('2d', { willReadFrequently: true });
+  g.font = `200px ${family}`; g.fillStyle = '#000'; g.textBaseline = 'alphabetic';
+  g.fillText(glyph, 100, 340);
+  const d = g.getImageData(0, 0, c.width, c.height).data;
+  let x0 = c.width, y0 = c.height, x1 = -1, y1 = -1;
+  for (let y = 0; y < c.height; y++) for (let x = 0; x < c.width; x++) if (d[(y * c.width + x) * 4 + 3] > 40) { if (x < x0) x0 = x; if (x > x1) x1 = x; if (y < y0) y0 = y; if (y > y1) y1 = y; }
+  const box = x1 < 0 ? null : { left: x0 - 100, top: y0 - 340, w: x1 - x0 + 1, h: y1 - y0 + 1 };
+  INK.set(key, box);
+  return box;
+}
+
+/** Recale chaque clé sur sa portée : même place et même taille, quelle que soit la police disponible. */
+export function fitClefs(root) {
+  root.querySelectorAll('text.clef').forEach((t) => {
+    const fam = t.getAttribute('font-family');
+    const ink = inkBox(t.textContent, fam);
+    if (!ink || !ink.h) return;
+    const k = +t.dataset.h / ink.h; // échelle par rapport à 200 px
+    t.setAttribute('font-size', String(200 * k));
+    t.setAttribute('x', String(+t.dataset.x - ink.left * k));
+    t.setAttribute('y', String(+t.dataset.top - ink.top * k));
+  });
+}
+
 function sumTo(ev, i) { let t = 0; for (let k = 0; k < i; k++) t += ev[k].d; return t; }
 
 // ──────────────────────────────────────────────────────── théorie musicale ──
@@ -461,6 +494,8 @@ export function runDrill(host, drill, env) {
     $('.dr-feedback').textContent = '';
     $('[data-x=next]').hidden = true;
     $('.dr-visual').innerHTML = q.svg || (q.rhythm ? rhythmSVG(q.rhythm, { beats: q.beats }) : '');
+    fitClefs($('.dr-visual'));
+    if (document.fonts?.ready) document.fonts.ready.then(() => fitClefs($('.dr-visual')));
     const acts = [];
     if (q.audio) acts.push('<button class="btn" data-x="listen"><span class="wave"><i></i><i></i><i></i><i></i></span>Écouter</button>');
     if (q.rhythm) acts.push('<button class="btn" data-x="model">Écouter le modèle</button><button class="btn primary" data-x="go">Commencer</button>');
