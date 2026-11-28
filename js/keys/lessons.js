@@ -7,6 +7,7 @@
 
 import { emptySong, makeGridTrack } from './model.js';
 import { BWV846, MAPLE_LEAF } from './scores.js';
+import { CLAIR_DE_LUNE } from './score-clair-de-lune.js';
 
 const DUR = { w: 4, h: 2, q: 1, e: 0.5, s: 0.25, t: 1 / 3 };
 const PC = { C: 0, D: 2, E: 4, F: 5, G: 7, A: 9, B: 11 };
@@ -76,6 +77,22 @@ export function buildLesson(item) {
     tracks.push({ id: 'm-L', name: 'Main gauche', family: 'piano', isDrum: false, program: 0, notes: Lh, role: 'left', vol: 0.8, mute: false, solo: false, kind: 'midi' });
     song.downbeats = S.downbeats.map((b) => lead + b * spb);
   }
+  if (L.perf) { // interprétation MIDI minutée en secondes (nuances et pédale du fichier)
+    const S = L.perf;
+    const R = [], Lh = [];
+    for (let i = 0; i < S.notes.length; i += 6) {
+      const right = S.notes[i + 3] === 1;
+      const n = { t: lead + S.notes[i], d: S.notes[i + 1], pitch: S.notes[i + 2], vel: S.notes[i + 4] / 127, ch: 0, program: 0, part: right ? 'R' : 'L' };
+      if (S.notes[i + 5]) n.ring = S.notes[i + 5];
+      (right ? R : Lh).push(n);
+    }
+    tracks.push({ id: 'm-R', name: 'Main droite', family: 'piano', isDrum: false, program: 0, notes: R, role: 'right', vol: 0.8, mute: false, solo: false, kind: 'midi' });
+    tracks.push({ id: 'm-L', name: 'Main gauche', family: 'piano', isDrum: false, program: 0, notes: Lh, role: 'left', vol: 0.8, mute: false, solo: false, kind: 'midi' });
+    song.downbeats = S.downbeats.map((t) => lead + t);
+    song.beats = S.beats.map((t) => lead + t);
+    song.bookmarks = (S.bookmarks || []).map((b) => ({ t: lead + b.t, label: b.label }));
+    total = S.duration / spb;
+  }
   for (const t of tracks) t.notes.sort((a, b) => a.t - b.t || a.pitch - b.pitch);
   song.tracks = tracks;
   // temps et mesures
@@ -83,7 +100,7 @@ export function buildLesson(item) {
     for (let b = pick; b <= total + 0.001; b += bar) song.downbeats.push(lead + b * spb);
     if (pick) song.downbeats.unshift(lead);
   }
-  for (let b = 0; b <= total + 0.001; b += 4 / meter[1]) song.beats.push(lead + b * spb);
+  if (!song.beats.length) for (let b = 0; b <= total + 0.001; b += 4 / meter[1]) song.beats.push(lead + b * spb);
   // grille
   if (L.chords) {
     song.chords = parseChords(L.chords).map((c) => ({ name: c.name, s: lead + c.b * spb, e: lead + (c.b + c.len) * spb }));
@@ -257,6 +274,7 @@ export const LESSONS = [
   { id: 'l8-251', level: 8, kind: 'exercise', title: 'II-V-I jazz en Do, Fa et Si♭', hands: 'RL', bpm: 84, make: () => { const a = iiVI(0), b = iiVI(5), c = iiVI(10); return { rh: `${a.rh} ${b.rh} ${c.rh}`, lh: `${a.lh} ${b.lh} ${c.lh}`, chords: `${a.chords} ${b.chords} ${c.chords}` }; }, tip: 'Voicings sans fondamentale : la basse est à la main gauche, la main droite joue tierce, septième et neuvième.' },
   { id: 'l8-prelude', level: 8, kind: 'song', title: 'Prélude en do, tempo de concert', composer: 'J.-S. Bach', key: 'C', hands: 'RL', bpm: 76, notes: BWV846 },
   { id: 'l8-maple', level: 8, kind: 'song', title: 'Maple Leaf Rag', composer: 'Scott Joplin', key: 'Ab', hands: 'RL', bpm: 92, notes: MAPLE_LEAF, tip: 'Commence main par main à 50 %. La main gauche saute : regarde loin devant.' },
+  { id: 'l8-clair-de-lune', level: 8, kind: 'song', title: 'Clair de lune', composer: 'Claude Debussy', key: 'Db', hands: 'RL', bpm: 53, meter: [9, 8], perf: CLAIR_DE_LUNE, tip: 'Pianissimo et beaucoup de pédale : écoute les nuances du fichier. Travaille d’abord chaque section à 60 % avec « Attendre » (repères sur la barre de progression).' },
 ];
 
 /** Morceaux de la bibliothèque (tous les « song » du parcours). */

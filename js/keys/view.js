@@ -91,7 +91,7 @@ export function mountKeys(root, { soundsBase = 'sounds/' } = {}) {
     for (const st of s.stems) Object.assign(st, mix[st.id] || {});
     if (mix.gridStyle) { s.gridStyle = mix.gridStyle; regenGrid(); }
     el.title.textContent = s.title || 'Sans titre';
-    el.artist.textContent = [s.artist, s.key && `Tonalité ${s.key}`, s.bpm && `${Math.round(s.bpm)} bpm`].filter(Boolean).join(' · ');
+    el.artist.textContent = [s.artist, s.key && frKey(s.key), s.bpm && `${Math.round(s.bpm)} bpm`].filter(Boolean).join(' · ');
     el.empty.hidden = true;
     root.classList.add('has-song');
     await engine.load(s.stems.map((st) => ({ id: st.id, kind: st.kind, label: st.label, blob: st.blob, vol: st.vol, mute: st.mute, solo: st.solo })), { duration: s.duration });
@@ -789,4 +789,13 @@ export function mountKeys(root, { soundsBase = 'sounds/' } = {}) {
     debug: () => ({ song, notes: flat.length, toPlay: practice.notes.length, mode: S.mode, stats: { ...practice.stats }, time: transport?.time, range: [roll.lo, roll.hi], engine: { playing: engine.playing, ctx: ctx?.state, els: engine.tracks.map((t) => [t.el.paused, t.el.currentTime, t.el.readyState, t.el.error?.code ?? null]) } }),
     destroy() { cancelAnimationFrame(raf); ro.disconnect(); window.removeEventListener('keydown', onKey); window.removeEventListener('keyup', onKey); engine.unload(); },
   };
+}
+
+/** « Db » → « Ré♭ majeur », « F#m » → « Fa♯ mineur » (sinon tel quel). */
+function frKey(k) {
+  const m = /^([A-G])([#b♯♭]?)(m|min|minor)?$/.exec(String(k).trim());
+  if (!m) return `Tonalité ${k}`;
+  const N = { C: 'Do', D: 'Ré', E: 'Mi', F: 'Fa', G: 'Sol', A: 'La', B: 'Si' };
+  const acc = m[2] === '#' || m[2] === '♯' ? '♯' : m[2] ? '♭' : '';
+  return `${N[m[1]]}${acc} ${m[3] ? 'mineur' : 'majeur'}`;
 }
