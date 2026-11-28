@@ -27,9 +27,9 @@ export function mountSchool(root, app) {
   el.innerHTML = `
     <header class="sc-head">
       <div class="sc-tabs" role="tablist">
-        <button data-t="path" class="on">Parcours piano</button>
-        <button data-t="lib">Bibliothèque</button>
-        <button data-t="fm">Formation musicale</button>
+        <button data-t="path" class="on"><span class="long">Parcours piano</span><span class="short">Parcours</span></button>
+        <button data-t="lib"><span class="long">Bibliothèque</span><span class="short">Morceaux</span></button>
+        <button data-t="fm"><span class="long">Formation musicale</span><span class="short">Solfège</span></button>
         <button data-t="prog">Progrès</button>
       </div>
       <button class="ib" data-close aria-label="Fermer l’école"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
@@ -198,7 +198,8 @@ export function mountSchool(root, app) {
     const st = streak(L);
     const fmtMin = (m) => (m >= 60 ? `${Math.floor(m / 60)} h ${String(Math.round(m % 60)).padStart(2, '0')}` : `${Math.round(m)} min`);
     // barres : minutes par jour (14 jours), une seule série → pas de légende
-    const W = 900, H = 200, pad = { l: 34, r: 8, t: 12, b: 24 };
+    // largeur réelle de l'écran : textes lisibles sur téléphone comme sur PC
+    const W = Math.max(300, Math.min(900, (body.clientWidth || 900) - 70)), H = W < 500 ? 170 : 200, pad = { l: 30, r: 6, t: 12, b: 24 };
     const max = Math.max(15, ...days.map((x) => x.m));
     const step = max <= 30 ? 10 : max <= 60 ? 15 : max <= 120 ? 30 : 60;
     const top = Math.ceil(max / step) * step;

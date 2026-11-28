@@ -57,7 +57,9 @@ export function mountKeys(root, { soundsBase = 'sounds/' } = {}) {
   function applyStaff() {
     root.classList.toggle('with-staff', !!S.staff);
     const h = el.stage.clientHeight || 600;
-    root.style.setProperty('--st', S.staff ? Math.round(Math.max(170, Math.min(270, h * 0.34))) + 'px' : '0px');
+    // écran bas (téléphone couché) : la portée prend la moitié, la cascade garde l'autre moitié
+    const st = h < 420 ? Math.round(h * 0.48) : Math.round(Math.max(170, Math.min(270, h * 0.34)));
+    root.style.setProperty('--st', S.staff ? st + 'px' : '0px');
     requestAnimationFrame(() => { if (S.staff) staff.resize(); roll.resize(); root.style.setProperty('--kb', (roll.kbH + 6) + 'px'); });
     $('#btn-staff', root)?.classList.toggle('on', !!S.staff);
   }
@@ -1092,6 +1094,9 @@ export function mountKeys(root, { soundsBase = 'sounds/' } = {}) {
   const ro = new ResizeObserver(() => { roll.resize(); if (S.staff) staff.resize(); root.style.setProperty('--kb', (roll.kbH + 6) + 'px'); });
   ro.observe(el.canvas);
   new ResizeObserver(() => { if (S.staff) applyStaff(); }).observe(el.stage);
+  // hauteur de la barre du bas : les fenêtres surgissantes se posent juste au-dessus (téléphones)
+  const barEl = root.querySelector('.bar');
+  if (barEl) new ResizeObserver(() => root.style.setProperty('--bar-h', barEl.offsetHeight + 'px')).observe(barEl);
   root.addEventListener('click', (e) => { if (e.target.closest('#btn-staff')) { S.staff = !S.staff; saveSettings(); applyStaff(); } });
   applyStaff();
   setMode(S.mode);

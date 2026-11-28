@@ -65,7 +65,7 @@ export class StaffView {
     this.W = Math.max(200, r.width); this.H = Math.max(80, r.height); this.dpr = dpr;
     this.cv.width = Math.round(this.W * dpr); this.cv.height = Math.round(this.H * dpr);
     // grande portée : 4 interlignes par portée, ~7 interlignes entre les deux, de la place pour les lignes supplémentaires
-    this.g = Math.max(6, Math.min(12, this.H / 24));
+    this.g = Math.max(4, Math.min(12, this.H / 24));
     const g = this.g;
     this.trebleBottom = this.H / 2 - g * 2.4;   // ligne du Mi4
     this.bassTop = this.H / 2 + g * 2.4;        // ligne du La3

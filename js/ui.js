@@ -68,41 +68,68 @@ export function toast(msg, ms = 2600) {
   toastTimer = setTimeout(() => el.classList.remove('on'), ms);
 }
 
-/** Menu contextuel. items = [{ icon, label, action, danger } | '-'] */
+/** Menu contextuel. items = [{ icon, label, action, danger } | '-']
+ *  Téléphone : feuille posée en bas, fond assombri (toucher dehors ferme), bouton Fermer,
+ *  et le bouton « retour » d'Android / le geste retour d'iPhone ferme le menu au lieu de quitter. */
+let menuHist = false;
+function onMenuPop() { if (menuHist) { menuHist = false; closeMenu(true); } }
+window.addEventListener('popstate', onMenuPop);
 export function openMenu(anchor, items) {
   closeMenu();
+  const phone = window.innerWidth <= 640 || window.innerHeight <= 500;
+  const bd = document.createElement('div');
+  bd.className = 'menu-bd' + (phone ? ' dim' : '');
   const m = document.createElement('div');
-  m.className = 'menu';
+  m.className = 'menu' + (phone ? ' sheet' : '');
   m.setAttribute('role', 'menu');
-  m.innerHTML = items.map((it, i) => (it === '-' ? '<hr>' : `<button role="menuitem" data-i="${i}" class="${it.danger ? 'danger' : ''}">${it.icon ? icon(it.icon) : ''}${esc(it.label)}</button>`)).join('');
-  document.body.appendChild(m);
-  const r = anchor.getBoundingClientRect();
-  const mw = m.offsetWidth, mh = m.offsetHeight;
-  let left = Math.min(r.right - mw, window.innerWidth - mw - 8);
-  left = Math.max(8, left);
-  let top = r.bottom + 6;
-  if (top + mh > window.innerHeight - 8) top = Math.max(8, r.top - mh - 6);
-  m.style.left = left + 'px';
-  m.style.top = top + 'px';
-  m.style.maxHeight = Math.max(160, window.innerHeight - top - 8) + 'px';
-  m.addEventListener('click', (e) => {
+  m.innerHTML = (phone ? '<div class="menu-head"><span class="grip"></span><button class="menu-x" data-x aria-label="Fermer">Fermer</button></div>' : '')
+    + items.map((it, i) => (it === '-' ? '<hr>' : `<button role="menuitem" data-i="${i}" class="${it.danger ? 'danger' : ''}">${it.icon ? icon(it.icon) : ''}${esc(it.label)}</button>`)).join('');
+  document.body.append(bd, m);
+  if (!phone) {
+    const r = anchor.getBoundingClientRect();
+    const mw = m.offsetWidth, mh = m.offsetHeight;
+    let left = Math.min(r.right - mw, window.innerWidth - mw - 8);
+    left = Math.max(8, left);
+    let top = r.bottom + 6;
+    if (top + mh > window.innerHeight - 8) top = Math.max(8, r.top - mh - 6);
+    m.style.left = left + 'px';
+    m.style.top = top + 'px';
+    m.style.maxHeight = Math.max(160, window.innerHeight - top - 8) + 'px';
+  }
+  if (phone) { try { history.pushState({ ...(history.state || {}), mmxMenu: 1 }, ''); menuHist = true; } catch { menuHist = false; } }
+  m.addEventListener('click', async (e) => {
+    if (e.target.closest('[data-x]')) { closeMenu(); return; }
     const b = e.target.closest('button[data-i]');
     if (!b) return;
-    closeMenu();
+    await closeMenu();
     items[+b.dataset.i].action?.();
   });
+  bd.addEventListener('pointerdown', (e) => { e.preventDefault(); closeMenu(); });
   setTimeout(() => {
     document.addEventListener('pointerdown', onOutside, true);
     document.addEventListener('keydown', onEsc, true);
   });
-  m.querySelector('button')?.focus();
-  function onOutside(e) { if (!m.contains(e.target)) closeMenu(); }
+  if (!phone) m.querySelector('button')?.focus();
+  function onOutside(e) { if (!m.contains(e.target) && e.target !== bd) closeMenu(); }
   function onEsc(e) { if (e.key === 'Escape') { e.stopPropagation(); closeMenu(); } }
+  m._bd = bd;
   m._cleanup = () => { document.removeEventListener('pointerdown', onOutside, true); document.removeEventListener('keydown', onEsc, true); };
 }
 
-export function closeMenu() {
-  document.querySelectorAll('.menu').forEach((m) => { m._cleanup?.(); m.remove(); });
+/** Ferme le menu ouvert. Résolu une fois l'historique remis en place (avant de lancer une action qui navigue). */
+export function closeMenu(fromPop = false) {
+  const open = document.querySelectorAll('.menu');
+  open.forEach((m) => { m._cleanup?.(); m._bd?.remove(); m.remove(); });
+  if (!fromPop && menuHist) {
+    menuHist = false;
+    return new Promise((res) => {
+      const t = setTimeout(done, 400);
+      function done() { clearTimeout(t); window.removeEventListener('popstate', done); res(); }
+      window.addEventListener('popstate', done);
+      history.back();
+    });
+  }
+  return Promise.resolve();
 }
 
 /** Boîte de dialogue modale. Retourne { el, close(), done: Promise<valeur> }. */
