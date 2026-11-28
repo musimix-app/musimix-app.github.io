@@ -140,7 +140,7 @@ export function rhythmSVG(events, { width = 620, beats = 4, color = 'currentColo
 }
 /** Encre réelle d'un glyphe (getBBox ne donne que la boîte de la police) : mesurée une fois sur un canvas. */
 const INK = new Map();
-function inkBox(glyph, family) {
+export function inkBox(glyph, family) {
   const key = glyph + family;
   if (INK.has(key)) return INK.get(key);
   const c = document.createElement('canvas'); c.width = 400; c.height = 500;

@@ -200,7 +200,7 @@ export class KeysRoll {
         g.globalAlpha = state === 'miss' ? 0.15 : active || state === 'hit' ? 1 : 0.55;
         g.fillStyle = pal.glow;
         g.fillRect(x, top, w, h);
-        if (n.finger && h > 16 && w > 9) fingers.push([x + w / 2, bot - Math.min(12, h / 2), n.finger]);
+        if (n.finger && h > 16 && w > 9) fingers.push([x + w / 2, bot - Math.min(12, h / 2), n.finger, n.fingerAuto]);
         else if (this.noteNames && h > 18 && w > 12) names.push([x + w / 2, bot - 9, noteLabel(n.pitch, this.lang).replace(/-?\d+$/, '')]);
       }
     }
@@ -208,10 +208,10 @@ export class KeysRoll {
     // doigtés
     if (fingers.length) {
       ctx.font = fingerFont; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-      for (const [fx, fy, f] of fingers) {
-        ctx.fillStyle = 'rgba(10,12,20,.55)';
+      for (const [fx, fy, f, auto] of fingers) {
+        ctx.fillStyle = auto ? 'rgba(10,12,20,.38)' : 'rgba(10,12,20,.55)';
         ctx.beginPath(); ctx.arc(fx, fy, Math.min(9, this.kw * 0.36), 0, Math.PI * 2); ctx.fill();
-        ctx.fillStyle = '#fff'; ctx.fillText(String(f), fx, fy + 0.5);
+        ctx.fillStyle = auto ? 'rgba(255,255,255,.82)' : '#fff'; ctx.fillText(String(f), fx, fy + 0.5);
       }
     }
 

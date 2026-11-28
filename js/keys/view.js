@@ -10,6 +10,10 @@ import { Transport, Practice, TOLERANCE } from './practice.js';
 import { INSTRUMENTS, DRUM_KITS, CREDITS, instrumentForProgram } from './sounds.js';
 import { ROLE_LABELS, makeGridTrack } from './model.js';
 import { addTime, addRun } from './stats.js';
+import { autoFingers } from './fingering.js';
+import { StaffView } from './staff.js';
+import { takeNotes, takeToMidi, renderTake, download } from './recorder.js';
+import { addFiles } from './mylib.js';
 
 const $ = (sel, el = document) => el.querySelector(sel);
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
@@ -22,7 +26,7 @@ const store = {
 const DEFAULTS = {
   sectAuto: true, sectStart: 0.6,
   mode: 'listen', wait: false, rate: 1, look: 3.2, labels: 'c', range: 'auto', tol: 'normal', latency: 0,
-  liveSound: true, noteNames: false, chordsMode: 'auto', fx: 'auto', liveInst: 'grand', liveVol: 0.9, hearMine: 0.35, metronome: false, metroVol: 0.5, velCurve: 'normal', master: 0.9, showPedal: true,
+  liveSound: true, noteNames: false, chordsMode: 'auto', fx: 'auto', liveInst: 'grand', liveVol: 0.9, hearMine: 0.35, metronome: false, metroVol: 0.5, velCurve: 'normal', master: 0.9, showPedal: true, autoFinger: true, staff: false,
 };
 
 const STEM_COL = { vocals: '#ff62b6', backing: '#ff9bcf', drums: '#ffb52e', bass: '#ff8a4c', guitar: '#3fd3dc', piano: '#7aa7ff', other: '#9aa0ab', instrumental: '#3fd3dc', mix: '#9aa0ab', take: '#e5484d' };
@@ -45,6 +49,18 @@ export function mountKeys(root, { soundsBase = 'sounds/' } = {}) {
   engine.latencyHint = 'interactive';
   let ctx = null, synth = null, transport = null;
   const roll = new KeysRoll(el.canvas);
+  // partition défilante (au-dessus de la cascade)
+  const staffCv = document.createElement('canvas');
+  staffCv.id = 'staff';
+  el.stage.prepend(staffCv);
+  const staff = new StaffView(staffCv);
+  function applyStaff() {
+    root.classList.toggle('with-staff', !!S.staff);
+    const h = el.stage.clientHeight || 600;
+    root.style.setProperty('--st', S.staff ? Math.round(Math.max(170, Math.min(270, h * 0.34))) + 'px' : '0px');
+    requestAnimationFrame(() => { if (S.staff) staff.resize(); roll.resize(); root.style.setProperty('--kb', (roll.kbH + 6) + 'px'); });
+    $('#btn-staff', root)?.classList.toggle('on', !!S.staff);
+  }
   const practice = new Practice();
   let song = null, flat = [], schedPtr = 0, clickPtr = 0, fxPtr = 0, loop = null, waiting = false, stopAt = null, ended = false;
   const pressed = new Map();
@@ -149,10 +165,16 @@ export function mountKeys(root, { soundsBase = 'sounds/' } = {}) {
       }
     }
     flat.sort((a, b) => a.t - b.t || a.pitch - b.pitch);
+    // doigtés suggérés pour chaque main qui n'en a aucun
+    if (S.autoFinger) for (const h of ['R', 'L']) {
+      const ns = flat.filter((n) => n.hand === h && !n.hidden);
+      if (ns.length && !ns.some((n) => n.finger)) autoFingers(ns, h).forEach((f, i) => { ns[i].finger = f; ns[i].fingerAuto = true; });
+    }
     const showChords = S.chordsMode === 'on' || (S.chordsMode === 'auto' && song.chordSource !== 'detected');
     song._showChords = showChords;
     roll.setSong(flat, { chords: showChords ? song.chords : [], downbeats: song.downbeats, bookmarks: song.bookmarks, pedal: S.showPedal ? song.pedal : [] });
     roll.look = S.look; roll.labels = S.labels; roll.noteNames = S.noteNames;
+    staff.setSong(flat, { key: song.key, downbeats: song.downbeats, chords: showChords ? song.chords : [] });
     roll.setRange(S.range, flat.filter((n) => !n.hidden));
     practice.wait = S.wait;
     practice.tol = TOLERANCE[S.tol] || TOLERANCE.normal;
@@ -262,6 +284,7 @@ export function mountKeys(root, { soundsBase = 'sounds/' } = {}) {
       }
     }
     roll.draw(T, { keys: pressed, sounding, hint, playing });
+    if (S.staff) staff.draw(T, { hint });
     ui(T);
   }
 
@@ -500,6 +523,7 @@ export function mountKeys(root, { soundsBase = 'sounds/' } = {}) {
     if (!ctx || ctx.state !== 'running') await audio();
     vel = curve(vel);
     if (S.liveSound) synth.liveOn(pitch, vel);
+    if (rec) rec.events.push({ t: ctx.currentTime - age, type: 'on', pitch, vel });
     if (calib?.running) { calib.presses.push(ctx.currentTime - age); pressed.set(pitch, { col: '#ffd27a', kind: 'free' }); calibTick(); return; }
     let kind = 'free';
     if (song && S.mode !== 'listen' && (transport.playing || waiting)) {
@@ -514,6 +538,7 @@ export function mountKeys(root, { soundsBase = 'sounds/' } = {}) {
     if (kind === 'free') roll.burst(pitch, 'R', 0.35);
   }
   function keyUp(pitch) {
+    if (rec && pressed.has(pitch)) rec.events.push({ t: ctx.currentTime, type: 'off', pitch });
     pressed.delete(pitch);
     synth?.liveOff(pitch);
   }
@@ -521,7 +546,7 @@ export function mountKeys(root, { soundsBase = 'sounds/' } = {}) {
   midi.skipSurface = true; // le Zoom R20 (surface de contrôle) ne joue pas de notes ici
   midi.addEventListener('noteon', (e) => keyDown(e.detail.note, e.detail.vel, e.detail.ts));
   midi.addEventListener('noteoff', (e) => keyUp(e.detail.note));
-  midi.addEventListener('sustain', (e) => { synth?.setSustain(e.detail.down); el.midiPill.classList.toggle('ped-on', e.detail.down); });
+  midi.addEventListener('sustain', (e) => { synth?.setSustain(e.detail.down); if (rec && ctx) rec.events.push({ t: ctx.currentTime, type: 'ped', down: e.detail.down }); el.midiPill.classList.toggle('ped-on', e.detail.down); });
   midi.addEventListener('devices', midiStatus);
   function midiStatus() {
     const d = midi.devices;
@@ -659,6 +684,84 @@ export function mountKeys(root, { soundsBase = 'sounds/' } = {}) {
   }
   sectPill.addEventListener('click', (e) => { if (e.target.closest('[data-sectstop]')) stopSection(); });
   root.addEventListener('click', (e) => { if (e.target.closest('#btn-sect')) sectionSheet(); });
+
+  // ─────────────────────────────────────────── enregistrer sa prise ──
+  let rec = null, lastTake = null, replay = null;
+  const recPill = document.createElement('div');
+  recPill.className = 'rec-pill'; recPill.hidden = true;
+  el.stage.appendChild(recPill);
+  async function recStart() {
+    closePops();
+    await audio();
+    rec = { events: [], t0: ctx.currentTime, title: song?.title || '' };
+    recPill.hidden = false;
+    recTick();
+    toast('Enregistrement : joue quand tu veux. Touche « Arrêter » en haut quand tu as fini.', 4500);
+  }
+  function recTick() {
+    if (!rec) return;
+    const sec = ctx.currentTime - rec.t0;
+    const n = rec.events.filter((e) => e.type === 'on').length;
+    recPill.innerHTML = `<i class="dot"></i><b>Enregistrement</b><span>${fmt(sec)} · ${n} note${n > 1 ? 's' : ''}</span><button data-recstop>Arrêter</button>`;
+    setTimeout(recTick, 500);
+  }
+  function recStop() {
+    if (!rec) return;
+    const r = rec; rec = null; recPill.hidden = true;
+    for (const p of pressed.keys()) r.events.push({ t: ctx.currentTime, type: 'off', pitch: p });
+    if (!r.events.some((e) => e.type === 'on')) { toast('Aucune note enregistrée'); return; }
+    lastTake = r;
+    takeSheet();
+  }
+  recPill.addEventListener('click', (e) => { if (e.target.closest('[data-recstop]')) recStop(); });
+  function takeName(ext) {
+    const d = new Date();
+    return `Ma prise${lastTake.title ? ' - ' + lastTake.title.replace(/[\\/:*?"<>|]/g, '') : ''} - ${d.getDate()}-${d.getMonth() + 1} ${d.getHours()}h${String(d.getMinutes()).padStart(2, '0')}.${ext}`;
+  }
+  function takeSheet() {
+    const { notes, duration } = takeNotes(lastTake.events);
+    const t0 = notes[0]?.t ?? 0;
+    const box = document.createElement('div');
+    box.className = 'calib sheet take';
+    box.innerHTML = `<div class="card">
+      <h2>Ta prise</h2>
+      <p class="take-meta"><b>${fmt(duration - t0)}</b> · ${notes.length} note${notes.length > 1 ? 's' : ''}${lastTake.events.some((e) => e.type === 'ped') ? ' · avec pédale' : ''}</p>
+      <div class="take-acts">
+        <button class="btn primary" data-take="play">▶ Réécouter</button>
+        <button class="btn" data-take="mine">Ajouter à mes morceaux</button>
+        <button class="btn" data-take="midi">Télécharger le MIDI</button>
+        <button class="btn" data-take="audio">Télécharger l’audio</button>
+      </div>
+      <p class="muted small">Réécoute avec le son choisi dans « Sons ». Dans « Mes morceaux », ta prise se rejoue en notes qui tombent.</p>
+      <div class="row"><button class="btn ghost" data-take="close">Fermer</button></div></div>`;
+    el.stage.appendChild(box);
+    box.addEventListener('click', async (e) => {
+      const a = e.target.closest('[data-take]')?.dataset.take;
+      if (!a && e.target !== box) return;
+      if (!a || a === 'close') { replayStop(); box.remove(); return; }
+      const btn = e.target.closest('[data-take]');
+      if (a === 'play') { if (replay) { replayStop(); btn.textContent = '▶ Réécouter'; } else { replayStart(() => { btn.textContent = '▶ Réécouter'; }); btn.textContent = '■ Arrêter'; } }
+      if (a === 'midi') download(takeToMidi(lastTake.events, takeName('mid').replace(/\.mid$/, '')), takeName('mid'));
+      if (a === 'mine') {
+        try { const blob = takeToMidi(lastTake.events); const [r] = await addFiles([new File([blob], takeName('mid'), { type: 'audio/midi' })], async () => ({ title: takeName('mid').replace(/\.mid$/, ''), composer: 'Ma prise', notes: notes.length, duration: duration - t0 })); btn.textContent = '✓ Dans mes morceaux'; btn.disabled = true; toast(`Ajouté : ${r.title}`); }
+        catch (err) { toast(err.message || String(err), 5000); }
+      }
+      if (a === 'audio') {
+        btn.disabled = true; const old = btn.textContent; btn.textContent = 'Rendu en cours…';
+        try { const r = await renderTake(lastTake.events, { inst: S.liveInst, master: S.master, soundsBase }); download(r.blob, takeName(r.ext)); }
+        catch (err) { toast('Export audio impossible : ' + (err.message || err), 5000); }
+        btn.disabled = false; btn.textContent = old;
+      }
+    });
+  }
+  function replayStart(onEnd) {
+    const { notes, duration } = takeNotes(lastTake.events);
+    const t0 = notes[0].t, start = ctx.currentTime + 0.15;
+    for (const n of notes) synth.note(n.pitch, n.vel, start + n.t - t0, Math.max(0.08, n.ring || n.d), { bus: 'live', inst: S.liveInst });
+    replay = setTimeout(() => { replay = null; onEnd?.(); }, (duration - t0 + 1) * 1000);
+  }
+  function replayStop() { if (replay) { clearTimeout(replay); replay = null; synth?.stopAll(); } }
+  root.addEventListener('click', (e) => { if (e.target.closest('#btn-rec')) { if (rec) recStop(); else recStart(); } });
 
   // ──────────────────────────────────── calage automatique du clavier MIDI ──
   // 4 clics pour écouter, puis 8 clics à accompagner d'une touche : la médiane des écarts devient le « décalage »
@@ -892,6 +995,7 @@ export function mountKeys(root, { soundsBase = 'sounds/' } = {}) {
       <label class="fld"><span>Noms sur les touches</span><select data-set="labels">${opt('labels', 'none', 'Aucun')}${opt('labels', 'c', 'Les Do')}${opt('labels', 'all', 'Toutes les touches blanches')}</select></label>
       <label class="switch"><input type="checkbox" data-set="noteNames" ${S.noteNames ? 'checked' : ''}><span>Noms des notes sur les notes qui tombent</span></label>
       <label class="switch"><input type="checkbox" data-set="showPedal" ${S.showPedal ? 'checked' : ''}><span>Pédale du morceau (bande dorée à droite)</span></label>
+      <label class="switch"><input type="checkbox" data-set="autoFinger" ${S.autoFinger ? 'checked' : ''}><span>Doigtés suggérés quand le morceau n’en a pas</span></label>
       <h3>Entraînement</h3>
       <label class="fld"><span>Tolérance</span><select data-set="tol">${opt('tol', 'easy', 'Facile (±0,30 s)')}${opt('tol', 'normal', 'Normale (±0,20 s)')}${opt('tol', 'strict', 'Exigeante (±0,12 s)')}</select></label>
       <button class="btn cal-btn" data-cal="open"><span>Caler mon clavier</span><em>décalage actuel : ${S.latency} ms</em></button>
@@ -966,7 +1070,7 @@ export function mountKeys(root, { soundsBase = 'sounds/' } = {}) {
     if (set === 'liveInst') { synth.liveInst = v; synth.bank.load(v); }
     if (set === 'master') synth.out.gain.setTargetAtTime(v, ctx.currentTime, 0.03);
     if (set === 'metroVol') synth.setBus('click', v);
-    if (['look', 'labels', 'range', 'tol', 'noteNames', 'chordsMode', 'showPedal'].includes(set)) { rebuild(); lastChord = null; }
+    if (['look', 'labels', 'range', 'tol', 'noteNames', 'chordsMode', 'showPedal', 'autoFinger'].includes(set)) { rebuild(); lastChord = null; }
     if (set === 'fx') { roll.lite = v === 'low'; slowFor = 0; roll.resize(); }
   }
 
@@ -985,8 +1089,11 @@ export function mountKeys(root, { soundsBase = 'sounds/' } = {}) {
     toastT = setTimeout(() => el.toast.classList.remove('show'), ms);
   }
 
-  const ro = new ResizeObserver(() => { roll.resize(); root.style.setProperty('--kb', (roll.kbH + 6) + 'px'); });
+  const ro = new ResizeObserver(() => { roll.resize(); if (S.staff) staff.resize(); root.style.setProperty('--kb', (roll.kbH + 6) + 'px'); });
   ro.observe(el.canvas);
+  new ResizeObserver(() => { if (S.staff) applyStaff(); }).observe(el.stage);
+  root.addEventListener('click', (e) => { if (e.target.closest('#btn-staff')) { S.staff = !S.staff; saveSettings(); applyStaff(); } });
+  applyStaff();
   setMode(S.mode);
   frame();
 
@@ -998,7 +1105,7 @@ export function mountKeys(root, { soundsBase = 'sounds/' } = {}) {
     press(m, down) { if (down) keyDown(m, 0.7); else keyUp(m); },
     pause() { if (transport?.playing) { transport.pause(); synth?.stopAll(); } waiting = false; },
     /** état (pour les tests et le débogage) */
-    debug: () => ({ song, calib: calib && { c0: calib.c0, outLat: calib.outLat, running: calib.running }, audioNow: ctx?.currentTime, wake: !!wakeLock, pedal: roll.pedal.length, notes: flat.length, toPlay: practice.notes.length, mode: S.mode, stats: { ...practice.stats }, time: transport?.time, range: [roll.lo, roll.hi], engine: { playing: engine.playing, ctx: ctx?.state, els: engine.tracks.map((t) => [t.el.paused, t.el.currentTime, t.el.readyState, t.el.error?.code ?? null]) } }),
+    debug: () => ({ song, rec: rec && rec.events.length, take: lastTake && lastTake.events.length, calib: calib && { c0: calib.c0, outLat: calib.outLat, running: calib.running }, audioNow: ctx?.currentTime, wake: !!wakeLock, pedal: roll.pedal.length, notes: flat.length, toPlay: practice.notes.length, mode: S.mode, stats: { ...practice.stats }, time: transport?.time, range: [roll.lo, roll.hi], engine: { playing: engine.playing, ctx: ctx?.state, els: engine.tracks.map((t) => [t.el.paused, t.el.currentTime, t.el.readyState, t.el.error?.code ?? null]) } }),
     destroy() { flushTime(); cancelAnimationFrame(raf); wakeLock?.release?.(); document.removeEventListener('visibilitychange', onVisible); ro.disconnect(); window.removeEventListener('keydown', onKey); window.removeEventListener('keyup', onKey); engine.unload(); },
   };
 }

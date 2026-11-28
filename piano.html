@@ -449,6 +449,20 @@ details.adv summary::after{content:'+';font-size:20px;color:var(--ink-3)}details
 .pc-n{display:flex;flex-direction:column;align-items:flex-end;min-width:74px}.pc-n b{font-size:17px}
 .spark{width:120px;height:34px;flex:none}.spark path{fill:none;stroke:#3fd3dc;stroke-width:2;stroke-linejoin:round;stroke-linecap:round}.spark line{stroke:rgba(255,255,255,.12);stroke-dasharray:3 3}.spark circle{fill:#3fd3dc;stroke:#12131d;stroke-width:2}
 @media (max-width:640px){.spark{display:none}.kpi b{font-size:22px}}
+.rec-pill{position:absolute;left:16px;top:14px;z-index:7;display:flex;align-items:center;gap:10px;padding:6px 6px 6px 12px;border-radius:99px;background:rgba(18,19,30,.88);border:1px solid rgba(255,79,109,.5);box-shadow:0 10px 30px rgba(0,0,0,.4);backdrop-filter:blur(10px);font-size:13.5px;white-space:nowrap}
+.rec-pill .dot{width:10px;height:10px;border-radius:50%;background:#ff4f6d;box-shadow:0 0 10px #ff4f6d;animation:breathe 1.2s ease-in-out infinite}
+.rec-pill span{color:var(--ink-2)}
+.rec-pill button{padding:6px 12px;border-radius:99px;background:#ff4f6d;color:#fff;font-weight:800}
+.take .card{text-align:center}.take-meta{font-size:16px}.take-meta b{font-size:22px;color:var(--ink)}
+.take-acts{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin:16px 0 8px}
+@media (max-width:520px){.take-acts{grid-template-columns:1fr}}
+#staff{position:absolute;left:0;right:0;top:0;width:100%;height:var(--st,0px);display:none}
+.with-staff #staff{display:block}
+.with-staff #roll{top:var(--st);height:calc(100% - var(--st))}
+.with-staff .hud,.with-staff .rec-pill{top:calc(var(--st) + 14px)}
+.with-staff .chord{top:calc(var(--st) + 16px)}
+.with-staff .sect-pill{top:calc(var(--st) + 14px)}
+.with-staff #wait-hint{top:calc(var(--st) + 16px)}.with-staff.in-sect #wait-hint{top:calc(var(--st) + 62px)}
 </style>
 </head>
 <body>
@@ -518,7 +532,9 @@ details.adv summary::after{content:'+';font-size:20px;color:var(--ink-3)}details
       <div class="pop-wrap">
         <button class="ib" data-pop="pop-more" title="Plus d’options" aria-label="Plus d’options" aria-expanded="false"><svg viewBox="0 0 24 24" fill="currentColor"><circle cx="5" cy="12" r="2"/><circle cx="12" cy="12" r="2"/><circle cx="19" cy="12" r="2"/></svg></button>
         <div class="popover right" id="pop-more" hidden>
+          <button class="pop-item" id="btn-staff"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="M3 6h18M3 9.5h18M3 13h18M3 16.5h18"/><ellipse cx="14" cy="16.5" rx="2.4" ry="1.7" fill="currentColor" transform="rotate(-20 14 16.5)"/><path d="M16.2 15.8V5"/></svg>Partition<i class="sw"></i></button>
           <button class="pop-item" id="btn-sect"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19V5M20 19V5"/><path d="M8 12h8M13 9l3 3-3 3"/></svg>Travailler un passage</button>
+          <button class="pop-item" id="btn-rec"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="8.5"/><circle cx="12" cy="12" r="4" fill="#ff4f6d" stroke="none"/></svg>Enregistrer ma prise</button>
           <button class="pop-item" id="btn-metro"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="M9 3h6l4 18H5z"/><path d="M12 15l5-8"/></svg>Métronome<i class="sw"></i></button>
           <div class="pop-item loop"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M17 2l4 4-4 4"/><path d="M3 11V9a3 3 0 0 1 3-3h15M7 22l-4-4 4-4"/><path d="M21 13v2a3 3 0 0 1-3 3H3"/></svg>Boucle<span class="ab"><button class="tg" id="btn-a" title="Début de boucle">A</button><button class="tg" id="btn-b" title="Fin de boucle">B</button></span></div>
           <button class="pop-item" id="btn-fs" hidden><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/></svg>Plein écran<i class="sw"></i></button>
