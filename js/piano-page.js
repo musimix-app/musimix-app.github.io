@@ -37,6 +37,7 @@ let depth = 0;
 addEventListener('dragenter', (e) => { e.preventDefault(); depth++; document.body.classList.add('drop-on'); });
 addEventListener('dragleave', () => { if (--depth <= 0) { depth = 0; document.body.classList.remove('drop-on'); } });
 addEventListener('dragover', (e) => e.preventDefault());
+addEventListener('drop', () => { depth = 0; document.body.classList.remove('drop-on'); }, true);
 addEventListener('drop', (e) => { e.preventDefault(); depth = 0; document.body.classList.remove('drop-on'); openFiles(e.dataTransfer.files); });
 
 // morceau de la bibliothèque MusiMix (piano.html#song-<id>)

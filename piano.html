@@ -380,6 +380,50 @@ details.adv summary::after{content:'+';font-size:20px;color:var(--ink-3)}details
 @media (max-width:900px) and (min-width:641px){#time{display:none}}
 #midi-pill .ped{display:none;margin-left:8px;padding:2px 7px;border-radius:99px;font-size:11px;font-weight:800;letter-spacing:.02em;color:#1a1208;background:#ffd98a;box-shadow:0 0 12px rgba(255,200,90,.6)}
 #midi-pill.ped-on .ped{display:inline-block}
+.lib-h{font:700 13px/1 var(--ui,inherit);letter-spacing:.08em;text-transform:uppercase;color:var(--ink-3);margin:22px auto 10px}
+.lib-h:first-of-type{margin-top:4px}
+.lib-grid.mine+.lib-h,.lib-grid.mine~.lib-h{margin-top:26px}
+.lib-grid.mine{margin-bottom:6px}
+.song-card.my{position:relative;cursor:pointer}
+.my-del{position:absolute;top:18px;right:18px;min-width:30px;height:30px;padding:0 9px;border-radius:99px;background:rgba(10,10,18,.72);border:1px solid rgba(255,255,255,.16);color:var(--ink-2);font-weight:800;font-size:15px;line-height:1;opacity:.75;transition:.2s}
+.my-del:hover{opacity:1}
+.song-card.confirm .my-del{background:#e5484d;border-color:#e5484d;color:#fff;font-size:12.5px;opacity:1}
+.song-card.add{border-style:dashed;border-color:rgba(255,181,46,.45);background:rgba(255,181,46,.04)}
+.song-card.add .sc-art{background:repeating-linear-gradient(90deg,rgba(255,255,255,.04) 0 10px,transparent 10px 14px),#12131d}
+.song-card.add .sc-art i{font-size:44px;color:#ffd27a;text-shadow:0 0 22px rgba(255,181,46,.7)}
+.calib{position:absolute;inset:0;z-index:30;display:grid;place-items:center;background:rgba(6,6,12,.62);backdrop-filter:blur(6px)}
+.calib .card{width:min(520px,92%);max-height:calc(100% - 20px);overflow:auto;padding:26px 26px 22px;border-radius:24px;background:linear-gradient(180deg,#1b1c2b,#12131d);border:1px solid rgba(255,255,255,.1);box-shadow:0 30px 80px rgba(0,0,0,.5);text-align:center}
+.calib h2{font:700 24px/1.2 var(--display);margin:0 0 10px}
+.calib p{color:var(--ink-2);margin:8px 0;line-height:1.45}
+.calib .row{display:flex;gap:10px;justify-content:center;margin-top:18px}
+.cal-dots{display:flex;gap:10px;justify-content:center;margin:22px 0 10px}
+.cal-dots i{width:22px;height:22px;border-radius:50%;background:rgba(255,255,255,.08);border:2px solid rgba(63,211,220,.5);transition:.12s}
+.cal-dots i.in{border-color:rgba(255,255,255,.25)}
+.cal-dots i.past{background:rgba(63,211,220,.35)}.cal-dots i.in.past{background:rgba(255,255,255,.18)}
+.cal-dots i.on{background:#ffd27a;border-color:#ffd27a;box-shadow:0 0 18px rgba(255,200,90,.8);transform:scale(1.25)}
+.cal-hint{font-weight:700;color:var(--ink)!important;font-size:16px!important}
+.cal-big{font:800 54px/1 var(--display);margin:10px 0 4px;color:#ffd27a}.cal-big small{font-size:22px;color:var(--ink-3)}
+.cal-btn{width:100%;display:flex;justify-content:space-between;align-items:center;margin:10px 0 4px}.cal-btn em{font-style:normal;color:var(--ink-3);font-size:13px}
+@media (max-width:640px){.cal-dots{gap:6px}.cal-dots i{width:16px;height:16px}}
+#seek-marks i.err{top:6px;width:2px;height:10px;background:#ff4f6d;opacity:.8;box-shadow:0 0 6px rgba(255,79,109,.6)}
+.sect-pill{position:absolute;left:50%;top:14px;transform:translateX(-50%);z-index:6;display:flex;align-items:center;gap:10px;padding:6px 6px 6px 14px;border-radius:99px;background:rgba(18,19,30,.86);border:1px solid rgba(255,181,46,.45);box-shadow:0 10px 30px rgba(0,0,0,.4),0 0 24px rgba(255,181,46,.15);backdrop-filter:blur(10px);white-space:nowrap;font-size:13.5px;max-width:calc(100% - 24px)}
+.sect-pill .sp-l{font-size:11px;font-weight:800;letter-spacing:.08em;text-transform:uppercase;color:#ffd27a}
+.sect-pill span{color:var(--ink-2)}.sect-pill b{color:var(--ink);overflow:hidden;text-overflow:ellipsis}
+.sect-pill .sp-r{padding:3px 9px;border-radius:99px;background:rgba(255,181,46,.16);color:#ffd27a;font-weight:800}
+.sect-pill button{width:28px;height:28px;border-radius:50%;background:rgba(255,255,255,.08);color:var(--ink);font-size:17px;line-height:1}
+.in-sect #wait-hint{top:62px}
+.sheet .card{text-align:left}.sheet h2{text-align:center}
+.sect-list{display:flex;flex-direction:column;gap:8px;margin:14px 0;max-height:min(46vh,380px);overflow:auto}
+.sect-item{display:flex;flex-direction:column;align-items:flex-start;gap:2px;padding:11px 14px;border-radius:14px;background:rgba(255,255,255,.05);border:1px solid var(--line);text-align:left;transition:.2s}
+.sect-item:hover{border-color:rgba(63,211,220,.5);background:rgba(63,211,220,.07)}
+.sect-item b{font-size:15.5px}.sect-item small{color:var(--ink-3);font-size:12.5px}
+.sect-item.hot{border-color:rgba(255,79,109,.45);background:rgba(255,79,109,.07)}.sect-item.hot small{color:#ff8fa3}
+.sect-start{margin:10px 0 0}
+.weak{display:flex;flex-wrap:wrap;gap:8px;justify-content:center;align-items:center;margin:12px 0 4px}
+.weak>span{font-size:12px;font-weight:800;letter-spacing:.06em;text-transform:uppercase;color:#ff8fa3;width:100%;text-align:center}
+.weak .chip em{font-style:normal;color:var(--ink-3);margin-left:6px;font-size:12px}
+.dyn{color:var(--ink-2);margin:8px 0 0;text-align:center}.dyn b{color:#ffd27a}
+@media (max-width:640px){.sect-pill .sp-l,.sect-pill span:not(.sp-r){display:none}}
 </style>
 </head>
 <body>
@@ -449,8 +493,10 @@ details.adv summary::after{content:'+';font-size:20px;color:var(--ink-3)}details
       <div class="pop-wrap">
         <button class="ib" data-pop="pop-more" title="Plus d’options" aria-label="Plus d’options" aria-expanded="false"><svg viewBox="0 0 24 24" fill="currentColor"><circle cx="5" cy="12" r="2"/><circle cx="12" cy="12" r="2"/><circle cx="19" cy="12" r="2"/></svg></button>
         <div class="popover right" id="pop-more" hidden>
+          <button class="pop-item" id="btn-sect"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19V5M20 19V5"/><path d="M8 12h8M13 9l3 3-3 3"/></svg>Travailler un passage</button>
           <button class="pop-item" id="btn-metro"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="M9 3h6l4 18H5z"/><path d="M12 15l5-8"/></svg>Métronome<i class="sw"></i></button>
           <div class="pop-item loop"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M17 2l4 4-4 4"/><path d="M3 11V9a3 3 0 0 1 3-3h15M7 22l-4-4 4-4"/><path d="M21 13v2a3 3 0 0 1-3 3H3"/></svg>Boucle<span class="ab"><button class="tg" id="btn-a" title="Début de boucle">A</button><button class="tg" id="btn-b" title="Fin de boucle">B</button></span></div>
+          <button class="pop-item" id="btn-fs" hidden><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/></svg>Plein écran<i class="sw"></i></button>
           <button class="pop-item" id="btn-rew"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 3-6.7"/><path d="M3 4v5h5"/></svg>Reculer de 5 secondes</button>
         </div>
       </div>

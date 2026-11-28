@@ -3,6 +3,8 @@
 
 import { LESSONS, LEVELS, LIBRARY, buildLesson, loadProgress, saveResult, levelStats, nextLesson } from './lessons.js';
 import { DRILLS, DRILL_LEVELS, CATS, runDrill } from './drills.js';
+import { listMine, getMine, removeMine, addFiles, filesOf } from './mylib.js';
+import { loadFiles } from './model.js';
 
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
 const LCOL = ['#3fd3dc', '#4cc9f0', '#7aa7ff', '#a78bfa', '#ffb52e', '#ff8a4c', '#ff62b6', '#ff4f7b'];
@@ -31,11 +33,19 @@ export function mountSchool(root, app) {
       <button class="ib" data-close aria-label="Fermer l’école"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
     </header>
     <div class="sc-body"></div>
-    <div class="sc-drill" hidden></div>`;
+    <div class="sc-drill" hidden></div>
+    <input type="file" class="my-file" multiple hidden accept=".mid,.midi,.kar,.rmi,.synthesia,.xml,.zip">`;
   root.appendChild(el);
   const body = el.querySelector('.sc-body');
   const drillHost = el.querySelector('.sc-drill');
   let tab = 'path', libFilter = 0, libQuery = '', fmCat = 'all', drillRun = null;
+  let mine = [], mineErr = null, confirmDel = null;
+  const myInput = el.querySelector('.my-file');
+  async function refreshMine() {
+    try { mine = await listMine(); mineErr = null; } catch (e) { mine = []; mineErr = e.message || String(e); }
+    if (!el.hidden && tab === 'lib') render();
+  }
+  refreshMine();
 
   function show(t) {
     if (t) tab = t;
@@ -105,6 +115,8 @@ export function mountSchool(root, app) {
         <input type="search" placeholder="Chercher un morceau ou un compositeur" value="${esc(libQuery)}" data-q aria-label="Chercher">
         <div class="chips">${[[0, 'Tous']].concat(LEVELS.map((L) => [L.id, L.name])).filter(([id]) => !id || LIBRARY.some((l) => l.level === id)).map(([id, n]) => `<button class="chip ${libFilter === id ? 'on' : ''}" data-lf="${id}">${esc(n)}</button>`).join('')}</div>
       </div>
+      ${libFilter ? '' : myHtml(P, q)}
+      ${libFilter ? '' : '<h3 class="lib-h">Morceaux de la méthode</h3>'}
       <div class="lib-grid">${list.map((l) => {
         const r = P[l.id];
         return `<button class="song-card" data-lesson="${l.id}" style="--c:${LCOL[l.level - 1]}">
@@ -113,7 +125,63 @@ export function mountSchool(root, app) {
           <span class="sc-meta"><em>Niveau ${l.level} · ${esc(LEVELS[l.level - 1].name)}</em>${starsHtml(r?.stars || 0)}</span>
         </button>`;
       }).join('') || '<p class="muted">Aucun morceau ne correspond.</p>'}</div>
-      <p class="muted small lib-note">Tous les morceaux sont du domaine public, arrangés pour la méthode. Tes propres fichiers (MIDI, .synthesia, packs MusiMix) s’ouvrent avec le bouton d’ouverture en haut.</p>`;
+      <p class="muted small lib-note">Les morceaux de la méthode sont du domaine public, arrangés pour l’apprentissage.</p>`;
+  }
+  function myHtml(P, q) {
+    const list = mine.filter((m) => !q || (m.title + ' ' + m.composer).toLowerCase().includes(q));
+    if (q && !list.length) return '';
+    const dur = (d) => (d ? `${Math.floor(d / 60)} min ${String(Math.round(d % 60)).padStart(2, '0')}` : '');
+    return `
+      <h3 class="lib-h">Mes morceaux</h3>
+      <div class="lib-grid mine">
+        ${list.map((m) => {
+          const r = P[m.id];
+          const del = confirmDel === m.id;
+          return `<div class="song-card my ${del ? 'confirm' : ''}" data-my="${m.id}" role="button" tabindex="0" style="--c:#ffb52e">
+            <span class="sc-art"><i>♪</i></span>
+            <b>${esc(m.title)}</b><small>${esc(m.composer || 'Mon fichier')}${m.duration ? ' · ' + dur(m.duration) : ''}</small>
+            <span class="sc-meta"><em>${r ? `Record ${r.best} %` : 'Pas encore joué'}</em>${starsHtml(r?.stars || 0)}</span>
+            <button class="my-del" data-mydel="${m.id}" aria-label="Retirer ${esc(m.title)}">${del ? 'Retirer ?' : '×'}</button>
+          </div>`;
+        }).join('')}
+        ${q ? '' : `<button class="song-card add" data-myadd>
+          <span class="sc-art"><i>+</i></span>
+          <b>Ajouter un morceau</b><small>MIDI (.mid), avec son .synthesia si tu l’as, ou pack MusiMix</small>
+        </button>`}
+      </div>
+      ${mineErr ? `<p class="muted small">Tes morceaux ne peuvent pas être gardés ici (${esc(mineErr)}).</p>` : ''}`;
+  }
+
+  async function addMine(files) {
+    if (!files?.length) return;
+    try {
+      const added = await addFiles(files, async (group) => {
+        const song = await loadFiles(group);
+        const n = song.tracks.reduce((a, t) => a + t.notes.length, 0);
+        if (!n) throw new Error(`Pas de notes dans « ${group[0].name} »`);
+        return { title: song.synthesia?.title || '', composer: song.artist || '', notes: n, duration: song.duration };
+      });
+      await refreshMine();
+      app.toast(added.length === 1 ? `Ajouté à tes morceaux : ${added[0].title}` : `${added.length} morceaux ajoutés`);
+      if (tab !== 'lib') show('lib'); else render();
+    } catch (e) { app.toast(e.message || String(e), 6000); }
+  }
+  myInput.addEventListener('change', () => { addMine([...myInput.files]); myInput.value = ''; });
+
+  async function openMine(id) {
+    const rec = await getMine(id).catch(() => null);
+    if (!rec) { app.toast('Morceau introuvable'); refreshMine(); return; }
+    hide();
+    try {
+      const song = await loadFiles(filesOf(rec));
+      if (!song.title || song.title === rec.files[0].name.replace(/\.[^.]+$/, '')) song.title = rec.title;
+      const item = { id: rec.id, title: rec.title, kind: 'song', hands: 'RL', mine: true, tip: `${rec.title} : choisis la main en bas, puis appuie sur lecture.` };
+      await app.open(song, {
+        lesson: item,
+        onResult: (r) => ({ ...saveResult(rec.id, r), next: null }),
+        onSchool: () => show('lib'),
+      });
+    } catch (e) { app.toast('Impossible d’ouvrir : ' + (e.message || e), 6000); }
   }
 
   // ── formation musicale
@@ -174,6 +242,15 @@ export function mountSchool(root, app) {
     const t = e.target.closest('[data-t]')?.dataset.t;
     if (t) { show(t); return; }
     if (e.target.closest('[data-close]')) { hide(); return; }
+    const del = e.target.closest('[data-mydel]')?.dataset.mydel;
+    if (del) {
+      if (confirmDel === del) { confirmDel = null; removeMine(del).then(refreshMine); }
+      else { confirmDel = del; render(); setTimeout(() => { if (confirmDel === del) { confirmDel = null; if (tab === 'lib' && !el.hidden) render(); } }, 3500); }
+      return;
+    }
+    if (e.target.closest('[data-myadd]')) { myInput.click(); return; }
+    const my = e.target.closest('[data-my]')?.dataset.my;
+    if (my) { openMine(my); return; }
     const ls = e.target.closest('[data-lesson]')?.dataset.lesson;
     if (ls) { openLesson(ls); return; }
     const dr = e.target.closest('[data-drill]')?.dataset.drill;
@@ -193,5 +270,10 @@ export function mountSchool(root, app) {
   });
   window.addEventListener('keydown', (e) => { if (e.key === 'Escape' && !el.hidden) { if (!drillHost.hidden) { drillRun?.stop(); drillRun = null; drillHost.hidden = true; render(); } else hide(); } });
 
-  return { show, hide, openLesson, openDrill };
+  el.addEventListener('keydown', (e) => { const my = e.target.closest?.('[data-my]'); if (my && (e.key === 'Enter' || e.key === ' ') && e.target === my) { e.preventDefault(); openMine(my.dataset.my); } });
+  // glisser-déposer des fichiers sur l'école : ajout à « Mes morceaux »
+  el.addEventListener('dragover', (e) => { e.preventDefault(); e.stopPropagation(); });
+  el.addEventListener('drop', (e) => { e.preventDefault(); e.stopPropagation(); document.body.classList.remove('drop-on'); addMine([...e.dataTransfer.files]); });
+
+  return { show, hide, openLesson, openDrill, openMine, addMine, refreshMine };
 }

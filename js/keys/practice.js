@@ -59,12 +59,14 @@ export class Practice extends EventTarget {
   reset() {
     this.stats = { hit: 0, wrong: 0, miss: 0, perfect: 0, streak: 0, best: 0 };
     this._ptr = 0;
-    for (const n of this.notes) { n.state = undefined; n.hitDelta = undefined; }
+    for (const n of this.notes) { n.state = undefined; n.hitDelta = undefined; n.playedVel = undefined; }
+    this.wrongs = []; // fausses notes : { t, pitch }
     this.waitingFor = null;
   }
   /** Après un saut : les notes passées ne comptent plus. */
   rewindTo(t) {
-    for (const n of this.notes) if (n.t >= t - 0.05) { n.state = undefined; }
+    for (const n of this.notes) if (n.t >= t - 0.05) { n.state = undefined; n.playedVel = undefined; }
+    this.wrongs = this.wrongs.filter((w) => w.t < t - 0.05);
     this._ptr = lower(this.notes, t - 1);
     this.waitingFor = null;
   }
@@ -74,7 +76,7 @@ export class Practice extends EventTarget {
   }
 
   /** Une touche jouée au temps T du morceau (rate = vitesse, pour la tolérance). Retourne 'ok' | 'bad'. */
-  press(pitch, T, rate = 1) {
+  press(pitch, T, rate = 1, vel = null) {
     const tol = this.tol * rate;
     let best = null, bd = Infinity;
     const from = lower(this.notes, T - tol - 0.01);
@@ -90,6 +92,7 @@ export class Practice extends EventTarget {
     if (best) {
       best.state = 'hit';
       best.hitDelta = best.t - T;
+      if (vel != null) best.playedVel = vel;
       const s = this.stats;
       s.hit++; s.streak++; s.best = Math.max(s.best, s.streak);
       if (bd < 0.07 * rate) s.perfect++;
@@ -97,6 +100,7 @@ export class Practice extends EventTarget {
       return 'ok';
     }
     this.stats.wrong++; this.stats.streak = 0;
+    this.wrongs.push({ t: T, pitch });
     this.dispatchEvent(new CustomEvent('wrong', { detail: { pitch } }));
     return 'bad';
   }
@@ -127,6 +131,42 @@ export class Practice extends EventTarget {
     return null;
   }
 }
+
+/** Bilan d'un passage [a, b) : les notes non jouées comptent comme manquées. */
+Practice.prototype.range = function range(a, b) {
+  let hit = 0, miss = 0;
+  for (const n of this.notes) { if (n.t < a - 0.01 || n.t >= b) continue; if (n.state === 'hit') hit++; else miss++; }
+  const wrong = this.wrongs.filter((w) => w.t >= a - 0.3 && w.t < b).length;
+  const tot = hit + miss + wrong * 0.5;
+  return { hit, miss, wrong, total: hit + miss, accuracy: tot ? Math.round((100 * hit) / tot) : 100 };
+};
+
+/** Passages à retravailler : mesures (ou tranches de 4 s) qui concentrent les erreurs. */
+Practice.prototype.weakSpots = function weakSpots(downbeats = [], max = 3) {
+  const bars = downbeats.length > 2 ? downbeats : (() => { const out = []; const end = this.notes.at(-1)?.t ?? 0; for (let t = this.notes[0]?.t ?? 0; t <= end + 4; t += 4) out.push(t); return out; })();
+  const idx = (t) => { let lo = 0, hi = bars.length; while (lo < hi) { const m = (lo + hi) >> 1; if (bars[m] <= t + 0.001) lo = m + 1; else hi = m; } return Math.max(0, lo - 1); };
+  const err = new Map(), tot = new Map();
+  for (const n of this.notes) { const i = idx(n.t); tot.set(i, (tot.get(i) || 0) + 1); if (n.state === 'miss') err.set(i, (err.get(i) || 0) + 1); }
+  for (const w of this.wrongs) { const i = idx(w.t); err.set(i, (err.get(i) || 0) + 1); }
+  const bad = [...err.keys()].filter((i) => err.get(i) >= 2 || err.get(i) / (tot.get(i) || 1) >= 0.34).sort((x, y) => x - y);
+  const groups = [];
+  for (const i of bad) { const g = groups.at(-1); if (g && i - g.to <= 2 && i - g.from < 6) g.to = i; else groups.push({ from: i, to: i }); }
+  for (const g of groups) { g.errors = 0; for (let i = g.from; i <= g.to; i++) g.errors += err.get(i) || 0; g.a = bars[g.from]; g.b = bars[g.to + 1] ?? bars[g.to] + 4; }
+  return groups.sort((x, y) => y.errors - x.errors).slice(0, max).sort((x, y) => x.a - y.a).map((g) => ({ ...g, bars: downbeats.length > 2 }));
+};
+
+/** Nuances : les forces jouées comparées à celles du morceau (null si le morceau n'a pas de nuances). */
+Practice.prototype.dynamics = function dynamics() {
+  const vs = this.notes.map((n) => n.vel ?? 0.7);
+  const mean = vs.reduce((a, b) => a + b, 0) / (vs.length || 1);
+  const sd = Math.sqrt(vs.reduce((a, b) => a + (b - mean) ** 2, 0) / (vs.length || 1));
+  if (sd < 0.06) return null;
+  const played = this.notes.filter((n) => n.state === 'hit' && n.playedVel != null);
+  if (played.length < 8) return null;
+  let ok = 0, bias = 0;
+  for (const n of played) { const d = n.playedVel - (n.vel ?? 0.7); bias += d; if (Math.abs(d) < 0.17) ok++; }
+  return { fidelity: Math.round((100 * ok) / played.length), bias: bias / played.length, n: played.length };
+};
 
 function lower(arr, t) {
   let lo = 0, hi = arr.length;

@@ -19,8 +19,9 @@ const store = {
 };
 
 const DEFAULTS = {
+  sectAuto: true, sectStart: 0.6,
   mode: 'listen', wait: false, rate: 1, look: 3.2, labels: 'c', range: 'auto', tol: 'normal', latency: 0,
-  liveSound: true, noteNames: false, chordsMode: 'auto', fx: 'auto', liveInst: 'grand', liveVol: 0.9, hearMine: 0.35, metronome: false, metroVol: 0.5, velCurve: 'normal', master: 0.9,
+  liveSound: true, noteNames: false, chordsMode: 'auto', fx: 'auto', liveInst: 'grand', liveVol: 0.9, hearMine: 0.35, metronome: false, metroVol: 0.5, velCurve: 'normal', master: 0.9, showPedal: true,
 };
 
 const STEM_COL = { vocals: '#ff62b6', backing: '#ff9bcf', drums: '#ffb52e', bass: '#ff8a4c', guitar: '#3fd3dc', piano: '#7aa7ff', other: '#9aa0ab', instrumental: '#3fd3dc', mix: '#9aa0ab', take: '#e5484d' };
@@ -79,10 +80,11 @@ export function mountKeys(root, { soundsBase = 'sounds/' } = {}) {
 
   async function open(s, opts = {}) {
     lesson = opts.lesson ? opts : null;
+    keepAwake();
     await audio().catch(() => {});
     if (transport) { transport.pause(); synth.stopAll(); }
     song = s;
-    ended = false; loop = null; updateLoopUI();
+    ended = false; loop = null; updateLoopUI(); sect = null; lastWeak = []; sectUI();
     const mix = store.get('mix:' + (s.title || ''), {});
     for (const t of s.tracks) {
       t.inst ||= t.isDrum ? 'drums' : t.kind === 'grid' ? 'grand' : instrumentForProgram(t.program);
@@ -148,7 +150,7 @@ export function mountKeys(root, { soundsBase = 'sounds/' } = {}) {
     flat.sort((a, b) => a.t - b.t || a.pitch - b.pitch);
     const showChords = S.chordsMode === 'on' || (S.chordsMode === 'auto' && song.chordSource !== 'detected');
     song._showChords = showChords;
-    roll.setSong(flat, { chords: showChords ? song.chords : [], downbeats: song.downbeats, bookmarks: song.bookmarks });
+    roll.setSong(flat, { chords: showChords ? song.chords : [], downbeats: song.downbeats, bookmarks: song.bookmarks, pedal: S.showPedal ? song.pedal : [] });
     roll.look = S.look; roll.labels = S.labels; roll.noteNames = S.noteNames;
     roll.setRange(S.range, flat.filter((n) => !n.hidden));
     practice.wait = S.wait;
@@ -225,7 +227,7 @@ export function mountKeys(root, { soundsBase = 'sounds/' } = {}) {
 
     if (playing) schedule(Traw, rate, outLat);
     // boucle A-B
-    if (loop && playing && T >= loop.b) { seek(loop.a); return; }
+    if (loop && playing && T >= loop.b) { if (sect) sectionPass(); seek(loop.a); return; }
     // fin
     if (playing && T >= transport.duration - 0.05 && !loop) { transport.pause(); synth.stopAll(); onEnd(); }
 
@@ -375,12 +377,16 @@ export function mountKeys(root, { soundsBase = 'sounds/' } = {}) {
     if (S.mode === 'listen' || !practice.notes.length) return;
     const s = practice.stats, a = practice.accuracy;
     let stars = a >= 95 ? 3 : a >= 80 ? 2 : a >= 55 ? 1 : 0;
+    lastWeak = practice.weakSpots(song.downbeats);
+    const dyn = practice.dynamics();
+    errMarks();
     let extra = '', nextBtn = '';
     if (lesson) {
       const r = lesson.onResult?.({ accuracy: a, wait: S.wait, rate: transport.rate, hit: s.hit, wrong: s.wrong, miss: s.miss }) || {};
       stars = r.newStars ?? stars;
-      extra = `<p class="lesson-res">${stars >= 1 ? (r.improved ? 'Nouveau record — étape validée !' : 'Étape validée.') : 'Il faut 75 % pour valider cette étape.'}${!r.full && a >= 90 ? ' Pour la 3e étoile : à 100 % de vitesse, sans « Attendre ».' : ''}</p>`;
-      nextBtn = `<button class="btn ghost" data-act="school">Parcours</button>` + (r.next ? `<button class="btn primary" data-act="next">Étape suivante →</button>` : '');
+      const mineSong = lesson.lesson.mine;
+      extra = `<p class="lesson-res">${mineSong ? (r.improved ? `Nouveau record : ${a} %` : `Ton record : ${r.best} %`) : stars >= 1 ? (r.improved ? 'Nouveau record — étape validée !' : 'Étape validée.') : 'Il faut 75 % pour valider cette étape.'}${!r.full && a >= 90 ? ' Pour la 3e étoile : à 100 % de vitesse, sans « Attendre ».' : ''}</p>`;
+      nextBtn = `<button class="btn ghost" data-act="school">${lesson.lesson.mine ? 'Mes morceaux' : 'Parcours'}</button>` + (r.next ? `<button class="btn primary" data-act="next">Étape suivante →</button>` : '');
     }
     el.results.innerHTML = `
       <div class="card res">
@@ -394,6 +400,8 @@ export function mountKeys(root, { soundsBase = 'sounds/' } = {}) {
           <div><b>${s.best}</b><span>meilleure série</span></div>
         </div>
         ${extra}
+        ${lastWeak.length ? `<div class="weak"><span>À retravailler</span>${lastWeak.map((w, i) => `<button class="chip" data-act="weak" data-i="${i}">${esc(barsLabel(w.a, w.b))}<em>${w.errors} erreur${w.errors > 1 ? 's' : ''}</em></button>`).join('')}</div>` : ''}
+        ${dyn ? `<p class="dyn">Nuances respectées : <b>${dyn.fidelity} %</b>${Math.abs(dyn.bias) > 0.08 ? (dyn.bias > 0 ? ' · tu joues un peu trop fort' : ' · tu joues un peu trop doucement') : ' · bon équilibre'}</p>` : ''}
         <div class="row">
           <button class="btn ghost" data-act="slower">Plus lentement</button>
           <button class="btn ${nextBtn ? '' : 'primary'}" data-act="again">Rejouer</button>
@@ -406,6 +414,8 @@ export function mountKeys(root, { soundsBase = 'sounds/' } = {}) {
     const act = e.target.closest('[data-act]')?.dataset.act;
     if (!act && e.target !== el.results) return;
     el.results.hidden = true;
+    if (act === 'weak') { const w = lastWeak[+e.target.closest('[data-i]').dataset.i]; if (w) startSection({ ...w, label: barsLabel(w.a, w.b) }); return; }
+    if (act) renderMarks();
     if (act === 'next') { lesson?.onNext?.(); return; }
     if (act === 'school') { lesson?.onSchool?.(); return; }
     if (act === 'slower') setRate(Math.max(0.4, Math.round((S.rate - 0.15) * 20) / 20));
@@ -453,6 +463,14 @@ export function mountKeys(root, { soundsBase = 'sounds/' } = {}) {
     const D = transport.duration || 1;
     el.seekMarks.innerHTML = song.bookmarks.map((b) => `<i style="left:${(b.t / D) * 100}%" title="${esc(b.label)}"></i>`).join('');
   }
+  /** Après un essai : petits traits rouges sur la barre de progression aux erreurs (manquées et fausses). */
+  function errMarks() {
+    const D = transport.duration || 1;
+    const ts = practice.notes.filter((n) => n.state === 'miss').map((n) => n.t).concat(practice.wrongs.map((w) => w.t));
+    const seen = new Set();
+    const marks = ts.map((t) => Math.round((t / D) * 400) / 4).filter((x) => !seen.has(x) && seen.add(x)).slice(0, 300);
+    el.seekMarks.innerHTML = song.bookmarks.map((b) => `<i style="left:${(b.t / D) * 100}%" title="${esc(b.label)}"></i>`).join('') + marks.map((x) => `<i class="err" style="left:${x}%"></i>`).join('');
+  }
 
   // ───────────────────────────────────────── clavier MIDI, écran, ordinateur ──
 
@@ -461,15 +479,17 @@ export function mountKeys(root, { soundsBase = 'sounds/' } = {}) {
     // âge du message MIDI : si l'écran était occupé, on juge la note à l'instant où elle a été jouée
     const age = ts != null ? Math.max(0, Math.min(0.5, (performance.now() - ts) / 1000)) : 0;
     if (pressed.has(pitch)) keyUp(pitch);
+    if (!wakeLock) keepAwake();
     if (!ctx || ctx.state !== 'running') await audio();
     vel = curve(vel);
     if (S.liveSound) synth.liveOn(pitch, vel);
+    if (calib?.running) { calib.presses.push(ctx.currentTime - age); pressed.set(pitch, { col: '#ffd27a', kind: 'free' }); calibTick(); return; }
     let kind = 'free';
     if (song && S.mode !== 'listen' && (transport.playing || waiting)) {
       // même repère que l'affichage (latence de sortie) + réglage « décalage du clavier »
       const lat = (ctx.outputLatency || ctx.baseLatency || 0) + S.latency / 1000;
       const T = waiting ? stopAt : transport.time - (lat + age) * transport.rate;
-      kind = practice.press(pitch, T, transport.rate);
+      kind = practice.press(pitch, T, transport.rate, vel);
     }
     noteBus.dispatchEvent(new CustomEvent('note', { detail: { note: pitch, vel } }));
     const col = kind === 'ok' ? PALETTE.ok : kind === 'bad' ? PALETTE.bad : '#ffd27a';
@@ -542,6 +562,179 @@ export function mountKeys(root, { soundsBase = 'sounds/' } = {}) {
   window.addEventListener('keydown', onKey);
   window.addEventListener('keyup', onKey);
 
+  // ───────────────────────────────────────── travail d'un passage ──
+  // le passage tourne en boucle ; « accélérer tout seul » : +10 % de vitesse à chaque essai réussi (≥ 90 %)
+  let sect = null, lastWeak = [];
+  const sectPill = document.createElement('div');
+  sectPill.className = 'sect-pill'; sectPill.hidden = true;
+  el.stage.appendChild(sectPill);
+  const barOf = (t) => { const db = song?.downbeats || []; let lo = 0, hi = db.length; while (lo < hi) { const m = (lo + hi) >> 1; if (db[m] <= t + 0.01) lo = m + 1; else hi = m; } return lo; }; // n° de mesure (1…)
+  const barsLabel = (a, b) => { if (!(song?.downbeats?.length > 2)) return `${fmt(a)} → ${fmt(b)}`; const x = barOf(a), y = Math.max(x, barOf(b - 0.02)); return x === y ? `Mesure ${x}` : `Mesures ${x} à ${y}`; };
+  function sectionChoices() {
+    const out = [];
+    const T = Math.max(0, transport?.time || 0);
+    for (const w of lastWeak) out.push({ a: w.a, b: w.b, label: barsLabel(w.a, w.b), sub: `À retravailler · ${w.errors} erreur${w.errors > 1 ? 's' : ''}`, hot: true });
+    const db = song.downbeats || [];
+    if (db.length > 2) {
+      const i = Math.max(0, barOf(T) - 1);
+      for (const n of [4, 8]) if (db[i + 1] != null) out.push({ a: db[i], b: db[Math.min(db.length - 1, i + n)] ?? song.duration, label: barsLabel(db[i], db[Math.min(db.length - 1, i + n)] ?? song.duration), sub: `${n} mesures à partir d’ici` });
+    } else for (const n of [8, 16]) out.push({ a: T, b: Math.min(transport.duration, T + n), label: `${fmt(T)} → ${fmt(T + n)}`, sub: `${n} secondes à partir d’ici` });
+    const bm = song.bookmarks || [];
+    bm.forEach((m, k) => { const b = bm[k + 1]?.t ?? transport.duration; if (b - m.t > 1) out.push({ a: m.t, b, label: m.label, sub: barsLabel(m.t, b) }); });
+    if (loop?.b && !sect) out.push({ a: Math.max(0, loop.a), b: loop.b, label: 'Ma boucle A-B', sub: barsLabel(Math.max(0, loop.a), loop.b) });
+    return out;
+  }
+  function sectionSheet() {
+    closePops();
+    if (!song) return;
+    if (S.mode === 'listen') setMode(song.tracks.some((t) => t.role === 'left') ? 'RL' : 'R');
+    const list = sectionChoices();
+    const box = document.createElement('div');
+    box.className = 'calib sheet';
+    box.innerHTML = `<div class="card">
+      <h2>Travailler un passage</h2>
+      <p class="muted small">Le passage tourne en boucle. Chaque essai est noté ; tu peux arrêter avec la croix en haut.</p>
+      <div class="sect-list">${list.map((c, i) => `<button class="sect-item ${c.hot ? 'hot' : ''}" data-sect="${i}"><b>${esc(c.label)}</b><small>${esc(c.sub)}</small></button>`).join('')}</div>
+      <label class="switch"><input type="checkbox" data-sectauto ${S.sectAuto ? 'checked' : ''}><span>Accélérer tout seul : de ${Math.round(S.sectStart * 100)} % à 100 %, +10 % à chaque essai réussi (90 %)</span></label>
+      <div class="chips sect-start">${[0.5, 0.6, 0.7, 0.8].map((r) => `<button class="chip ${S.sectStart === r ? 'on' : ''}" data-sectstart="${r}">Départ ${r * 100} %</button>`).join('')}</div>
+      <div class="row"><button class="btn ghost" data-sectclose>Fermer</button></div></div>`;
+    el.stage.appendChild(box);
+    box.addEventListener('click', (e) => {
+      const i = e.target.closest('[data-sect]')?.dataset.sect;
+      if (i != null) { box.remove(); startSection(list[+i]); return; }
+      const st = e.target.closest('[data-sectstart]')?.dataset.sectstart;
+      if (st) { S.sectStart = +st; saveSettings(); box.querySelectorAll('[data-sectstart]').forEach((c) => c.classList.toggle('on', c === e.target.closest('[data-sectstart]'))); box.querySelector('.switch span').textContent = `Accélérer tout seul : de ${Math.round(S.sectStart * 100)} % à 100 %, +10 % à chaque essai réussi (90 %)`; return; }
+      if (e.target.closest('[data-sectclose]') || e.target === box) box.remove();
+    });
+    box.addEventListener('change', (e) => { if (e.target.matches('[data-sectauto]')) { S.sectAuto = e.target.checked; saveSettings(); } });
+  }
+  async function startSection(c) {
+    el.results.hidden = true;
+    const lead = Math.min(1.5, Math.max(0.6, 2 * (song.beats?.[1] - song.beats?.[0] || 0.6))); // un peu d'élan avant le passage
+    sect = { a: c.a, b: c.b, label: c.label, pass: 0, ok: 0, last: null };
+    loop = { a: Math.max(transport.hasAudio ? 0 : -2, c.a - lead), b: c.b };
+    updateLoopUI();
+    if (S.sectAuto) setRate(Math.min(S.rate, S.sectStart) || S.sectStart);
+    practice.reset();
+    await seek(loop.a);
+    sectUI();
+    togglePlay(true);
+  }
+  function stopSection() { sect = null; loop = null; updateLoopUI(); sectUI(); }
+  function sectionPass() {
+    const r = practice.range(sect.a, sect.b);
+    sect.pass++; sect.last = r.accuracy;
+    let msg = `Essai ${sect.pass} : ${r.accuracy} %`;
+    if (r.accuracy >= 90) {
+      sect.ok++;
+      if (S.sectAuto && S.rate < 0.999) { setRate(Math.min(1, Math.round((S.rate + 0.1) * 20) / 20)); msg += ` · vitesse ${Math.round(S.rate * 100)} %`; }
+      else if (S.rate >= 0.999) msg = sect.ok >= 2 ? `Passage maîtrisé ! ${r.accuracy} % à pleine vitesse` : msg + ' à pleine vitesse';
+    } else if (S.sectAuto && r.accuracy < 60 && S.rate > 0.45) { setRate(Math.max(0.4, Math.round((S.rate - 0.1) * 20) / 20)); msg += ` · on ralentit à ${Math.round(S.rate * 100)} %`; }
+    pop(msg, r.accuracy >= 90 ? 'big' : '');
+    practice.reset();
+    sectUI();
+  }
+  function sectUI() {
+    sectPill.hidden = !sect;
+    root.classList.toggle('in-sect', !!sect);
+    if (!sect) return;
+    sectPill.innerHTML = `<span class="sp-l">Passage</span><b>${esc(sect.label)}</b><span>${sect.pass ? `Essai ${sect.pass + 1} · dernier ${sect.last} %` : 'Premier essai'}</span><span class="sp-r">${Math.round(S.rate * 100)} %</span><button data-sectstop aria-label="Arrêter le passage">×</button>`;
+  }
+  sectPill.addEventListener('click', (e) => { if (e.target.closest('[data-sectstop]')) stopSection(); });
+  root.addEventListener('click', (e) => { if (e.target.closest('#btn-sect')) sectionSheet(); });
+
+  // ──────────────────────────────────── calage automatique du clavier MIDI ──
+  // 4 clics pour écouter, puis 8 clics à accompagner d'une touche : la médiane des écarts devient le « décalage »
+  let calib = null;
+  const CAL_IV = 0.6, CAL_IN = 4, CAL_N = 8;
+  function calibOpen() {
+    closePops();
+    el.drawer.hidden = true; root.classList.remove('drawer-open');
+    if (transport?.playing || waiting) { waiting = false; transport.pause(); synth?.stopAll(); }
+    calib?.box?.remove();
+    const box = document.createElement('div');
+    box.className = 'calib';
+    el.stage.appendChild(box);
+    calib = { box, running: false, presses: [] };
+    calibScreen('intro');
+  }
+  function calibClose() { if (!calib) return; calib.running = false; clearInterval(calib.timer); calib.box.remove(); calib = null; }
+  function calibScreen(kind, data = {}) {
+    const dots = Array.from({ length: CAL_IN + CAL_N }, (_, i) => `<i class="${i < CAL_IN ? 'in' : ''}"></i>`).join('');
+    const body = {
+      intro: `<h2>Caler mon clavier</h2>
+        <p>Tu vas entendre <b>4 clics</b> pour prendre le tempo, puis joue <b>n’importe quelle touche</b> en même temps que chacun des <b>8 clics</b> suivants.</p>
+        <p class="muted small">Utilise le son que tu utilises pour jouer (celui de ta P-95 ou celui de l’appli). Le résultat règle le « décalage du clavier ».</p>
+        <div class="row"><button class="btn ghost" data-cal="close">Annuler</button><button class="btn primary" data-cal="go">Commencer</button></div>`,
+      run: `<h2>Écoute… puis joue avec le clic</h2><div class="cal-dots">${dots}</div><p class="muted small cal-hint">Prépare-toi</p>`,
+      result: `<h2>${data.ok ? 'Ton clavier est calé' : 'Résultat irrégulier'}</h2>
+        <div class="cal-big">${data.ms > 0 ? '+' : ''}${data.ms}<small> ms</small></div>
+        <p>${data.ok ? (Math.abs(data.ms) <= 15 ? 'Presque aucun décalage : tout est déjà bien réglé.' : data.ms > 0 ? 'Tes notes arrivent un peu après le son : l’appli en tiendra compte.' : 'Tes notes arrivent un peu avant le son : l’appli en tiendra compte.') : `Tes frappes étaient trop éloignées les unes des autres (±${data.spread} ms) ou trop peu nombreuses (${data.n}/8). Recommence calmement, en suivant bien le clic.`}</p>
+        <div class="row"><button class="btn ghost" data-cal="go">Recommencer</button>${data.ok ? `<button class="btn primary" data-cal="apply" data-ms="${data.ms}">Appliquer</button>` : '<button class="btn ghost" data-cal="close">Fermer</button>'}</div>`,
+    }[kind];
+    calib.box.innerHTML = `<div class="card">${body}</div>`;
+  }
+  async function calibStart() {
+    await audio();
+    calibScreen('run');
+    calib.presses = [];
+    const outLat = ctx.outputLatency || ctx.baseLatency || 0;
+    const c0 = ctx.currentTime + 0.6;
+    for (let i = 0; i < CAL_IN + CAL_N; i++) synth.click(c0 + i * CAL_IV, i % 4 === 0);
+    Object.assign(calib, { running: true, c0, outLat });
+    calib.timer = setInterval(calibTick, 40);
+  }
+  function calibTick() {
+    if (!calib?.running) return;
+    const k = Math.floor((ctx.currentTime - calib.outLat - calib.c0) / CAL_IV + 0.15);
+    calib.box.querySelectorAll('.cal-dots i').forEach((d, i) => { d.classList.toggle('on', i === k); d.classList.toggle('past', i < k); });
+    const hint = calib.box.querySelector('.cal-hint');
+    if (hint) hint.textContent = k < 0 ? 'Prépare-toi' : k < CAL_IN ? `Écoute : ${k + 1}` : k < CAL_IN + CAL_N ? `Joue ! ${k - CAL_IN + 1} / ${CAL_N}` : 'Calcul…';
+    if (ctx.currentTime > calib.c0 + (CAL_IN + CAL_N) * CAL_IV + 0.4) calibDone();
+  }
+  function calibDone() {
+    calib.running = false; clearInterval(calib.timer);
+    const errs = [];
+    for (const p of calib.presses) {
+      const k = Math.round((p - calib.outLat - calib.c0) / CAL_IV);
+      if (k < CAL_IN || k >= CAL_IN + CAL_N) continue;
+      const e = p - calib.outLat - (calib.c0 + k * CAL_IV);
+      if (Math.abs(e) < 0.25) errs.push(e);
+    }
+    const med = (a) => { const b = [...a].sort((x, y) => x - y); return b.length ? (b.length % 2 ? b[(b.length - 1) / 2] : (b[b.length / 2 - 1] + b[b.length / 2]) / 2) : 0; };
+    const m = med(errs);
+    const spread = med(errs.map((e) => Math.abs(e - m)));
+    const ms = Math.max(-150, Math.min(250, Math.round((m * 1000) / 5) * 5));
+    calibScreen('result', { ok: errs.length >= 5 && spread < 0.045, ms, spread: Math.round(spread * 1000), n: errs.length });
+  }
+  root.addEventListener('click', (e) => {
+    const a = e.target.closest('[data-cal]')?.dataset.cal;
+    if (!a) return;
+    if (a === 'open') calibOpen();
+    else if (a === 'close') calibClose();
+    else if (a === 'go') calibStart();
+    else if (a === 'apply') { S.latency = +e.target.closest('[data-cal]').dataset.ms; saveSettings(); calibClose(); toast(`Décalage du clavier : ${S.latency} ms`); }
+  });
+
+  // ─────────────────────────────────────────── écran allumé, plein écran ──
+  // la tablette ne se met pas en veille tant que la page est affichée et qu'on s'en sert
+  let wakeLock = null;
+  async function keepAwake() {
+    if (wakeLock || !('wakeLock' in navigator) || document.visibilityState !== 'visible') return;
+    try { wakeLock = await navigator.wakeLock.request('screen'); wakeLock.addEventListener('release', () => { wakeLock = null; }); } catch { /* refusé (batterie faible, aperçu) */ }
+  }
+  const onVisible = () => { if (document.visibilityState === 'visible' && song) keepAwake(); };
+  document.addEventListener('visibilitychange', onVisible);
+  root.addEventListener('pointerdown', keepAwake, { passive: true });
+  const fsBtn = $('#btn-fs', root);
+  if (fsBtn && document.fullscreenEnabled) {
+    fsBtn.hidden = false;
+    fsBtn.addEventListener('click', async () => {
+      try { if (document.fullscreenElement) await document.exitFullscreen(); else await document.documentElement.requestFullscreen({ navigationUI: 'hide' }); } catch { toast('Plein écran indisponible sur cet appareil'); }
+    });
+    document.addEventListener('fullscreenchange', () => fsBtn.classList.toggle('on', !!document.fullscreenElement));
+  }
+
   // ─────────────────────────────────────────────────────── commandes ──
 
   el.play.addEventListener('click', () => togglePlay());
@@ -577,7 +770,7 @@ export function mountKeys(root, { soundsBase = 'sounds/' } = {}) {
   el.wait.classList.toggle('on', S.wait);
   el.metro.addEventListener('click', () => { S.metronome = !S.metronome; saveSettings(); el.metro.classList.toggle('on', S.metronome); resetPointers(); });
   el.metro.classList.toggle('on', S.metronome);
-  el.loopA.addEventListener('click', () => { if (!transport) return; if (loop) { loop = null; } else { loop = { a: Math.max(0, transport.time), b: null }; } updateLoopUI(); });
+  el.loopA.addEventListener('click', () => { if (!transport) return; if (loop) { loop = null; if (sect) { sect = null; sectUI(); } } else { loop = { a: Math.max(0, transport.time), b: null }; } updateLoopUI(); });
   el.loopB.addEventListener('click', () => { if (!transport) return; if (!loop) loop = { a: 0, b: null }; const t = transport.time; if (t > loop.a + 0.5) { loop.b = t; seek(loop.a); } updateLoopUI(); });
 
   // tiroir : pistes, sons, réglages
@@ -681,14 +874,16 @@ export function mountKeys(root, { soundsBase = 'sounds/' } = {}) {
       <label class="fld"><span>Notes visibles à l’avance</span><input type="range" min="15" max="80" value="${Math.round(S.look * 10)}" data-set="look"><em>${S.look.toFixed(1)} s</em></label>
       <label class="fld"><span>Noms sur les touches</span><select data-set="labels">${opt('labels', 'none', 'Aucun')}${opt('labels', 'c', 'Les Do')}${opt('labels', 'all', 'Toutes les touches blanches')}</select></label>
       <label class="switch"><input type="checkbox" data-set="noteNames" ${S.noteNames ? 'checked' : ''}><span>Noms des notes sur les notes qui tombent</span></label>
+      <label class="switch"><input type="checkbox" data-set="showPedal" ${S.showPedal ? 'checked' : ''}><span>Pédale du morceau (bande dorée à droite)</span></label>
       <h3>Entraînement</h3>
       <label class="fld"><span>Tolérance</span><select data-set="tol">${opt('tol', 'easy', 'Facile (±0,30 s)')}${opt('tol', 'normal', 'Normale (±0,20 s)')}${opt('tol', 'strict', 'Exigeante (±0,12 s)')}</select></label>
+      <button class="btn cal-btn" data-cal="open"><span>Caler mon clavier</span><em>décalage actuel : ${S.latency} ms</em></button>
       <details class="adv"><summary>Réglages avancés</summary>
         <label class="fld"><span>Grille d’accords</span><select data-set="chordsMode">${opt('chordsMode', 'auto', 'Automatique (cachée si devinée d’après le MIDI)')}${opt('chordsMode', 'on', 'Toujours afficher')}${opt('chordsMode', 'off', 'Cacher')}</select></label>
         <label class="fld"><span>Clavier</span><select data-set="range">${opt('range', 'auto', 'D’après le morceau')}${opt('range', '61', '61 touches')}${opt('range', '76', '76 touches')}${opt('range', '88', '88 touches (P-95)')}</select></label>
         <label class="fld"><span>Effets lumineux</span><select data-set="fx">${opt('fx', 'auto', 'Automatique (allégés si l’appareil rame)')}${opt('fx', 'high', 'Maximum')}${opt('fx', 'low', 'Légers')}</select></label>
         <label class="fld"><span>Décalage du clavier</span><input type="range" min="-150" max="250" step="5" value="${S.latency}" data-set="latency"><em>${S.latency} ms</em></label>
-        <p class="muted small">Si tes notes justes sont comptées « en retard », augmente le décalage.</p>
+        <p class="muted small">Réglé tout seul par « Caler mon clavier ». Si tes notes justes sont comptées « en retard », augmente-le.</p>
         <p class="muted small">Raccourcis : Espace = lecture / pause · ← → = 5 s · Q S D F G H J K L (et Z E T Y U) = jouer au clavier de l’ordinateur · W / X = octave.</p>
       </details>`;
   }
@@ -754,7 +949,7 @@ export function mountKeys(root, { soundsBase = 'sounds/' } = {}) {
     if (set === 'liveInst') { synth.liveInst = v; synth.bank.load(v); }
     if (set === 'master') synth.out.gain.setTargetAtTime(v, ctx.currentTime, 0.03);
     if (set === 'metroVol') synth.setBus('click', v);
-    if (['look', 'labels', 'range', 'tol', 'noteNames', 'chordsMode'].includes(set)) { rebuild(); lastChord = null; }
+    if (['look', 'labels', 'range', 'tol', 'noteNames', 'chordsMode', 'showPedal'].includes(set)) { rebuild(); lastChord = null; }
     if (set === 'fx') { roll.lite = v === 'low'; slowFor = 0; roll.resize(); }
   }
 
@@ -786,8 +981,8 @@ export function mountKeys(root, { soundsBase = 'sounds/' } = {}) {
     press(m, down) { if (down) keyDown(m, 0.7); else keyUp(m); },
     pause() { if (transport?.playing) { transport.pause(); synth?.stopAll(); } waiting = false; },
     /** état (pour les tests et le débogage) */
-    debug: () => ({ song, notes: flat.length, toPlay: practice.notes.length, mode: S.mode, stats: { ...practice.stats }, time: transport?.time, range: [roll.lo, roll.hi], engine: { playing: engine.playing, ctx: ctx?.state, els: engine.tracks.map((t) => [t.el.paused, t.el.currentTime, t.el.readyState, t.el.error?.code ?? null]) } }),
-    destroy() { cancelAnimationFrame(raf); ro.disconnect(); window.removeEventListener('keydown', onKey); window.removeEventListener('keyup', onKey); engine.unload(); },
+    debug: () => ({ song, calib: calib && { c0: calib.c0, outLat: calib.outLat, running: calib.running }, audioNow: ctx?.currentTime, wake: !!wakeLock, pedal: roll.pedal.length, notes: flat.length, toPlay: practice.notes.length, mode: S.mode, stats: { ...practice.stats }, time: transport?.time, range: [roll.lo, roll.hi], engine: { playing: engine.playing, ctx: ctx?.state, els: engine.tracks.map((t) => [t.el.paused, t.el.currentTime, t.el.readyState, t.el.error?.code ?? null]) } }),
+    destroy() { cancelAnimationFrame(raf); wakeLock?.release?.(); document.removeEventListener('visibilitychange', onVisible); ro.disconnect(); window.removeEventListener('keydown', onKey); window.removeEventListener('keyup', onKey); engine.unload(); },
   };
 }
 

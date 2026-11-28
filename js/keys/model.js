@@ -52,7 +52,7 @@ const uid = () => Math.random().toString(36).slice(2, 9);
 export function emptySong() {
   return {
     title: '', artist: '', key: '', bpm: null, duration: 0, beats: [], downbeats: [], bookmarks: [], lines: [], chords: [],
-    tracks: [], stems: [], midiOffset: 0, gridStyle: 'bar', info: [], mixHint: null,
+    tracks: [], stems: [], midiOffset: 0, gridStyle: 'bar', info: [], mixHint: null, pedal: [],
   };
 }
 
@@ -193,6 +193,9 @@ export function addMidi(song, mid, fileName, synth, { hasDoc = false, hasAudio =
     const up = ps[k]?.t ?? end + 4;
     n.ring = Math.min(14, up - n.t);
   }
+  // la pédale à afficher dans la cascade (pistes jouables, hors batterie)
+  const chans = Object.keys(pedByCh).filter((c) => +c !== 9);
+  if (chans.length && !song.pedal?.length) song.pedal = pedalIntervals(chans.map((c) => pedByCh[c]), mid.duration);
   song.tracks.push(...tracks);
   song.duration = Math.max(song.duration, mid.duration + 0.5);
   if (!song.beats.length) { song.beats = mid.beats; song.downbeats = mid.downbeats; }
@@ -206,6 +209,23 @@ export function addMidi(song, mid, fileName, synth, { hasDoc = false, hasAudio =
   song.chords = song.detected;
   song.chordSource = 'detected';
   song.info.push(`MIDI : ${tracks.length} piste${tracks.length > 1 ? 's' : ''} (${fileName})`);
+}
+
+/** Messages de pédale (un tableau par canal) → intervalles [{ s, e }] où la pédale est enfoncée (réunion des canaux). */
+export function pedalIntervals(lists, end = 0) {
+  const all = [];
+  for (const list of lists) {
+    let down = null;
+    for (const p of list) {
+      if (p.down && down == null) down = p.t;
+      else if (!p.down && down != null) { if (p.t - down > 0.02) all.push({ s: down, e: p.t }); down = null; }
+    }
+    if (down != null) all.push({ s: down, e: Math.max(end, down + 1) });
+  }
+  all.sort((a, b) => a.s - b.s);
+  const out = [];
+  for (const iv of all) { const l = out[out.length - 1]; if (l && iv.s <= l.e + 0.005) l.e = Math.max(l.e, iv.e); else out.push({ ...iv }); }
+  return out;
 }
 
 /** Qui joue quoi, par défaut. */

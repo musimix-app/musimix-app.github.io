@@ -30,16 +30,16 @@ export class KeysRoll {
     this.rings = [];
     this.flashes = new Map();   // pitch → { color, t0 }
     this.notes = []; this.maxDur = 1;
-    this.chords = []; this.downbeats = []; this.bookmarks = [];
+    this.chords = []; this.downbeats = []; this.bookmarks = []; this.pedal = [];
     this.filterOK = 'filter' in this.ctx;
     this._t0 = performance.now();
     this.resize();
   }
 
-  setSong(notes, { chords = [], downbeats = [], bookmarks = [] } = {}) {
+  setSong(notes, { chords = [], downbeats = [], bookmarks = [], pedal = [] } = {}) {
     this.notes = notes;
     this.maxDur = Math.max(0.5, ...notes.map((n) => n.d).slice(0, 20000));
-    this.chords = chords; this.downbeats = downbeats; this.bookmarks = bookmarks;
+    this.chords = chords; this.downbeats = downbeats; this.bookmarks = bookmarks; this.pedal = pedal || [];
   }
 
   /** Plage du clavier : 'auto' (d'après les notes) ou nombre de touches (61, 76, 88). */
@@ -145,6 +145,7 @@ export class KeysRoll {
     this._lanes();
     this._measures(T, yOf);
     this._chordLines(T, yOf);
+    this._pedal(T, yOf);
 
     // notes visibles
     const g = this.gctx;
@@ -312,7 +313,7 @@ export class KeysRoll {
       ctx.fillStyle = 'rgba(255,255,255,.07)';
       ctx.fillRect(0, y, W, 1);
       ctx.fillStyle = 'rgba(255,255,255,.22)';
-      ctx.fillText(String(i + 1), W - 6, y - 2);
+      ctx.fillText(String(i + 1), W - (this.pedal.length ? 20 : 6), y - 2);
     }
   }
 
@@ -351,8 +352,49 @@ export class KeysRoll {
       if (b.t < T - 0.2 || b.t > T + this.look) continue;
       const y = yOf(b.t);
       ctx.fillStyle = 'rgba(255,255,255,.5)';
-      ctx.fillText(b.label, W - 26, y - 12);
+      ctx.fillText(b.label, W - (this.pedal.length ? 40 : 26), y - 12);
     }
+  }
+
+  /** Pédale de sustain du morceau : bande dorée le long du bord droit (une coupure = relever puis renfoncer). */
+  _pedal(T, yOf) {
+    const list = this.pedal;
+    if (!list?.length) return;
+    const { ctx, W } = this;
+    const x = W - 13, w = 8;
+    let i = lowerBound(list, T - 30, (p) => p.e);
+    let downNow = false;
+    ctx.save();
+    for (; i < list.length && list[i].s < T + this.look; i++) {
+      const p = list[i];
+      if (p.e < T) continue;
+      if (p.s <= T) downNow = true;
+      const y0 = Math.max(-4, yOf(p.e)) + 1.5, y1 = Math.min(this.hitY, yOf(p.s)) - 1.5;
+      if (y1 - y0 < 1) continue;
+      const lg = ctx.createLinearGradient(0, y0, 0, y1);
+      lg.addColorStop(0, 'rgba(255,210,122,.28)'); lg.addColorStop(1, 'rgba(255,196,92,.85)');
+      ctx.shadowColor = 'rgba(255,190,80,.55)'; ctx.shadowBlur = 8;
+      ctx.fillStyle = lg;
+      roundRect(ctx, x, y0, w, y1 - y0, 4); ctx.fill(); ctx.shadowBlur = 0;
+      // début d'appui : petit losange
+      if (yOf(p.s) <= this.hitY && yOf(p.s) > 0) {
+        const yy = yOf(p.s) - 2;
+        ctx.fillStyle = '#ffd27a';
+        ctx.beginPath(); ctx.moveTo(x + w / 2, yy - 4); ctx.lineTo(x + w / 2 + 4, yy); ctx.lineTo(x + w / 2, yy + 4); ctx.lineTo(x + w / 2 - 4, yy); ctx.closePath(); ctx.fill();
+      }
+    }
+    // pédale enfoncée maintenant (d'après le morceau)
+    if (downNow) {
+      ctx.shadowColor = 'rgba(255,200,90,.9)'; ctx.shadowBlur = 12;
+      ctx.fillStyle = '#ffd27a';
+      roundRect(ctx, x - 1, this.hitY - 7, w + 2, 7, 3); ctx.fill();
+      ctx.shadowBlur = 0;
+      ctx.font = "800 10px 'Atkinson Hyperlegible Next', system-ui, sans-serif";
+      ctx.textAlign = 'right'; ctx.textBaseline = 'bottom';
+      ctx.fillStyle = 'rgba(255,214,140,.95)';
+      ctx.fillText('Péd.', x - 4, this.hitY - 2);
+    }
+    ctx.restore();
   }
 
   _particles(dt) {

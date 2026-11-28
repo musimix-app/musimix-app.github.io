@@ -91,6 +91,7 @@ export function buildLesson(item) {
     song.downbeats = S.downbeats.map((t) => lead + t);
     song.beats = S.beats.map((t) => lead + t);
     song.bookmarks = (S.bookmarks || []).map((b) => ({ t: lead + b.t, label: b.label }));
+    song.pedal = (S.pedal || []).map(([a, b]) => ({ s: lead + a, e: lead + b }));
     total = S.duration / spb;
   }
   for (const t of tracks) t.notes.sort((a, b) => a.t - b.t || a.pitch - b.pitch);
