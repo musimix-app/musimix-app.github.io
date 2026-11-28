@@ -3,7 +3,7 @@
 import { db } from '../db.js';
 import { esc, icon, fmtTime, toast, openMenu, drag, debounce, dialog } from '../ui.js';
 import { renderSheet, lyricLine, chordDisplay, songKey, uniqueChords } from '../render.js';
-import { chordTimeline, sectionsOf, tokenize } from '../sheet.js';
+import { chordTimeline, sectionsOf, tokenize, repairChordLines } from '../sheet.js';
 import { diagramSVG, voicings, chordFormula, loadChordDb, setSongShapes } from '../diagrams.js';
 import { LyricsEditing } from './chord-edit.js';
 import { ensureLevels, isEmptyStem } from '../levels.js';
@@ -44,6 +44,8 @@ export class PlayerView {
   async open(song, ctx = {}) {
     this.song = song;
     this.ctx = ctx;
+    // lignes d'accords seules prises pour des paroles (« B /F# » mal reconnu avant) : réparées une fois
+    if (song.doc && repairChordLines(song.doc)) db.putSong(song).catch(() => {});
     this._gsAuto = null; this._clock = null;
     const prefs = await this.app.prefs();
     this.prefsCache = prefs || {};

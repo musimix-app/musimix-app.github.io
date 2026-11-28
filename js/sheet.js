@@ -52,7 +52,39 @@ function isChordLine(line) {
   const toks = line.trim().split(/\s+/).filter((t) => t && !['|', '||', '-', '/', '%', '/:', ':/'].includes(t))
     .filter((t) => !/^\(?x\d+\)?$|^\d+x$/i.test(t))
     .map((t) => (/^\(.*\)$/.test(t) ? t.slice(1, -1) : t));
-  return toks.length > 0 && toks.every((t) => isChord(t));
+  return toks.length > 0 && toks.some((t) => isChord(t)) && toks.every((t) => isChord(t) || BASS_ONLY.test(t));
+}
+// « B /F# » : basse seule notée après l'accord → même accord avec cette basse
+const BASS_ONLY = /^\/[A-G](#|♯|b|♭)?$/;
+
+/** Accords d'une ligne d'accords, avec leur colonne. */
+function chordsOfLine(ln) {
+  const chords = [];
+  const re = /\S+/g;
+  let m;
+  while ((m = re.exec(ln))) {
+    const tok = /^\(.*\)$/.test(m[0]) ? m[0].slice(1, -1) : m[0];
+    if (isChord(tok)) chords.push({ pos: m.index, name: normalizeChordToken(tok) });
+    else if (BASS_ONLY.test(tok) && chords.length) {
+      const base = chords[chords.length - 1].name.split('/')[0];
+      chords.push({ pos: m.index, name: normalizeChordToken(base + tok) });
+    }
+  }
+  return chords;
+}
+
+/** Réparation des morceaux déjà enregistrés : une ligne de paroles qui n'est en fait qu'une suite d'accords
+ *  (ex. « G#7 C#m7 F#m7 B /F# », mal reconnue avant) redevient une ligne d'accords. Renvoie true si modifié. */
+export function repairChordLines(doc) {
+  let changed = false;
+  for (let i = 0; i < (doc?.lines || []).length; i++) {
+    const l = doc.lines[i];
+    if (l.type === 'lyric' && !l.chords?.length && l.text && isChordLine(l.text)) {
+      doc.lines[i] = { type: 'chords', text: '', chords: chordsOfLine(l.text).map((c, k) => ({ name: c.name, pos: k })) };
+      changed = true;
+    }
+  }
+  return changed;
 }
 
 /**
@@ -273,13 +305,7 @@ function parseGrid(text) {
       if (bars) { lines.push(barsLine(bars)); continue; }
     }
     if (isChordLine(ln)) {
-      const chords = [];
-      const re = /\S+/g;
-      let m;
-      while ((m = re.exec(ln))) {
-        const tok = /^\(.*\)$/.test(m[0]) ? m[0].slice(1, -1) : m[0];
-        if (isChord(tok)) chords.push({ pos: m.index, name: normalizeChordToken(tok) });
-      }
+      const chords = chordsOfLine(ln);
       const nxt = (raw[i + 1] || '').replace(/\s+$/, '');
       if (nxt.trim() && !isChordLine(nxt) && !SECTION_RE.test(nxt) && !/^\s*[eBGDAE]\|/.test(nxt)) {
         const lead = nxt.length - nxt.trimStart().length;
