@@ -19,6 +19,8 @@ export async function printDialog(app, songs, opts = {}) {
     diagrams: prefs.pdfDiagrams !== false,
     chords: true,
     mode: 'lyrics', // lyrics | grid | score
+    gLyrics: prefs.pdfGridLyrics !== false,
+    gChords: prefs.pdfGridChords !== false,
   };
   const one = songs.length === 1 ? songs[0] : null;
   // grille par mesure : fournie par le lecteur quand le tempo est connu ; sinon grille simple (suite d'accords par partie)
@@ -38,6 +40,8 @@ export async function printDialog(app, songs, opts = {}) {
         <div class="opt-row pdf-lyr"><span>Colonnes</span><span class="seg"><button data-cols="1">1</button><button data-cols="2">2</button></span></div>
         <div class="opt-row pdf-nsc"><span>Taille du texte</span><span class="stepper"><button data-o="fs-">−</button><output data-r="fs"></output><button data-o="fs+">+</button></span></div>
         <div class="opt-row pdf-lyr"><span>Afficher les accords</span><label class="switch"><input type="checkbox" data-o="chords" checked><i></i></label></div>
+        <div class="opt-row pdf-grd"><span>Paroles dans la grille</span><label class="switch"><input type="checkbox" data-o="gly" ${st.gLyrics ? 'checked' : ''}><i></i></label></div>
+        <div class="opt-row pdf-grd"><span>Accords dans la grille</span><label class="switch"><input type="checkbox" data-o="gch" ${st.gChords ? 'checked' : ''}><i></i></label></div>
         <p class="note pdf-gnote" hidden>Grille sans mesures : le tempo du morceau est inconnu (« Tout préparer » le trouve). Les accords sont listés dans l’ordre, par partie.</p>
         <p class="note">Une imprimante branchée ou en Wi-Fi apparaît dans la fenêtre d’impression. Pour un fichier, choisis <b>Enregistrer au format PDF</b>. Sur iPhone : <b>Partager → Imprimer</b>, puis écarte l’aperçu avec deux doigts.</p>
       </div>
@@ -55,6 +59,7 @@ export async function printDialog(app, songs, opts = {}) {
     el.querySelectorAll('[data-cols]').forEach((b) => b.classList.toggle('on', +b.dataset.cols === st.cols));
     el.querySelectorAll('[data-mode]').forEach((b) => b.classList.toggle('on', b.dataset.mode === st.mode));
     el.querySelectorAll('.pdf-lyr').forEach((x) => { x.hidden = st.mode !== 'lyrics'; });
+    el.querySelectorAll('.pdf-grd').forEach((x) => { x.hidden = st.mode !== 'grid'; });
     el.querySelectorAll('.pdf-nsc').forEach((x) => { x.hidden = st.mode === 'score'; });
     el.querySelector('.pdf-gnote').hidden = !(st.mode === 'grid' && !st.gridMeasured);
     const prev = el.querySelector('[data-r="prev"]');
@@ -89,6 +94,8 @@ export async function printDialog(app, songs, opts = {}) {
       app.setPref('pdfSize', st.size);
       app.setPref('pdfDiagrams', st.diagrams);
       app.setPref('pdfMode', st.mode);
+      app.setPref('pdfGridLyrics', st.gLyrics);
+      app.setPref('pdfGridChords', st.gChords);
       if (st.mode === 'score' && !st.scoreHtml) { toast('La partition se met en page, réessaie dans un instant'); return; }
       d.close();
       doPrint(songs, st);
@@ -99,6 +106,8 @@ export async function printDialog(app, songs, opts = {}) {
   el.addEventListener('change', (e) => {
     if (e.target === sel) { st.diagrams = sel.value !== 'none'; if (st.diagrams) st.instrument = sel.value; refresh(); }
     if (e.target.dataset.o === 'chords') { st.chords = e.target.checked; refresh(); }
+    if (e.target.dataset.o === 'gly') { st.gLyrics = e.target.checked; refresh(); }
+    if (e.target.dataset.o === 'gch') { st.gChords = e.target.checked; refresh(); }
   });
   refresh();
 }
@@ -107,7 +116,7 @@ function songPage(song, st, preview = false) {
   const display = chordDisplay(song, st.transpose, 0);
   const doc = st.chords ? song.doc : { ...song.doc, lines: song.doc.lines.filter((l) => l.type !== 'chords').map((l) => ({ ...l, chords: [] })) };
   setSongShapes(song.doc?.meta?.shapes, song.doc?.meta?.piano);
-  const chords = (st.mode === 'grid' || st.chords) && st.diagrams && st.mode !== 'score' ? uniqueChords(song.doc, display, song.detectedChords) : [];
+  const chords = (st.mode === 'grid' ? st.gChords : st.chords) && st.diagrams && st.mode !== 'score' ? uniqueChords(song.doc, display, song.detectedChords) : [];
   const facts = [];
   const k = display.keyLabel;
   if (k) facts.push(['Tonalité', k]);
@@ -115,7 +124,7 @@ function songPage(song, st, preview = false) {
   if (song.bpm) facts.push(['Tempo', Math.round(song.bpm)]);
   let body = doc.lines.length ? renderSheet(doc, { display }) : '<p>Pas de paroles.</p>';
   let bodyCls = 'body';
-  if (st.mode === 'grid') { body = st.gridMeasured || simpleGrid(song.doc, display); bodyCls = 'body grid-body'; }
+  if (st.mode === 'grid') { body = st.gridMeasured || simpleGrid(song.doc, display); bodyCls = `body grid-body${st.gLyrics ? '' : ' no-ly'}${st.gChords ? '' : ' no-ch'}`; }
   if (st.mode === 'score') { body = st.scoreHtml || ''; bodyCls = 'body score-body'; }
   const showDiag = st.mode !== 'score';
   return `<article class="pr${preview ? ' preview' : ''}" style="--cols:${st.cols};--pfs:${st.size}pt">

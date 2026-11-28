@@ -1657,3 +1657,7 @@ dialog.cal-d { width: min(560px, calc(100vw - 20px)); }
 .pdf-mode .seg button.on { background: var(--ink); color: var(--bg); }
 .pdf-mode { flex-wrap: wrap; gap: 6px; }
 .pdf-mode .seg { flex-wrap: wrap; }
+/* grille imprimée : paroles et/ou accords masquables (grille vierge possible) */
+.pr .grid-body.no-ly .mbar .ly, .pr .grid-body.no-ly .sg-c small { display: none; }
+.pr .grid-body.no-ch .mbar .chs, .pr .grid-body.no-ch .sg-c b { visibility: hidden; }
+.pr .grid-body.no-ch.no-ly .mbar, .pr .grid-body.no-ch.no-ly .sg-c { min-height: 54px; }
