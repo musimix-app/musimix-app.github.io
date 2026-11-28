@@ -325,6 +325,7 @@ class App extends EventTarget {
         <textarea name="lrc" rows="2" placeholder="[00:12.34] première ligne…">${esc(pre.lrc || '')}</textarea></label>
       <div class="file-line"><button type="button" class="btn small ghost" data-pick="lrc">${icon('upload')} Ouvrir un .lrc</button><span class="note" data-r="lrc-f">${esc(pre.lrcName || '')}</span></div>
       <div class="opt-row"><span>Séparer les pistes<br><small class="note">voix, batterie, basse, guitare, piano, autres${already ? ' · déjà fait : refaire ?' : ''}</small></span><label class="switch"><input type="checkbox" name="separate" ${already ? '' : 'checked'}><i></i></label></div>
+      ${already ? `<div class="opt-row" data-r="keeprow"><span>Garder la version actuelle<br><small class="note">la nouvelle séparation va dans une copie du morceau : tu compares les deux</small></span><label class="switch"><input type="checkbox" name="keep" checked><i></i></label></div>` : ''}
       <div class="opt-row" data-r="qrow"><span>Qualité</span><span class="seg"><button type="button" data-q="fast">Rapide</button><button type="button" data-q="best">Max</button><button type="button" data-q="expert">Expert</button></span></div>
       <div class="callout" data-r="info">Vérification de la carte graphique…</div>
       <div class="opt-row"><span>Paroles synchronisées<br><small class="note">trouvées sur LRCLIB${song.doc?.lines?.some((l) => l.type === 'lyric') ? ' · tes paroles sont gardées, seul le minutage est ajouté' : ''}</small></span><label class="switch"><input type="checkbox" name="lyrics" checked><i></i></label></div>
@@ -339,6 +340,7 @@ class App extends EventTarget {
       el.querySelectorAll('[data-q]').forEach((b) => b.classList.toggle('on', b.dataset.q === quality));
       const on = f.separate.checked;
       el.querySelector('[data-r="qrow"]').hidden = !on;
+      const kr = el.querySelector('[data-r="keeprow"]'); if (kr) kr.hidden = !on;
       const box = el.querySelector('[data-r="info"]');
       box.hidden = !on;
       if (!on) return;
@@ -350,7 +352,7 @@ class App extends EventTarget {
       } catch (e) { box.textContent = 'Moteur de séparation indisponible : ' + e.message; }
     };
     f.separate.addEventListener('change', info);
-    el.addEventListener('click', (e) => {
+    el.addEventListener('click', async (e) => {
       const q = e.target.closest('[data-q]');
       if (q) { quality = q.dataset.q; info(); return; }
       const pk = e.target.closest('[data-pick]');
@@ -373,6 +375,15 @@ class App extends EventTarget {
         const opts = { quality, separate: f.separate.checked, lyrics: f.lyrics.checked || !!lrc.trim(), chords: f.chords.checked, calibrate: f.calibrate.checked, restart: !!f.restart?.checked, sheet, lrc, title: f.title.value.trim(), artist: f.artist.value.trim() };
         if (!opts.separate && !opts.lyrics && !opts.chords && !opts.calibrate) { toast('Coche au moins une étape'); return; }
         d.close();
+        if (opts.separate && f.keep?.checked) {
+          // comparaison : la nouvelle séparation se fait sur une copie, l'actuelle reste intacte
+          const { duplicateSong } = await import('./songs.js');
+          const name = { fast: 'Rapide', best: 'Max', expert: 'Expert' }[quality];
+          const copy = await duplicateSong(song, `${opts.title || song.title} (${name})`);
+          toast(`Copie créée : « ${copy.title} ». La séparation ${name} s’y fait ; l’original garde ses pistes.`, 6000);
+          this.runSeparation(copy, { ...opts, title: copy.title });
+          return;
+        }
         this.runSeparation(song, opts);
       }
     });

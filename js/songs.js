@@ -224,6 +224,25 @@ export async function importSingleAudio(file, { sheetText, title, artist } = {})
  * Pistes produites par la séparation dans le navigateur : remplace une séparation précédente,
  * garde le morceau d'origine (coupé dans le mixage, réactivable), libère les anciens fichiers.
  */
+/** Copie complète d'un morceau (pistes recopiées : supprimer l'un ne touche pas l'autre). */
+export async function duplicateSong(song, title) {
+  const copy = JSON.parse(JSON.stringify(song));
+  copy.id = uid();
+  copy.title = title || `${song.title} (copie)`;
+  delete copy.shared; delete copy.calUndo;
+  const ids = new Map();
+  for (const st of copy.stems) {
+    if (!st.blobId) continue;
+    const b = await db.getBlob(st.blobId);
+    if (b) { const nid = await db.putBlob(b); ids.set(st.blobId, nid); st.blobId = nid; }
+  }
+  if (copy.midi?.blobId) { const b = await db.getBlob(copy.midi.blobId); if (b) copy.midi.blobId = await db.putBlob(b); }
+  copy.createdAt = Date.now();
+  copy.doc.meta = { ...(copy.doc.meta || {}), title: copy.title };
+  await db.putSong(copy);
+  return copy;
+}
+
 export async function addSeparatedStems(song, list, sourceStemId, model) {
   const old = song.stems.filter((st) => st.sep);
   for (const st of old) { if (st.blobId) await db.deleteBlob(st.blobId); delete song.mix[st.id]; }
