@@ -286,3 +286,6 @@ export async function analyzeAudio({ harmony, bass, drums }, { duration, onProgr
     chords: out.map((c) => ({ s: +c.s.toFixed(3), e: +c.e.toFixed(3), name: c.name })),
   };
 }
+
+// briques réutilisées par le calage des paroles et des accords (lyricsync.js)
+export { onsetEnvelope, tempo, trackBeats, chromaFrames, beatSync, SR as ANALYSIS_SR };

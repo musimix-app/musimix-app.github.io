@@ -271,7 +271,7 @@ export class PlayerView {
     if (s.detectedChords?.length) {
       const det = s.detectedChords, win = Math.min(1.6, (this.masterClock().gap || 2) * 0.55);
       for (const c of this.timeline) {
-        if (c.t == null || c.fixed) continue;
+        if (c.t == null || c.fixed || c.cal) continue;
         const a = c.t - off;
         let best = null;
         for (const d of det) {
@@ -310,7 +310,7 @@ export class PlayerView {
         const beatLen = (this.masterClock().gap || 2) / (this.masterClock().bpb || 4);
         let k = 0;
         for (const c of this.timeline) {
-          if (c.t == null || c.fixed) continue;
+          if (c.t == null || c.fixed || c.cal) continue;
           const a = c.t - off;
           while (k + 1 < bt.length && bt[k + 1] <= a) k++;
           const cand = [bt[k], bt[k + 1]].filter((x) => x != null);
@@ -643,6 +643,7 @@ export class PlayerView {
       <div class="opt-row"><span>Afficher les accords</span><label class="switch"><input type="checkbox" data-act="show-chords" ${this.showChords ? 'checked' : ''}><i></i></label></div>
       <div class="opt-row"><span>Afficher les mesures<br><small class="note">petits traits au début de chaque mesure</small></span><label class="switch"><input type="checkbox" data-act="show-bars" ${this.showBars ? 'checked' : ''}><i></i></label></div>
       <div class="opt-row"><span>Décalage paroles<br><small class="note">+ : plus tôt · « Auto » écoute la voix</small></span><span class="row-r"><span class="stepper"><button data-act="off-">−</button><output data-r="off">${fmtOffset(p.offset)}</output><button data-act="off+">+</button></span> <button class="btn small ghost" data-act="off-auto">Auto</button></span></div>
+      <div class="opt-row"><span>Caler sur l’audio<br><small class="note">chaque mot sur la voix, chaque accord sur le bon mot</small></span><span class="row-r">${this.song.calUndo ? '<button class="btn small ghost" data-act="cal-undo">Annuler</button> ' : ''}<button class="btn small" data-act="cal-audio">Caler</button></span></div>
       <div class="opt-row only-m"><span>Affichage</span><span class="seg"><button data-mode="lyrics">Paroles</button><button data-mode="stage">Scène</button><button data-mode="grid">Grille</button><button data-mode="score"${this.song.score ? '' : ' hidden'}>Partition</button></span></div>
       <div class="opt-row only-m"><span>Diagrammes</span><span class="seg"><button data-inst="guitar">Guitare</button><button data-inst="ukulele">Ukulélé</button><button data-inst="piano">Piano</button></span></div>`;
     this.el.querySelector('[data-r="opts-sec"]').innerHTML = html;
@@ -1274,6 +1275,82 @@ export class PlayerView {
       this.scoreView = null;
       host.innerHTML = `<p class="note" style="padding:20px">Partition impossible à afficher : ${esc(err.message || String(err))}</p>`;
     }
+  }
+
+  /**
+   * Calage complet sur l'audio : chaque mot posé sur la voix (reconnaissance vocale), chaque accord de la grille
+   * posé sur le temps où l'harmonie change, puis rattaché au mot chanté à ce moment. Aperçu avant d'appliquer.
+   */
+  async calibrateAudio() {
+    if (this._autoBusy) { toast('Un calage est déjà en cours, patiente…'); return; }
+    const s = this.song;
+    const hasVoice = s.stems.some((x) => x.kind === 'vocals');
+    const d = dialog(`<div class="dlg cal-dlg">
+      <h2>Caler paroles et accords sur l’audio</h2>
+      <p>MusiMix écoute la voix pour poser <b>chaque mot</b>, puis l’harmonie pour poser <b>chaque accord de ta grille</b> sur le bon mot. Tes accords et leur ordre sont gardés.</p>
+      ${hasVoice ? '' : '<p class="callout">Pas de piste Voix séparée : le calage écoutera le morceau entier, il sera moins précis. Pour le meilleur résultat : « Tout préparer » (séparer les pistes) d’abord.</p>'}
+      <p class="note">Premier usage : téléchargement du modèle d’écoute (132 Mo, une seule fois). Ensuite 1 à 5 minutes selon l’appareil.</p>
+      <div class="cal-prog" hidden><div class="bar"><i></i></div><p class="note" data-r="msg">Démarrage…</p></div>
+      <div class="cal-res" hidden></div>
+      <div class="actions"><button class="btn ghost" data-close="">Fermer</button><button class="btn primary" data-go>Caler</button></div></div>`, { dismissable: false, cls: 'cal-d' });
+    const el = d.el;
+    const go = el.querySelector('[data-go]');
+    go.addEventListener('click', async () => {
+      if (go.dataset.apply) return;
+      go.disabled = true; el.querySelector('.cal-prog').hidden = false;
+      const bar = el.querySelector('.bar i'), msg = el.querySelector('[data-r="msg"]');
+      this._autoBusy = true;
+      let res;
+      try {
+        const { calibrate } = await import('../lyricsync.js');
+        res = await calibrate(s, (id) => db.getBlob(id), { onProgress: (p) => { bar.style.width = Math.round(p.progress * 100) + '%'; msg.textContent = p.message; } });
+      } catch (err) {
+        console.error(err);
+        msg.textContent = 'Calage impossible : ' + (err.message || err);
+        go.disabled = false; this._autoBusy = false;
+        return;
+      }
+      this._autoBusy = false;
+      el.querySelector('.cal-prog').hidden = true;
+      const r = res.report;
+      const box = el.querySelector('.cal-res');
+      box.hidden = false;
+      const ch = res.changes;
+      box.innerHTML = `<p><b>${r.words}</b> mots posés sur la voix (${r.lines} lignes)${r.chords ? `, <b>${r.chords}</b> accords posés sur l’audio` : ''}.${r.shift ? ` Grille et audio décalés de ${r.shift} demi-ton${r.shift > 1 ? 's' : ''} (capo ou accordage) : pris en compte.` : ''}</p>
+        ${ch.length ? `<p>${ch.length} accord${ch.length > 1 ? 's changent' : ' change'} de mot :</p><ul class="cal-list">${ch.slice(0, 80).map((c) => `<li><b class="ch">${esc(c.name)}</b> <s>${esc(c.from)}</s> → <b>${esc(c.to)}</b><small>${esc(c.line)}</small></li>`).join('')}</ul>` : '<p>Aucun accord ne change de mot : ta grille était déjà bien placée.</p>'}
+        ${r.lowConf ? `<p class="note">${r.lowConf} ligne${r.lowConf > 1 ? 's' : ''} à vérifier (vocalises, chœurs, ou texte un peu différent de ce qui est chanté).</p>` : ''}
+        ${r.keptLrc ? `<p class="note">${r.keptLrc} ligne${r.keptLrc > 1 ? 's gardent' : ' garde'} le minutage du LRC (la voix n’y était pas assez claire).</p>` : ''}
+        <p class="note">Tu pourras revenir en arrière : menu ⋯ → « Annuler le calage ».</p>`;
+      go.disabled = false; go.textContent = 'Appliquer'; go.dataset.apply = '1';
+      go.onclick = async () => {
+        s.calUndo = { lines: JSON.stringify(s.doc.lines), offset: s.prefs.offset || 0, at: Date.now() };
+        s.doc.lines = res.lines;
+        s.prefs.offset = 0;
+        await db.putSong(s);
+        d.close();
+        this.afterDocChange();
+        toast(`Calé sur l’audio : ${r.words} mots${ch.length ? `, ${ch.length} accords déplacés` : ''}`, 6000);
+      };
+    });
+  }
+
+  undoCalibration() {
+    const s = this.song, u = s.calUndo;
+    if (!u) return;
+    s.doc.lines = JSON.parse(u.lines);
+    s.prefs.offset = u.offset;
+    delete s.calUndo;
+    db.putSong(s);
+    this.afterDocChange();
+    toast('Calage annulé : paroles et accords comme avant');
+  }
+
+  /** Après un changement des lignes (calage, annulation) : tout est redessiné. */
+  afterDocChange() {
+    this._display = null;
+    this.renderLyrics(); this.renderKeyChip(); this.renderImpro?.(); this.renderBarMarks?.();
+    this.renderOptions(); this.updateOptionOutputs(); this.curLine = -2; this.lastChordIdx = -2;
+    this.frame(true); this.renderScoreLyrics?.(true);
   }
 
   /** Écoute la piste Voix et règle le décalage des paroles. */
@@ -2301,6 +2378,8 @@ export class PlayerView {
         this.engine.setRate(p.rate); this.updateOptionOutputs(); this.saveSong(); break;
       }
       case 'off-auto': this.autoLyrics(); break;
+      case 'cal-audio': this.calibrateAudio(); break;
+      case 'cal-undo': this.undoCalibration(); this.renderOptions?.(); break;
       case 'hud-size': {
         const z0 = this.prefsCache?.stageHudZoom || 1, z = Math.max(0.5, Math.min(2.5, Math.round((z0 + (+b.dataset.v) * 0.15) * 100) / 100));
         (this.prefsCache ||= {}).stageHudZoom = z; this.app.setPref('stageHudZoom', z); this.layoutStageHud();
@@ -2352,7 +2431,9 @@ export class PlayerView {
           { icon: 'edit', label: 'Modifier ici (accords, doigtés, texte)', action: () => { if (this.mode !== 'lyrics') this.setMode('lyrics'); this.editing.toggle(true); } },
           { icon: 'edit', label: 'Paroles et accords (éditeur)', action: () => this.app.go(`#/edit/${this.song.id}`) },
           { icon: 'upload', label: this.song.score ? 'Partition : changer ou retirer' : 'Ajouter une partition (Guitar Pro, MusicXML)', action: () => this.scoreDialog() },
-          { icon: 'tap', label: 'Synchroniser les paroles', action: () => this.app.go(`#/edit/${this.song.id}/sync`) },
+          { icon: 'tap', label: 'Caler paroles et accords sur l’audio', action: () => this.calibrateAudio() },
+          ...(this.song.calUndo ? [{ icon: 'undo', label: 'Annuler le calage', action: () => this.undoCalibration() }] : []),
+          { icon: 'tap', label: 'Synchroniser les paroles (à la main)', action: () => this.app.go(`#/edit/${this.song.id}/sync`) },
           { icon: 'info', label: 'Infos et pistes', action: () => this.app.go(`#/edit/${this.song.id}/info`) },
           '-',
           { icon: 'pdf', label: 'Exporter en PDF', action: () => this.app.printSong(this.song, { transpose: p.transpose - p.capo, instrument: this.instrument }) },

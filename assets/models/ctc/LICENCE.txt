@@ -1,0 +1,5 @@
+Modèle d'écoute des paroles de MusiMix
+NVIDIA NeMo « stt_multilingual_fastconformer_hybrid_large_pc » (branche CTC), licence Creative Commons Attribution 4.0 (CC-BY-4.0)
+https://catalog.ngc.nvidia.com/orgs/nvidia/teams/nemo/models/stt_multilingual_fastconformer_hybrid_large_pc
+Export ONNX et quantification int8 : projet sherpa-onnx (k2-fsa), https://github.com/k2-fsa/sherpa-onnx
+Le fichier est découpé en morceaux de moins de 100 Mo pour l'hébergement ; MusiMix les recolle à l'identique.

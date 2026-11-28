@@ -1,6 +1,6 @@
 // MusiMix — service worker : l'appli fonctionne hors ligne une fois ouverte.
 // Les morceaux sont stockés dans l'appareil (IndexedDB), pas dans ce cache.
-const VERSION = 'musimix-4.48.0';
+const VERSION = 'musimix-4.49.0';
 const SHELL = [
   './',
   'assets/fonts/Atkinson.ttf',
@@ -41,6 +41,9 @@ const SHELL = [
   'js/impro.js',
   'js/analyze.js',
   'js/prepare.js',
+  'js/lyricsync.js',
+  'js/ctc-core.js',
+  'js/workers/ctc-worker.js',
   'js/separate.js',
   'js/vendor/unblend/audio-processor.js',
   'js/vendor/unblend/constants.js',
@@ -121,6 +124,7 @@ self.addEventListener('fetch', (e) => {
     return;
   }
   if (url.origin !== location.origin) return;                 // Studio, LRCLIB : jamais en cache
+  if (url.pathname.includes('/assets/models/')) return;       // modèle d'écoute : gardé par le calcul lui-même (cache « musimix-models »)
   if (/\.(mp3|wav|flac|m4a|ogg)$/i.test(url.pathname) && !url.pathname.includes('/assets/sounds/')) return; // audio de démo : réseau
   if (url.pathname.includes('/api/') || url.pathname.endsWith('/bridge')) return;
   // réseau d'abord (mises à jour immédiates), cache si hors ligne

@@ -1600,3 +1600,13 @@ body.noselect, body.noselect * { user-select: none !important; -webkit-user-sele
 .cp-tsel { display: inline-flex; align-items: center; gap: 6px; height: 32px; padding: 0 6px 0 12px; border-radius: 8px; background: color-mix(in srgb, var(--chord) 22%, transparent); border: 1px solid var(--chord); color: #fff; font: 600 13px var(--font-ui); white-space: nowrap; }
 .cp-tsel button { width: 22px; height: 22px; border: 0; border-radius: 50%; background: rgba(255,255,255,.15); color: #fff; cursor: pointer; font-size: 11px; }
 @media (max-width: 960px) { .cp-tsel { font-size: 12px; padding-left: 8px; } }
+
+/* calage paroles + accords sur l'audio */
+dialog.cal-d { width: min(560px, calc(100vw - 20px)); }
+.cal-prog .bar { height: 8px; border-radius: 99px; background: var(--surface-2); overflow: hidden; }
+.cal-prog .bar i { display: block; height: 100%; width: 0; border-radius: inherit; background: linear-gradient(90deg, var(--accent, #ff4fa3), #ffb52e); transition: width .3s; }
+.cal-list { list-style: none; margin: 0; padding: 0; max-height: min(42vh, 340px); overflow: auto; display: grid; gap: 6px; }
+.cal-list li { display: flex; flex-wrap: wrap; gap: 2px 8px; align-items: baseline; padding: 8px 10px; border-radius: var(--radius-s, 10px); background: var(--surface-2); }
+.cal-list li .ch { color: #ffb52e; }
+.cal-list li s { opacity: .6; }
+.cal-list li small { width: 100%; opacity: .7; }

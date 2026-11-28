@@ -18,7 +18,7 @@ function pickLyrics(results, duration) {
   return best || null;
 }
 
-export async function prepareSong(songId, { separate = true, quality = 'best', lyrics = true, chords = true, restart = false, sheet = '', lrc = '', title, artist, onProgress = () => {}, signal } = {}) {
+export async function prepareSong(songId, { separate = true, quality = 'best', lyrics = true, chords = true, calibrate = true, restart = false, sheet = '', lrc = '', title, artist, onProgress = () => {}, signal } = {}) {
   const report = { separated: false, lyrics: null, chords: 0, bpm: null, key: null };
   let song = await db.getSong(songId);
   if (!song) throw new Error('Morceau introuvable');
@@ -112,6 +112,17 @@ export async function prepareSong(songId, { separate = true, quality = 'best', l
     // une grille saisie à la main reste prioritaire : on ne pose les accords détectés que s'il n'y en a pas
     if (!hadChords) fresh.doc.lines = placeChords(fresh.doc.lines, ana.chords, 60 / ana.bpm);
     report.keptChords = hadChords;
+  }
+  // ── 5. calage fin sur l'audio : chaque mot sur la voix, chaque accord sur l'harmonie (sans LRC si besoin)
+  if (calibrate && fresh.doc.lines.some((l) => (l.type === 'lyric' && l.text?.trim()) || l.chords?.length)) {
+    try {
+      const { calibrate: cal } = await import('./lyricsync.js');
+      const r = await cal(fresh, (id) => db.getBlob(id), { onProgress: (p) => onProgress({ progress: 0.97 + 0.03 * p.progress, message: p.message }) });
+      fresh.calUndo = { lines: JSON.stringify(fresh.doc.lines), offset: fresh.prefs?.offset || 0, at: Date.now() };
+      fresh.doc.lines = r.lines;
+      if (fresh.prefs) fresh.prefs.offset = 0;
+      report.cal = { ...r.report, changes: r.changes.length };
+    } catch (e) { console.warn('[calage]', e); report.calError = e.message; }
   }
   fresh.doc.meta = { ...(fresh.doc.meta || {}), title: fresh.title, artist: fresh.artist, key: fresh.key, capo: fresh.capo, bpm: fresh.bpm };
   fresh.prepared = { at: Date.now(), by: 'navigateur', ...report };

@@ -328,6 +328,7 @@ class App extends EventTarget {
       <div class="opt-row" data-r="qrow"><span>Qualité</span><span class="seg"><button type="button" data-q="best">Max</button><button type="button" data-q="fast">Rapide</button></span></div>
       <div class="callout" data-r="info">Vérification de la carte graphique…</div>
       <div class="opt-row"><span>Paroles synchronisées<br><small class="note">trouvées sur LRCLIB${song.doc?.lines?.some((l) => l.type === 'lyric') ? ' · tes paroles sont gardées, seul le minutage est ajouté' : ''}</small></span><label class="switch"><input type="checkbox" name="lyrics" checked><i></i></label></div>
+      <div class="opt-row"><span>Caler mot à mot sur l’audio<br><small class="note">chaque mot posé sur la voix, chaque accord sur le bon mot (sans LRC si besoin)</small></span><label class="switch"><input type="checkbox" name="calibrate" checked><i></i></label></div>
       <div class="opt-row"><span>Tempo et accords<br><small class="note">${hasChords ? 'ta grille est gardée ; tempo et mesures ajoutés' : 'détectés à l’écoute : une bonne base, à vérifier'}</small></span><label class="switch"><input type="checkbox" name="chords" checked><i></i></label></div>
       ${song.doc?.lines?.length ? `<div class="opt-row"><span>Repartir de zéro<br><small class="note">remplace les paroles et les accords actuels par ceux trouvés</small></span><label class="switch"><input type="checkbox" name="restart" ${song.prepared ? 'checked' : ''}><i></i></label></div>` : ''}
       <p class="note">La séparation est longue : de quelques minutes à une demi-heure selon l’ordinateur. Laisse MusiMix ouvert (tu peux l’utiliser). Fais-le plutôt sur le PC : le résultat arrive ensuite sur le téléphone par la synchro.</p>
@@ -368,8 +369,8 @@ class App extends EventTarget {
         let sheet = f.sheet.value, lrc = f.lrc.value;
         // un LRC collé par erreur dans « Ta grille » est reconnu
         if (!lrc.trim() && looksLikeLRC(sheet)) { lrc = sheet; sheet = ''; }
-        const opts = { quality, separate: f.separate.checked, lyrics: f.lyrics.checked || !!lrc.trim(), chords: f.chords.checked, restart: !!f.restart?.checked, sheet, lrc, title: f.title.value.trim(), artist: f.artist.value.trim() };
-        if (!opts.separate && !opts.lyrics && !opts.chords) { toast('Coche au moins une étape'); return; }
+        const opts = { quality, separate: f.separate.checked, lyrics: f.lyrics.checked || !!lrc.trim(), chords: f.chords.checked, calibrate: f.calibrate.checked, restart: !!f.restart?.checked, sheet, lrc, title: f.title.value.trim(), artist: f.artist.value.trim() };
+        if (!opts.separate && !opts.lyrics && !opts.chords && !opts.calibrate) { toast('Coche au moins une étape'); return; }
         d.close();
         this.runSeparation(song, opts);
       }
@@ -397,6 +398,7 @@ class App extends EventTarget {
       if (report.separated) bits.push('pistes séparées');
       if (opts.lyrics) bits.push(report.lyrics ? (report.lyrics.source === 'fichier' ? 'paroles calées sur ton .lrc' : 'paroles synchronisées') : 'paroles introuvables sur LRCLIB');
       if (opts.chords) bits.push(report.keptChords ? `tempo ${report.bpm}` : `${report.chords} accords · ${report.key} · ${report.bpm} BPM`);
+      if (report.cal) bits.push(`calé mot à mot (${report.cal.words} mots${report.cal.changes ? `, ${report.cal.changes} accords replacés` : ''})`);
       toast(`Prêt : ${job.title} — ${bits.join(', ')}`, 7000);
       if (this.view instanceof LibraryView) this.route();
     } catch (e) {

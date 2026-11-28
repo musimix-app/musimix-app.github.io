@@ -1,0 +1,17 @@
+{
+ "name": "NeMo FastConformer CTC multilingue (be de en es fr hr it pl ru uk), int8",
+ "license": "CC-BY-4.0, NVIDIA (stt_multilingual_fastconformer_hybrid_large_pc), export ONNX sherpa-onnx (k2-fsa)",
+ "version": 1,
+ "tokens": "tokens.txt",
+ "size": 132445134,
+ "parts": [
+  {
+   "file": "model.int8.onnx.part0",
+   "size": 67000000
+  },
+  {
+   "file": "model.int8.onnx.part1",
+   "size": 65445134
+  }
+ ]
+}

@@ -630,10 +630,10 @@ export function chordTimeline(doc, duration, fallback = null) {
           else t = w.s + ((c.pos - tk.start) / Math.max(1, tk.end - tk.start)) * ((w.e ?? w.s + 0.3) - w.s);
           if (c.pos === 0 && k === 0) t = Math.min(t, w.s);
         }
-        ev.push({ name: c.name, t, li, ci });
+        ev.push({ name: c.name, t, li, ci, cal: !!c.cal });
       });
     } else if (l.type === 'chords') {
-      l.chords.forEach((c, ci) => ev.push({ name: c.name, t: c.t ?? null, li, ci }));
+      l.chords.forEach((c, ci) => ev.push({ name: c.name, t: c.t ?? null, li, ci, cal: !!c.cal }));
     }
   });
   if (!ev.length) return fallback ? fallback.map((c) => ({ name: c.name, t: c.s, e: c.e, li: -1, ci: -1 })) : [];
