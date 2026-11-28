@@ -9,6 +9,7 @@ import { KeysSynth } from './synth.js';
 import { Transport, Practice, TOLERANCE } from './practice.js';
 import { INSTRUMENTS, DRUM_KITS, CREDITS, instrumentForProgram } from './sounds.js';
 import { ROLE_LABELS, makeGridTrack } from './model.js';
+import { addTime, addRun } from './stats.js';
 
 const $ = (sel, el = document) => el.querySelector(sel);
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
@@ -203,9 +204,23 @@ export function mountKeys(root, { soundsBase = 'sounds/' } = {}) {
     if (ema > 22) slowFor++; else slowFor = Math.max(0, slowFor - 2);
     if (!roll.lite && slowFor > 90) { roll.lite = true; roll.resize(); }
   }
+  // temps de pratique : on compte quand la musique tourne ou qu'on joue (touche dans les 8 dernières secondes)
+  let lastKeyAt = -1e9, practiceAcc = 0, lastFrameAt = 0;
+  function countTime(now) {
+    const dt = lastFrameAt ? Math.min(0.25, (now - lastFrameAt) / 1000) : 0;
+    lastFrameAt = now;
+    if (document.visibilityState !== 'visible') return;
+    if (transport?.playing || waiting || now - lastKeyAt < 8000) practiceAcc += dt;
+    if (practiceAcc >= 15) flushTime();
+  }
+  function flushTime() { if (practiceAcc > 0.5) addTime(practiceAcc); practiceAcc = 0; }
+  addEventListener('pagehide', flushTime);
+  document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') flushTime(); });
+
   function frame(now) {
     raf = requestAnimationFrame(frame);
     quality(now || performance.now());
+    countTime(now || performance.now());
     if (!transport || !song) { roll.draw(0, { keys: pressed, sounding: new Map(), playing: false }); return; }
     // ce qu'on voit = ce qu'on entend : on retire la latence de sortie audio
     const Traw = transport.time;
@@ -378,6 +393,7 @@ export function mountKeys(root, { soundsBase = 'sounds/' } = {}) {
     const s = practice.stats, a = practice.accuracy;
     let stars = a >= 95 ? 3 : a >= 80 ? 2 : a >= 55 ? 1 : 0;
     lastWeak = practice.weakSpots(song.downbeats);
+    addRun({ id: lesson?.lesson.id || 'file:' + (song.title || ''), title: song.title || lesson?.lesson.title || 'Sans titre', kind: lesson ? (lesson.lesson.mine ? 'mine' : 'lesson') : 'file', acc: a, rate: Math.round(transport.rate * 100) / 100, wait: !!S.wait, hands: S.mode });
     const dyn = practice.dynamics();
     errMarks();
     let extra = '', nextBtn = '';
@@ -479,6 +495,7 @@ export function mountKeys(root, { soundsBase = 'sounds/' } = {}) {
     // âge du message MIDI : si l'écran était occupé, on juge la note à l'instant où elle a été jouée
     const age = ts != null ? Math.max(0, Math.min(0.5, (performance.now() - ts) / 1000)) : 0;
     if (pressed.has(pitch)) keyUp(pitch);
+    lastKeyAt = performance.now();
     if (!wakeLock) keepAwake();
     if (!ctx || ctx.state !== 'running') await audio();
     vel = curve(vel);
@@ -982,7 +999,7 @@ export function mountKeys(root, { soundsBase = 'sounds/' } = {}) {
     pause() { if (transport?.playing) { transport.pause(); synth?.stopAll(); } waiting = false; },
     /** état (pour les tests et le débogage) */
     debug: () => ({ song, calib: calib && { c0: calib.c0, outLat: calib.outLat, running: calib.running }, audioNow: ctx?.currentTime, wake: !!wakeLock, pedal: roll.pedal.length, notes: flat.length, toPlay: practice.notes.length, mode: S.mode, stats: { ...practice.stats }, time: transport?.time, range: [roll.lo, roll.hi], engine: { playing: engine.playing, ctx: ctx?.state, els: engine.tracks.map((t) => [t.el.paused, t.el.currentTime, t.el.readyState, t.el.error?.code ?? null]) } }),
-    destroy() { cancelAnimationFrame(raf); wakeLock?.release?.(); document.removeEventListener('visibilitychange', onVisible); ro.disconnect(); window.removeEventListener('keydown', onKey); window.removeEventListener('keyup', onKey); engine.unload(); },
+    destroy() { flushTime(); cancelAnimationFrame(raf); wakeLock?.release?.(); document.removeEventListener('visibilitychange', onVisible); ro.disconnect(); window.removeEventListener('keydown', onKey); window.removeEventListener('keyup', onKey); engine.unload(); },
   };
 }
 

@@ -241,12 +241,13 @@ export class Sync extends EventTarget {
     const folder = await this.folder();
     const files = await this.listAll(folder);
     const rSongs = new Map(), rAudio = new Map();
-    let rSets = null;
+    let rSets = null, rPiano = null;
     for (const f of files) {
       const ap = f.appProperties || {};
       if (ap.sid) rSongs.set(ap.sid, { id: f.id, upd: +ap.upd || 0, del: ap.del === '1' });
       else if (ap.bid) rAudio.set(ap.bid, f.id);
       else if (f.name === 'setlists.json') rSets = f;
+      else if (f.name === 'piano.json') rPiano = f;
     }
     const local = new Map((await db.allSongs()).map((s) => [s.id, s]));
     const tombs = await db.get('syncTombs', {});
@@ -338,6 +339,18 @@ export class Sync extends EventTarget {
     await db.set('syncTombs', tombs);
     if (changedRemote) await this.putSmall({ fileId: rSets?.id, name: 'setlists.json', folder, appProperties: { kind: 'setlists' }, data: JSON.stringify({ items: mItems, tombs: mTombs }) });
     if (changedLocal || changedRemote) n++;
+    // ── MusiMix Piano : progression, temps de pratique, essais (fusion entre appareils)
+    try {
+      const { mergeRemote, snapshot } = await import('./keys/stats.js');
+      const rp = rPiano ? await this.api(`${API}/files/${rPiano.id}?alt=media`).catch(() => null) : null;
+      const merged = rp ? mergeRemote(rp) : null;
+      const str = JSON.stringify(snapshot());
+      const h = String(str.length) + ':' + [...str].reduce((a, c) => (a * 31 + c.charCodeAt(0)) | 0, 7);
+      if (!rPiano || merged?.changed || localStorage.getItem('mmx-piano:synced') !== h || (rp && JSON.stringify(rp).length !== str.length)) {
+        await this.putSmall({ fileId: rPiano?.id, name: 'piano.json', folder, appProperties: { kind: 'piano' }, data: str });
+        localStorage.setItem('mmx-piano:synced', h);
+      }
+    } catch (e) { console.warn('[piano]', e); }
     try { n += await this.sharePass(); } catch (e) { console.warn('[partage]', e); this.shareError = e.message; }
     return n;
   }

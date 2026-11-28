@@ -5,6 +5,7 @@ import { LESSONS, LEVELS, LIBRARY, buildLesson, loadProgress, saveResult, levelS
 import { DRILLS, DRILL_LEVELS, CATS, runDrill } from './drills.js';
 import { listMine, getMine, removeMine, addFiles, filesOf } from './mylib.js';
 import { loadFiles } from './model.js';
+import { getLog, minutesByDay, streak, dayKey, addRun } from './stats.js';
 
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
 const LCOL = ['#3fd3dc', '#4cc9f0', '#7aa7ff', '#a78bfa', '#ffb52e', '#ff8a4c', '#ff62b6', '#ff4f7b'];
@@ -29,6 +30,7 @@ export function mountSchool(root, app) {
         <button data-t="path" class="on">Parcours piano</button>
         <button data-t="lib">Bibliothèque</button>
         <button data-t="fm">Formation musicale</button>
+        <button data-t="prog">Progrès</button>
       </div>
       <button class="ib" data-close aria-label="Fermer l’école"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
     </header>
@@ -60,6 +62,7 @@ export function mountSchool(root, app) {
     const P = loadProgress();
     if (tab === 'path') body.innerHTML = pathHtml(P);
     else if (tab === 'lib') body.innerHTML = libHtml(P);
+    else if (tab === 'prog') body.innerHTML = progHtml(P);
     else body.innerHTML = fmHtml(P);
     body.scrollTop = 0;
   }
@@ -184,6 +187,64 @@ export function mountSchool(root, app) {
     } catch (e) { app.toast('Impossible d’ouvrir : ' + (e.message || e), 6000); }
   }
 
+  // ── progrès : temps de pratique, série de jours, morceaux travaillés
+  function progHtml(P) {
+    const L = getLog(), M = minutesByDay(L);
+    const today = M[dayKey()] || 0;
+    const days = [];
+    for (let i = 13; i >= 0; i--) { const d = new Date(); d.setDate(d.getDate() - i); days.push({ k: dayKey(d), d, m: M[dayKey(d)] || 0 }); }
+    const week = days.slice(-7).reduce((a, x) => a + x.m, 0);
+    const total = Object.values(M).reduce((a, b) => a + b, 0);
+    const st = streak(L);
+    const fmtMin = (m) => (m >= 60 ? `${Math.floor(m / 60)} h ${String(Math.round(m % 60)).padStart(2, '0')}` : `${Math.round(m)} min`);
+    // barres : minutes par jour (14 jours), une seule série → pas de légende
+    const W = 900, H = 200, pad = { l: 34, r: 8, t: 12, b: 24 };
+    const max = Math.max(15, ...days.map((x) => x.m));
+    const step = max <= 30 ? 10 : max <= 60 ? 15 : max <= 120 ? 30 : 60;
+    const top = Math.ceil(max / step) * step;
+    const bw = (W - pad.l - pad.r) / days.length;
+    const y = (m) => pad.t + (H - pad.t - pad.b) * (1 - m / top);
+    const ticks = []; for (let v = 0; v <= top; v += step) ticks.push(v);
+    const WD = ['di', 'lu', 'ma', 'me', 'je', 've', 'sa'];
+    const bars = days.map((x, i) => {
+      const bx = pad.l + i * bw + bw * 0.18, w = bw * 0.64, h = Math.max(0, y(0) - y(x.m));
+      const tip = `${x.d.toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long' })} : ${x.m >= 1 ? fmtMin(x.m) : 'pas joué'}`;
+      return `<g class="pb ${i === days.length - 1 ? 'today' : ''}" data-tip="${esc(tip)}"><rect class="hit" x="${pad.l + i * bw}" y="${pad.t}" width="${bw}" height="${H - pad.t - pad.b}"/>${h > 0.5 ? `<path d="M${bx},${y(0)} V${y(x.m) + Math.min(4, h)} q0,-${Math.min(4, h)} ${Math.min(4, w / 2)},-${Math.min(4, h)} H${bx + w - Math.min(4, w / 2)} q${Math.min(4, w / 2)},0 ${Math.min(4, w / 2)},${Math.min(4, h)} V${y(0)} Z"/>` : ''}<text x="${pad.l + i * bw + bw / 2}" y="${H - 7}">${i === days.length - 1 ? 'auj.' : WD[x.d.getDay()]}</text></g>`;
+    }).join('');
+    const chart = `<svg class="pchart" viewBox="0 0 ${W} ${H}" role="img" aria-label="Minutes de pratique par jour, 14 derniers jours">
+      ${ticks.map((v) => `<line x1="${pad.l}" x2="${W - pad.r}" y1="${y(v)}" y2="${y(v)}"/><text class="ax" x="${pad.l - 6}" y="${y(v) + 4}">${v}</text>`).join('')}
+      ${bars}</svg>`;
+    // morceaux travaillés : dernier essai, record, courbe de précision
+    const byId = new Map();
+    for (const r of L.runs) if (r.kind !== 'drill') { const e = byId.get(r.id) || { id: r.id, title: r.title, kind: r.kind, runs: [] }; e.runs.push(r); e.title = r.title; byId.set(r.id, e); }
+    const pieces = [...byId.values()].sort((a, b) => b.runs.at(-1).at - a.runs.at(-1).at).slice(0, 12);
+    const spark = (runs) => {
+      const rs = runs.slice(-20), w = 120, h = 34;
+      if (rs.length < 2) return '';
+      const X = (i) => 3 + (i * (w - 6)) / (rs.length - 1), Y = (a) => 3 + (h - 6) * (1 - a / 100);
+      return `<svg class="spark" viewBox="0 0 ${w} ${h}" aria-hidden="true"><line x1="0" x2="${w}" y1="${Y(75)}" y2="${Y(75)}"/><path d="${rs.map((r, i) => `${i ? 'L' : 'M'}${X(i).toFixed(1)},${Y(r.acc).toFixed(1)}`).join(' ')}"/><circle cx="${X(rs.length - 1)}" cy="${Y(rs.at(-1).acc)}" r="3.5"/></svg>`;
+    };
+    const ago = (t) => { const d = Math.floor((Date.now() - t) / 864e5); return d <= 0 ? 'aujourd’hui' : d === 1 ? 'hier' : `il y a ${d} jours`; };
+    const drills = L.runs.filter((r) => r.kind === 'drill');
+    return `
+      <section class="prog-kpis">
+        <div class="kpi"><small>Aujourd’hui</small><b>${fmtMin(today)}</b></div>
+        <div class="kpi"><small>Série</small><b>${st} jour${st > 1 ? 's' : ''}</b><em>${st ? 'au moins 3 min par jour' : 'joue 3 min pour commencer'}</em></div>
+        <div class="kpi"><small>7 derniers jours</small><b>${fmtMin(week)}</b></div>
+        <div class="kpi"><small>Depuis le début</small><b>${fmtMin(total)}</b><em>${L.runs.length} essai${L.runs.length > 1 ? 's' : ''}</em></div>
+      </section>
+      <section class="prog-card"><h3>Temps de pratique</h3><p class="muted small">Minutes par jour, sur 14 jours (musique en lecture ou clavier joué).</p><div class="pchart-wrap">${chart}<div class="ptip" hidden></div></div></section>
+      <section class="prog-card"><h3>Morceaux travaillés</h3>
+        ${pieces.length ? `<ul class="pieces">${pieces.map((e) => {
+          const last = e.runs.at(-1), best = Math.max(...e.runs.map((r) => r.acc));
+          const open = e.kind === 'lesson' ? `data-lesson="${esc(e.id)}"` : e.kind === 'mine' ? `data-my="${esc(e.id)}"` : '';
+          return `<li><button class="piece" ${open} ${open ? '' : 'disabled'}><span class="pc-t"><b>${esc(e.title)}</b><small>${e.runs.length} essai${e.runs.length > 1 ? 's' : ''} · ${ago(last.at)}${last.rate < 0.999 ? ` · ${Math.round(last.rate * 100)} %` : ''}</small></span>${spark(e.runs)}<span class="pc-n"><b>${last.acc} %</b><small>record ${best} %</small></span></button></li>`;
+        }).join('')}</ul>` : '<p class="muted">Joue un morceau jusqu’au bout pour voir ta progression ici.</p>'}
+      </section>
+      ${drills.length ? `<section class="prog-card"><h3>Formation musicale</h3><p class="muted small">${drills.length} série${drills.length > 1 ? 's' : ''} · moyenne ${Math.round(drills.reduce((a, r) => a + r.acc, 0) / drills.length)} % · dernière ${ago(drills.at(-1).at)}</p></section>` : ''}
+      <p class="muted small lib-note">Ta progression est gardée sur cet appareil. Si la synchronisation Google Drive est activée dans MusiMix, elle est partagée avec tes autres appareils à chaque ouverture de MusiMix.</p>`;
+  }
+
   // ── formation musicale
   function fmHtml(P) {
     const cats = Object.keys(CATS);
@@ -233,7 +294,7 @@ export function mountSchool(root, app) {
     drillRun?.stop();
     drillRun = runDrill(drillHost, d, {
       audio: app.audio, synth: app.synth, notes: app.notes, press: app.press,
-      onDone: (r) => saveResult(d.id, { accuracy: r.accuracy, wait: false, rate: 1, hit: r.score, wrong: r.count - r.score, miss: 0 }),
+      onDone: (r) => { addRun({ id: d.id, title: d.title, kind: 'drill', acc: r.accuracy }); return saveResult(d.id, { accuracy: r.accuracy, wait: false, rate: 1, hit: r.score, wrong: r.count - r.score, miss: 0 }); },
       onClose: () => { drillRun?.stop(); drillRun = null; drillHost.hidden = true; render(); },
     });
   }
@@ -260,6 +321,16 @@ export function mountSchool(root, app) {
     const fc = e.target.closest('[data-fc]')?.dataset.fc;
     if (fc) { fmCat = fc; render(); }
   });
+  body.addEventListener('pointermove', (e) => {
+    const tipEl = body.querySelector('.ptip');
+    if (!tipEl) return;
+    const g = e.target.closest?.('.pb');
+    if (!g) { tipEl.hidden = true; return; }
+    const r = body.querySelector('.pchart-wrap').getBoundingClientRect();
+    tipEl.textContent = g.dataset.tip; tipEl.hidden = false;
+    tipEl.style.left = Math.min(r.width - 10, Math.max(10, e.clientX - r.left)) + 'px'; tipEl.style.top = (e.clientY - r.top - 12) + 'px';
+  });
+  body.addEventListener('pointerleave', () => { const t = body.querySelector('.ptip'); if (t) t.hidden = true; });
   el.addEventListener('input', (e) => {
     if (e.target.matches('[data-q]')) {
       libQuery = e.target.value;
