@@ -582,6 +582,23 @@ export class PlayerView {
     this.curBar = -2;
   }
 
+  /** Grille par mesure prête à imprimer (paroles dans les cases, 4 mesures par ligne), ou null sans tempo. */
+  printGridHtml() {
+    if (!this.$grid) return null;
+    const real = this.$grid, pc = (this.prefsCache ||= {}), keep = [pc.gridLyrics, pc.gridPerRow, this.bars, this.barEls, this.curBar];
+    const tmp = document.createElement('div');
+    try {
+      pc.gridLyrics = 'all'; pc.gridPerRow = 4; this.$grid = tmp;
+      this.renderGrid();
+    } catch { return null; } finally {
+      this.$grid = real; [pc.gridLyrics, pc.gridPerRow, this.bars, this.barEls, this.curBar] = keep;
+    }
+    const g = tmp.querySelector('.gridx');
+    if (!g) return null;
+    g.querySelectorAll('.cur,.now,.past').forEach((x) => x.classList.remove('cur', 'now', 'past'));
+    return g.outerHTML;
+  }
+
   /** Barre d'outils de la grille : paroles, horloge maître (mesures, calage), métronome. */
   gridTools(ck) {
     const lyr = this.prefsCache?.gridLyrics || 'off', c = this.song.clock || {};
@@ -2444,7 +2461,7 @@ export class PlayerView {
           { icon: 'tap', label: 'Synchroniser les paroles (à la main)', action: () => this.app.go(`#/edit/${this.song.id}/sync`) },
           { icon: 'info', label: 'Infos et pistes', action: () => this.app.go(`#/edit/${this.song.id}/info`) },
           '-',
-          { icon: 'pdf', label: 'Exporter en PDF', action: () => this.app.printSong(this.song, { transpose: p.transpose - p.capo, instrument: this.instrument }) },
+          { icon: 'pdf', label: 'PDF / Imprimer (paroles, grille, partition)', action: () => this.app.printSong(this.song, { transpose: p.transpose - p.capo, instrument: this.instrument, mode: this.mode === 'grid' ? 'grid' : this.mode === 'score' ? 'score' : 'lyrics', gridHtml: () => this.printGridHtml() }) },
           { icon: 'download', label: 'Télécharger le pack (ZIP)', action: async () => { toast('Préparation du pack…'); const { blob, name } = await exportPack(this.song); download(blob, name); } },
           { icon: 'mix', label: 'Tout préparer (pistes, paroles, accords)', action: () => this.app.separateDialog(this.song) },
           { icon: 'mix', label: 'Exporter pour Zoom R20', action: () => this.app.zoomExport(this.song) },

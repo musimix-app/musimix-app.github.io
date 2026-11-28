@@ -1637,3 +1637,23 @@ dialog.cal-d { width: min(560px, calc(100vw - 20px)); }
 /* curseur de partition (alphaTab, z-index 1000) : enfermé dans la partition, ne passe plus au-dessus des menus */
 .score-host .at-cursors { z-index: 2 !important; }
 .menu-bd { z-index: 1099; } .menu { z-index: 1100; }
+/* PDF / impression : grille par mesure, grille simple, partition */
+.pr .grid-body .gridx { max-width: none; padding-bottom: 0; --chord: #0a6870; --line: #ccc; --line-2: #888; --ink-3: #666; }
+.pr .grid-body .g-row { break-inside: avoid; }
+.pr .grid-body .g-sec { break-inside: auto; }
+.pr .grid-body .g-sec-h { break-after: avoid; }
+.pr .grid-body .mbar { min-height: 54px; padding: 4px 8px 12px; background: none; }
+.pr .grid-body .mbar b { font-size: calc(var(--pfs, 13.5pt) * 1.35); }
+.pr .grid-body .mbar .ly { font-size: calc(var(--pfs, 13.5pt) * .8); color: #333; }
+.pr .grid-body .mbar .n { font-size: 9px; color: #999; }
+.pr .sg { break-inside: avoid; margin: 10px 0 4px; }
+.pr .sg h3 { margin: 0 0 4px; font: 700 11px var(--font-ui); letter-spacing: .06em; text-transform: uppercase; color: #555; }
+.pr .sg h3:empty { display: none; }
+.pr .sg-row { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); border-left: 3px solid #888; }
+.pr .sg-c { border-right: 2px solid #888; border-top: 1px solid #ccc; border-bottom: 1px solid #ccc; padding: 4px 8px 6px; min-height: 46px; display: grid; align-content: center; }
+.pr .sg-c b { color: #0a6870; font-weight: 800; font-size: calc(var(--pfs, 13.5pt) * 1.3); }
+.pr .sg-c small { font-size: calc(var(--pfs, 13.5pt) * .7); color: #444; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.pr .score-body .sc-row { position: relative; width: 718px; max-width: 100%; break-inside: avoid; }
+.pdf-mode .seg button.on { background: var(--ink); color: var(--bg); }
+.pdf-mode { flex-wrap: wrap; gap: 6px; }
+.pdf-mode .seg { flex-wrap: wrap; }
