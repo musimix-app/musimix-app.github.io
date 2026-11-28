@@ -20,7 +20,7 @@ export async function printDialog(app, songs, opts = {}) {
     chords: true,
     mode: 'lyrics', // lyrics | grid | score
     gLyrics: prefs.pdfGridLyrics !== false,
-    gChords: prefs.pdfGridChords !== false,
+    gChords: true,
   };
   const one = songs.length === 1 ? songs[0] : null;
   // grille par mesure : fournie par le lecteur quand le tempo est connu ; sinon grille simple (suite d'accords par partie)
@@ -34,14 +34,14 @@ export async function printDialog(app, songs, opts = {}) {
     <div style="display:grid;grid-template-columns:minmax(0,320px) minmax(0,1fr);gap:20px" class="pdf-grid">
       <div style="display:grid;gap:12px;align-content:start">
         <div class="opt-row pdf-mode"><span>Contenu</span><span class="seg"><button data-mode="lyrics">Paroles</button><button data-mode="grid">Grille</button>${hasScore ? '<button data-mode="score">Partition</button>' : ''}</span></div>
-        <label class="field pdf-nsc">Diagrammes
+        <label class="field pdf-nsc">Instrument des diagrammes
           <select data-o="instrument"><option value="guitar">Guitare</option><option value="ukulele">Ukulélé</option><option value="piano">Piano</option><option value="none">Aucun</option></select></label>
         <div class="opt-row pdf-nsc"><span>Transposer</span><span class="stepper"><button data-o="tr-">−</button><output data-r="tr"></output><button data-o="tr+">+</button></span></div>
         <div class="opt-row pdf-lyr"><span>Colonnes</span><span class="seg"><button data-cols="1">1</button><button data-cols="2">2</button></span></div>
         <div class="opt-row pdf-nsc"><span>Taille du texte</span><span class="stepper"><button data-o="fs-">−</button><output data-r="fs"></output><button data-o="fs+">+</button></span></div>
         <div class="opt-row pdf-lyr"><span>Afficher les accords</span><label class="switch"><input type="checkbox" data-o="chords" checked><i></i></label></div>
         <div class="opt-row pdf-grd"><span>Paroles dans la grille</span><label class="switch"><input type="checkbox" data-o="gly" ${st.gLyrics ? 'checked' : ''}><i></i></label></div>
-        <div class="opt-row pdf-grd"><span>Accords dans la grille</span><label class="switch"><input type="checkbox" data-o="gch" ${st.gChords ? 'checked' : ''}><i></i></label></div>
+        <div class="opt-row pdf-nsc"><span>Diagrammes des accords</span><label class="switch"><input type="checkbox" data-o="diag" ${st.diagrams ? 'checked' : ''}><i></i></label></div>
         <p class="note pdf-gnote" hidden>Grille sans mesures : le tempo du morceau est inconnu (« Tout préparer » le trouve). Les accords sont listés dans l’ordre, par partie.</p>
         <p class="note">Une imprimante branchée ou en Wi-Fi apparaît dans la fenêtre d’impression. Pour un fichier, choisis <b>Enregistrer au format PDF</b>. Sur iPhone : <b>Partager → Imprimer</b>, puis écarte l’aperçu avec deux doigts.</p>
       </div>
@@ -95,7 +95,6 @@ export async function printDialog(app, songs, opts = {}) {
       app.setPref('pdfDiagrams', st.diagrams);
       app.setPref('pdfMode', st.mode);
       app.setPref('pdfGridLyrics', st.gLyrics);
-      app.setPref('pdfGridChords', st.gChords);
       if (st.mode === 'score' && !st.scoreHtml) { toast('La partition se met en page, réessaie dans un instant'); return; }
       d.close();
       doPrint(songs, st);
@@ -104,10 +103,10 @@ export async function printDialog(app, songs, opts = {}) {
     refresh();
   });
   el.addEventListener('change', (e) => {
-    if (e.target === sel) { st.diagrams = sel.value !== 'none'; if (st.diagrams) st.instrument = sel.value; refresh(); }
+    if (e.target === sel) { st.diagrams = sel.value !== 'none'; if (st.diagrams) st.instrument = sel.value; el.querySelector('[data-o="diag"]').checked = st.diagrams; refresh(); }
     if (e.target.dataset.o === 'chords') { st.chords = e.target.checked; refresh(); }
     if (e.target.dataset.o === 'gly') { st.gLyrics = e.target.checked; refresh(); }
-    if (e.target.dataset.o === 'gch') { st.gChords = e.target.checked; refresh(); }
+    if (e.target.dataset.o === 'diag') { st.diagrams = e.target.checked; if (st.diagrams && sel.value === 'none') sel.value = st.instrument === 'none' ? 'guitar' : st.instrument; refresh(); }
   });
   refresh();
 }
